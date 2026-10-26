@@ -120,4 +120,5 @@ export const http = {
   delete: async <T>(url: string) => unwrap<T>((await instance.delete(url)).data),
 };
 
+export const apiClient = http;
 export const API_BASE_URL = baseURL;

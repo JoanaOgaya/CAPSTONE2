@@ -213,7 +213,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async ({ employeeId, password }: LoginCredentials) => {
     setIsLoading(true);
     try {
-      const tokens = await authService.login(employeeId, password);
+      const loginId = employeeId || '';
+      const tokens = await authService.login(loginId, password);
       session.set({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
       const me = await authService.me();
       setUser(me);

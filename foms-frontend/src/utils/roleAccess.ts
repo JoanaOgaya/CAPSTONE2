@@ -33,8 +33,8 @@ export interface ModuleDef {
   roles: Partial<Record<Role, readonly Action[]>>;
 }
 
-const { FINANCIAL_MANAGER: FM, HEAD_ACCOUNTANT: HA, ACCOUNTANT: ACC, ASSISTANT_FM: AFM } = ROLES;
-const ALL_ROLES = [FM, HA, ACC, AFM] as const;
+const { FINANCIAL_MANAGER: FM, HEAD_ACCOUNTANT: HA, ACCOUNTANT: ACC, ASSISTANT_FM: AFM, CLIENT: CLI } = ROLES;
+const ALL_ROLES = [FM, HA, ACC, AFM, CLI] as const;
 const everyone = (actions: readonly Action[]): ModuleDef['roles'] =>
   Object.fromEntries(ALL_ROLES.map((r) => [r, actions]));
 
@@ -101,6 +101,7 @@ export const LANDING_PATH: Record<Role, string> = {
   [HA]: DEFAULT_LANDING_ROUTE,
   [ACC]: DEFAULT_LANDING_ROUTE,
   [AFM]: DEFAULT_LANDING_ROUTE,
+  [CLI]: '/speedpay',
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -108,6 +109,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   [HA]: 'Head Accountant',
   [ACC]: 'Accountant',
   [AFM]: 'Asst. Financial Manager',
+  [CLI]: 'Client',
 };
 
 /** Maps any backend role spelling to the canonical Role. Returns null when unknown. */

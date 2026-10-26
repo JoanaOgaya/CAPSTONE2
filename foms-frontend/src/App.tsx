@@ -1,6 +1,7 @@
 /**
- * App — providers + routes. Routes are generated from MODULES (utils/roleAccess), so the sidebar,
- * the route table and the guards can never disagree. Add a page by adding a module and a PAGES entry.
+ * App — providers + routes.
+ * OneUI Design System v2.0 Architecture.
+ * Mounts standard FOMS modules under /foms/* and provides dedicated print views outside the layout shell.
  */
 import React from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -50,6 +51,8 @@ import DmsBillingIntake from './pages/DmsBillingIntake';
 import CashAdvanceLiquidationPortal from './pages/CashAdvanceLiquidationPortal';
 import ApprovalsQueue from './pages/ApprovalsQueue';
 import MyCashAdvances from './pages/MyCashAdvances';
+import InvoicePrintView from './pages/InvoicePrintView';
+import { ErrorPage } from './components/shared/errors/ErrorPage';
 
 const EscalatedApprovalsPage: React.FC = () => <ApprovalsQueue mode="escalated" />;
 
@@ -102,9 +105,21 @@ const AppRoutes: React.FC = () => {
   useCancelButtonFeedback();
   return (
     <Routes>
+      {/* Public Routes */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/speedpay" element={<SpeedPay />} />
 
+      {/* BIL-04: Standalone Invoice Print View (Outside Layout Shell) */}
+      <Route
+        path="/foms/print/invoice/:id"
+        element={
+          <ProtectedRoute>
+            <InvoicePrintView />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Main OneUI Layout Shell */}
       <Route
         element={
           <ProtectedRoute>
@@ -112,6 +127,30 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       >
+        {/* /foms/* Canonical Hierarchy Routes */}
+        <Route path="/foms/dashboard" element={<Dashboard />} />
+        <Route path="/foms/approvals" element={<ApprovalsQueue />} />
+        <Route path="/foms/clients" element={<ClientManagement />} />
+        <Route path="/foms/clients/:id" element={<ClientManagement />} />
+        <Route path="/foms/waybills" element={<Waybills />} />
+        <Route path="/foms/waybills/:id" element={<Waybills />} />
+        <Route path="/foms/invoices" element={<InvoicingDesk />} />
+        <Route path="/foms/invoices/create" element={<InvoiceCreation />} />
+        <Route path="/foms/invoices/:id" element={<InvoicingDesk />} />
+        <Route path="/foms/accounts-receivable" element={<AccountsReceivable />} />
+        <Route path="/foms/payments" element={<Payments />} />
+        <Route path="/foms/settlements" element={<Settlements />} />
+        <Route path="/foms/adjustments" element={<FinancialAdjustments />} />
+        <Route path="/foms/liquidation" element={<LiquidationValidation />} />
+        <Route path="/foms/cash-flow" element={<CashFlowManagement />} />
+        <Route path="/foms/budget" element={<Reports />} />
+        <Route path="/foms/reports" element={<Reports />} />
+        <Route path="/foms/ai-insights" element={<AIDuplicateScan />} />
+        <Route path="/foms/audit-log" element={<AuditLogs />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
+
+        {/* Dynamic Legacy Module Routes */}
         {MODULES.flatMap((m) => {
           const Page = PAGES[m.key];
           const element = (
@@ -121,11 +160,14 @@ const AppRoutes: React.FC = () => {
               </ErrorBoundary>
             </RoleGuard>
           );
-          return [m.path, ...(m.detailPath ? [m.detailPath] : [])].map((path) => <Route key={path} path={path} element={element} />);
+          return [m.path, ...(m.detailPath ? [m.detailPath] : [])].map((path) => (
+            <Route key={path} path={path} element={element} />
+          ));
         })}
+
         <Route path="/ai/output-history" element={<Navigate to="/ai-history" replace />} />
         <Route path="/" element={<RoleHome />} />
-        <Route path="*" element={<RoleHome />} />
+        <Route path="*" element={<ErrorPage code={404} />} />
       </Route>
     </Routes>
   );

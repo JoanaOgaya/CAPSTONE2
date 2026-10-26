@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import type { Role } from '../types/auth';
 import { Card } from '../components/Card';
@@ -630,6 +630,7 @@ const DASHBOARD_MAP: Record<Role, React.FC> = {
   HEAD_ACCOUNTANT: HeadAccountantDashboard,
   ASSISTANT_FM: AsstFinanceDashboard,
   FINANCIAL_MANAGER: FinanceManagerDashboard,
+  CLIENT: () => <Navigate to="/speedpay" replace />,
 };
 
 export const Dashboard: React.FC = () => {

@@ -1,5 +1,6 @@
 /**
- * Auth types. The role value always comes from GET /auth/me (see AuthContext).
+ * Auth types. Supports the 5 canonical system login roles per IAM-01:
+ * Financial Manager, Head Accountant, Accountant, Assistant of Financial Manager, Client.
  */
 
 export const ROLES = {
@@ -7,6 +8,7 @@ export const ROLES = {
   HEAD_ACCOUNTANT: 'HEAD_ACCOUNTANT',
   ACCOUNTANT: 'ACCOUNTANT',
   ASSISTANT_FM: 'ASSISTANT_FM',
+  CLIENT: 'CLIENT',
 } as const;
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];
@@ -15,14 +17,16 @@ export const Role = ROLES;
 
 export interface User {
   id?: string;
-  employeeId: string;
+  employeeId?: string;
+  clientCode?: string;
   fullName: string;
   role: Role;
   email?: string;
 }
 
 export interface LoginCredentials {
-  employeeId: string;
+  employeeId?: string;
+  username?: string;
   password: string;
 }
 
