@@ -152,18 +152,28 @@ public class AdjustmentsController : ApiControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/v1/adjustments/{id} â€” Delete a Pending adjustment (Bookkeeper or Accountant).
-    /// Cannot delete already Approved or Rejected adjustments.
+    /// POST /api/v1/adjustments/{id}/void — Void an adjustment with documented reason (ADJ-04 & AUD-01).
+    /// Physical deletion is prohibited; voids are recorded in the immutable audit trail.
     /// </summary>
     [Authorize]
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> Delete(string id)
+    [HttpPost("{id}/void")]
+    public async Task<IActionResult> Void(string id, [FromBody] VoidAdjustmentRequestDto? request)
     {
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
-        var result = await Mediator.Send(new AdjustmentFeatures.DeleteAdjustmentCommand(id, user));
-        if (!result)
-            return NotFound(new { message = "Adjustment not found or has already been processed (Approved/Rejected)." });
+        if (request == null || string.IsNullOrWhiteSpace(request.Reason))
+        {
+            return BadRequest(new { message = "A mandatory reason is required to void an adjustment per ADJ-04." });
+        }
 
-        return Ok(new { success = true });
+        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
+        var result = await Mediator.Send(new AdjustmentFeatures.RejectAdjustmentCommand(id, $"{user}: Voided - {request.Reason}"));
+        if (result == null)
+            return NotFound(new { message = "Adjustment not found or is no longer eligible to be voided." });
+
+        return Ok(new { success = true, message = "Adjustment voided successfully.", data = result });
     }
+}
+
+public class VoidAdjustmentRequestDto
+{
+    public string Reason { get; set; } = string.Empty;
 }

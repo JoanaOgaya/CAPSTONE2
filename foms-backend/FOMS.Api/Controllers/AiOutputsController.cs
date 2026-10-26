@@ -9,6 +9,7 @@ using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
 
+[Microsoft.AspNetCore.Authorization.Authorize]
 [ApiController]
 [Route("api/ai/outputs")]
 [Route("api/ai-outputs")]
@@ -89,7 +90,7 @@ public class AiOutputsController : ApiControllerBase
             Dictionary<int, string> clients = new();
             try
             {
-                clients = await _fomsDb.Clients.AsNoTracking().ToDictionaryAsync(c => c.ClientId, c => c.CompanyName ?? $"Client {c.ClientId}");
+                clients = await _fomsDb.Clients.AsNoTracking().Where(c => c.ClientId != null).ToDictionaryAsync(c => c.ClientId!.Value, c => c.CompanyName ?? $"Client {c.ClientId}");
             }
             catch { }
 

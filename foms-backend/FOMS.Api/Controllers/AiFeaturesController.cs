@@ -16,7 +16,7 @@ namespace FOMS.Api.Controllers;
 
 [ApiController]
 [Route("api/ai")]
-[AllowAnonymous]
+[Authorize]
 public class AiFeaturesController : ApiControllerBase
 {
     private readonly FomsDbContext _fomsDb;

@@ -39,7 +39,6 @@ public class LiquidationsController : ControllerBase
     }
 
     [HttpGet]
-    [AllowAnonymous]
     public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
         var query = _fomsDb.Liquidations.AsNoTracking().Where(l => l.IsDeleted != true && l.Status != "Deleted");
@@ -98,7 +97,6 @@ public class LiquidationsController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetById(int id)
     {
         var item = await _fomsDb.Liquidations.AsNoTracking().FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
@@ -206,7 +204,6 @@ public class LiquidationsController : ControllerBase
     }
 
     [HttpPost("{id}/{actionName}")]
-    [AllowAnonymous]
     public async Task<IActionResult> Act(int id, string actionName, [FromBody] LiquidationDto? dto)
     {
         var item = await _fomsDb.Liquidations.FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);

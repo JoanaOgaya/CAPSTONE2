@@ -29,56 +29,63 @@ public class ExecutiveDashboardControllerTests
     {
         await using var appDb = CreateApplicationDbContext();
         await using var fomsDb = CreateFomsDbContext();
-        appDb.Invoices.AddRange(
-            new Invoice
+        fomsDb.Invoices.AddRange(
+            new FOMS.Domain.Entities.SqlServer.Invoice
             {
                 Id = "invoice-a",
                 InvoiceNo = "INV-001",
-                ClientId = "client-a",
+                ClientIdStr = "client-a",
                 ClientName = "Acme",
-                DueDate = DateTime.UtcNow.AddDays(4).ToString("yyyy-MM-dd"),
+                DueDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(4)),
+                DueDateStr = DateTime.UtcNow.AddDays(4).ToString("yyyy-MM-dd"),
                 TotalAmount = 1000m,
                 AmountPaid = 400m,
                 Balance = 600m
             },
-            new Invoice
+            new FOMS.Domain.Entities.SqlServer.Invoice
             {
                 Id = "invoice-b",
                 InvoiceNo = "INV-002",
-                ClientId = "client-b",
+                ClientIdStr = "client-b",
                 ClientName = "Other Client",
-                DueDate = DateTime.UtcNow.AddDays(4).ToString("yyyy-MM-dd"),
+                DueDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(4)),
+                DueDateStr = DateTime.UtcNow.AddDays(4).ToString("yyyy-MM-dd"),
                 TotalAmount = 500m,
                 Balance = 500m
             });
-        appDb.Payments.Add(new Payment
+        fomsDb.Payments.Add(new FOMS.Domain.Entities.SqlServer.Payment
         {
             Id = "payment-a",
-            ClientId = "client-a",
+            ClientIdStr = "client-a",
             ClientName = "Acme",
             Amount = 400m,
             Flow = "inflow",
             PaymentStatus = "Validated"
         });
-        appDb.CashFlowTransactions.Add(new CashFlowTransaction
+        fomsDb.CashInflows.Add(new FOMS.Domain.Entities.SqlServer.CashInflow
         {
-            Id = "cashflow-in",
+            InflowId = 1,
             TransactionDate = DateTime.UtcNow.Date,
-            Date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
-            Type = "Inflow",
             Amount = 250m
         });
-        appDb.AuditLogs.Add(new AuditLog
+        fomsDb.AuditLogs.Add(new FOMS.Domain.Entities.SqlServer.AuditLog
         {
-            Id = "audit-current",
-            LoggedAt = DateTime.UtcNow,
-            UserId = "EMP-001",
-            EntityName = "Invoice",
-            EntityId = "invoice-a",
-            Action = "Invoice approved",
-            Details = "Invoice INV-001 was approved."
+            audit_id = 1,
+            created_at = DateTime.UtcNow,
+            user_id = 1,
+            role = "Financial Manager",
+            action = "Invoice approved",
+            module = "Invoices",
+            remarks = "Invoice INV-001 was approved."
         });
-        await appDb.SaveChangesAsync();
+        fomsDb.Users.Add(new FOMS.Domain.Entities.SqlServer.User
+        {
+            UserId = 1,
+            EmployeeNumber = "EMP-001",
+            FullName = "EMP-001",
+            Username = "emp001"
+        });
+        await fomsDb.SaveChangesAsync();
 
         var controller = CreateController(appDb, fomsDb, "Financial Manager");
         var result = await controller.Get("client-a");
@@ -102,7 +109,21 @@ public class ExecutiveDashboardControllerTests
         Assert.Equal("Invoice approved", recentActivity[0].GetProperty("action").GetString());
         Assert.Equal("EMP-001", recentActivity[0].GetProperty("userFullName").GetString());
 
-        var auditPageResult = Assert.IsType<OkObjectResult>(await new AuditLogsController(appDb).GetAll());
+        var auditController = new AuditLogsController(fomsDb)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                    {
+                        new Claim(ClaimTypes.Role, "Head Accountant"),
+                        new Claim(ClaimTypes.NameIdentifier, "EMP-001")
+                    }, "TestAuth"))
+                }
+            }
+        };
+        var auditPageResult = Assert.IsType<OkObjectResult>(await auditController.GetAll());
         using var auditPageDocument = JsonDocument.Parse(JsonSerializer.Serialize(auditPageResult.Value));
         Assert.NotNull(auditPageDocument.RootElement);
     }
@@ -128,7 +149,7 @@ public class ExecutiveDashboardControllerTests
         FomsDbContext fomsDb,
         string role)
     {
-        var controller = new ExecutiveDashboardController(appDb, fomsDb);
+        var controller = new ExecutiveDashboardController(fomsDb);
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext

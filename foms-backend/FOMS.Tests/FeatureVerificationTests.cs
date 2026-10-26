@@ -165,7 +165,7 @@ public class FeatureVerificationTests
         {
             testInv.DueDate = DateTime.UtcNow.AddDays(30).ToString("yyyy-MM-dd");
             FOMS.Application.Services.BillingComputationService.RecalculateInvoice(testInv);
-            await FOMS.Application.Services.BillingComputationService.SyncClientBalanceAsync(testInv.ClientId, context);
+            await FOMS.Application.Services.BillingSyncService.SyncClientBalanceAsync(testInv.ClientId, context);
             await context.SaveChangesAsync();
         }
 
@@ -325,7 +325,7 @@ public class FeatureVerificationTests
         context.ReceivableBalances.Add(receivable);
 
         // Sync Client Account balance
-        await FOMS.Application.Services.BillingComputationService.SyncClientBalanceAsync(invoice.ClientId, context);
+        await FOMS.Application.Services.BillingSyncService.SyncClientBalanceAsync(invoice.ClientId, context);
 
         // Payment History
         var history = new PaymentHistory

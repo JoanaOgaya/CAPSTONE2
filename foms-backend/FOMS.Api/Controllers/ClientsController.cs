@@ -1,9 +1,12 @@
-using System.Threading.Tasks;
+using System;
 using System.Linq;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using FOMS.Application.Features;
-using FOMS.Application.Interfaces;
+using FOMS.Domain.Entities.SqlServer;
+using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
 
@@ -13,33 +16,65 @@ namespace FOMS.Api.Controllers;
 [Route("client-accounts")]
 [Route("api/client-accounts")]
 [Route("api/v1/client-accounts")]
+[Authorize]
 public class ClientsController : ApiControllerBase
 {
-    private readonly IApplicationDbContext _context;
+    private readonly FomsDbContext _fomsDb;
 
-    public ClientsController(IApplicationDbContext context)
+    public ClientsController(FomsDbContext fomsDb)
     {
-        _context = context;
+        _fomsDb = fomsDb;
+    }
+
+    private (string role, string? clientId, string username) GetCaller()
+    {
+        var role = User.FindFirst(ClaimTypes.Role)?.Value
+            ?? User.FindFirst("role")?.Value
+            ?? string.Empty;
+        var clientId = User.FindFirst("client_id")?.Value;
+        var user = User.FindFirst("name")?.Value
+            ?? User.FindFirst(ClaimTypes.Name)?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? "User";
+        return (role, clientId, user);
     }
 
     [HttpGet("lookup/{clientCode}")]
-    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
     public async Task<IActionResult> LookupClient(string clientCode)
     {
-        var client = await _context.Clients
-            .Include(c => c.Invoices)
-            .FirstOrDefaultAsync(c => c.ClientCode == clientCode);
+        var (role, clientIdClaim, _) = GetCaller();
+
+        var client = await _fomsDb.Clients
+            .FirstOrDefaultAsync(c => c.ClientCode == clientCode || c.Id == clientCode);
 
         if (client == null)
         {
             return NotFound(new { message = "Client account not found. Please verify your Client Code." });
         }
 
-        var payments = await _context.Payments
-            .Where(p => p.ClientId == client.Id)
+        // IAM-06: Client isolation
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim) ||
+                (!string.Equals(client.Id, clientIdClaim, StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(client.ClientCode, clientIdClaim, StringComparison.OrdinalIgnoreCase)))
+            {
+                return Forbid();
+            }
+        }
+
+        var clientIntIdStr = client.ClientId?.ToString();
+        var invoices = await _fomsDb.Invoices
+            .Where(i => i.ClientIdStr == client.Id || i.ClientIdStr == client.ClientCode || (clientIntIdStr != null && i.ClientIdStr == clientIntIdStr))
             .ToListAsync();
 
-        return Ok(new {
+        var payments = await _fomsDb.Payments
+            .Where(p => p.ClientIdStr == client.Id || p.ClientIdStr == client.ClientCode || (clientIntIdStr != null && p.ClientIdStr == clientIntIdStr))
+            .ToListAsync();
+
+        return Ok(new
+        {
             client.Id,
             client.ClientCode,
             client.Name,
@@ -57,10 +92,11 @@ public class ClientsController : ApiControllerBase
             client.DateRegistered,
             client.LastTransaction,
             client.Archived,
-            Invoices = client.Invoices.Select(i => new {
+            Invoices = invoices.Select(i => new
+            {
                 i.Id,
                 i.InvoiceNo,
-                i.ClientId,
+                ClientId = i.ClientIdStr ?? (i.ClientId.HasValue ? i.ClientId.Value.ToString() : client.Id),
                 i.BillingDate,
                 i.DueDate,
                 i.Subtotal,
@@ -75,12 +111,12 @@ public class ClientsController : ApiControllerBase
                 i.DaysOverdue,
                 i.Archived
             }).ToList(),
-            Payments = payments.Select(p => new {
+            Payments = payments.Select(p => new
+            {
                 p.Id,
-                p.OrNumber,
-                p.InvoiceId,
+                InvoiceId = p.InvoiceIdStr,
                 p.InvoiceNo,
-                p.ClientId,
+                ClientId = p.ClientIdStr,
                 p.ClientName,
                 p.PaymentDate,
                 p.Amount,
@@ -94,95 +130,30 @@ public class ClientsController : ApiControllerBase
         });
     }
 
-    public class ClientPortalLoginRequest
+    [HttpGet("code/{clientCode}")]
+    public async Task<IActionResult> GetClientCodeInfo(string clientCode)
     {
-        public string ClientCode { get; set; } = string.Empty;
-        public string Password { get; set; } = string.Empty;
-    }
-
-    [HttpPost("portal-login")]
-    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
-    public async Task<IActionResult> PortalLogin([FromBody] ClientPortalLoginRequest request)
-    {
-        var client = await _context.Clients
-            .Include(c => c.Invoices)
-            .FirstOrDefaultAsync(c => c.ClientCode == request.ClientCode);
-
-        if (client == null)
-        {
-            return Unauthorized(new { message = "Invalid client code or password." });
-        }
-
-        // Verify the password using the existing AuthService.VerifyPassword method
-        if (!FOMS.Application.Services.AuthService.VerifyPassword(request.Password, client.PasswordHash))
-        {
-            return Unauthorized(new { message = "Invalid client code or password." });
-        }
-
-        var payments = await _context.Payments
-            .Where(p => p.ClientId == client.Id)
-            .ToListAsync();
-
-        return Ok(new {
-            client.Id,
-            client.ClientCode,
-            client.Name,
-            client.BusinessName,
-            client.ContactPerson,
-            client.ContactNumber,
-            client.Email,
-            client.Address,
-            client.Tin,
-            client.CreditLimit,
-            client.CurrentBalance,
-            client.TotalBilled,
-            client.TotalPaid,
-            client.Status,
-            client.DateRegistered,
-            client.LastTransaction,
-            client.Archived,
-            Invoices = client.Invoices.Select(i => new {
-                i.Id,
-                i.InvoiceNo,
-                i.ClientId,
-                i.BillingDate,
-                i.DueDate,
-                i.Subtotal,
-                i.VatRate,
-                i.VatAmount,
-                i.FreightCharges,
-                i.OtherCharges,
-                i.TotalAmount,
-                i.AmountPaid,
-                i.PaymentStatus,
-                i.AgingBucket,
-                i.DaysOverdue,
-                i.Archived
-            }).ToList(),
-            Payments = payments.Select(p => new {
-                p.Id,
-                p.OrNumber,
-                p.InvoiceId,
-                p.InvoiceNo,
-                p.ClientId,
-                p.ClientName,
-                p.PaymentDate,
-                p.Amount,
-                p.PaymentMethod,
-                p.ReferenceNumber,
-                p.ProofImageUrl,
-                p.Remarks,
-                p.RecordedBy,
-                p.DateRecorded
-            }).ToList()
-        });
+        return await LookupClient(clientCode);
     }
 
     [HttpGet]
-    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    [Authorize]
     public async Task<IActionResult> GetClients()
     {
-        var clients = await Mediator.Send(new ClientFeatures.GetClientsQuery());
+        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? string.Empty;
+        var clientIdClaim = User.FindFirst("client_id")?.Value;
+
+        var query = _fomsDb.Clients.AsNoTracking().AsQueryable();
+
+        // IAM-06: Client isolation
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim)) return Forbid("No client association found in token.");
+            query = query.Where(c => c.Id == clientIdClaim || c.ClientCode == clientIdClaim || (c.ClientId.HasValue && c.ClientId.ToString() == clientIdClaim));
+        }
+
+        var clients = await query.ToListAsync();
         var result = clients.Select(c =>
         {
             var code = !string.IsNullOrEmpty(c.ClientCode) ? c.ClientCode : c.Id;
@@ -209,7 +180,7 @@ public class ClientsController : ApiControllerBase
                 vatStatus = "VATable",
                 vatRate = 0.12m,
                 billingSchedule = (code == "SHP-001" || code == "CA-002" || c.Name.Contains("Shopee") || code == "TKT-001" || code == "CA-003" || c.Name.Contains("TikTok")) ? "Weekly" : "Monthly",
-                createdAt = c.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
+                createdAt = (c.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
                 dateRegistered = c.DateRegistered,
                 lastTransaction = c.LastTransaction,
                 archived = c.Archived
@@ -219,11 +190,23 @@ public class ClientsController : ApiControllerBase
     }
 
     [HttpGet("{id}")]
+    [Authorize]
     public async Task<IActionResult> GetClientById(string id)
     {
-        var c = await _context.Clients
-            .Include(cl => cl.Invoices)
-            .FirstOrDefaultAsync(cl => cl.Id == id || cl.ClientCode == id);
+        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? string.Empty;
+        var clientIdClaim = User.FindFirst("client_id")?.Value;
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim) || (!id.Equals(clientIdClaim, StringComparison.OrdinalIgnoreCase) && !clientIdClaim.Contains(id)))
+            {
+                return Forbid("Access denied to another client's details.");
+            }
+        }
+
+        var c = await _fomsDb.Clients
+            .FirstOrDefaultAsync(cl => cl.Id == id || cl.ClientCode == id || (cl.ClientId.HasValue && cl.ClientId.ToString() == id));
 
         if (c == null) return NotFound(new { message = $"Client {id} not found" });
 
@@ -251,7 +234,7 @@ public class ClientsController : ApiControllerBase
             vatStatus = "VATable",
             vatRate = 0.12m,
             billingSchedule = (code == "CA-002" || c.Name.Contains("Shopee") || code == "CA-003" || c.Name.Contains("TikTok")) ? "Weekly" : "Monthly",
-            createdAt = c.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
+            createdAt = (c.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
             dateRegistered = c.DateRegistered,
             lastTransaction = c.LastTransaction,
             archived = c.Archived
@@ -276,25 +259,20 @@ public class ClientsController : ApiControllerBase
     }
 
     [HttpPost]
+    [Authorize]
     public async Task<IActionResult> CreateClient([FromBody] ClientInputDto dto)
     {
+        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? string.Empty;
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase))
+            return Forbid("Clients cannot create client accounts.");
+
         var name = !string.IsNullOrWhiteSpace(dto.Name) ? dto.Name : "New Client";
         var code = dto.ClientCode;
         if (string.IsNullOrWhiteSpace(code))
         {
-            var lower = name.ToLowerInvariant();
-            string prefix = "CLI";
-            if (lower.Contains("lazada")) prefix = "LZD";
-            else if (lower.Contains("shopee")) prefix = "SHP";
-            else if (lower.Contains("tiktok")) prefix = "TKT";
-            else if (lower.Contains("zalora")) prefix = "ZAL";
-            else if (lower.Contains("test")) prefix = "TST";
-            else
-            {
-                var cleanLetters = new string(name.Where(char.IsLetter).ToArray());
-                prefix = cleanLetters.Length >= 3 ? cleanLetters[..3].ToUpperInvariant() : "CLI";
-            }
-            var count = await _context.Clients.CountAsync(c => c.ClientCode.StartsWith(prefix));
+            var cleanLetters = new string(name.Where(char.IsLetter).ToArray());
+            var prefix = cleanLetters.Length >= 3 ? cleanLetters[..3].ToUpperInvariant() : "CLI";
+            var count = await _fomsDb.Clients.CountAsync(c => c.ClientCode != null && c.ClientCode.StartsWith(prefix));
             code = $"{prefix}-{(count + 1):D3}";
         }
 
@@ -302,11 +280,12 @@ public class ClientsController : ApiControllerBase
         var busName = !string.IsNullOrWhiteSpace(dto.BusinessName) ? dto.BusinessName : name;
         var email = !string.IsNullOrWhiteSpace(dto.Email) ? dto.Email : $"{name.ToLower().Replace(" ", "")}@client.com";
 
-        var client = new FOMS.Domain.Entities.Client
+        var client = new Client
         {
             Id = code,
             ClientCode = code,
             Name = name,
+            CompanyName = busName,
             BusinessName = busName,
             ContactPerson = !string.IsNullOrWhiteSpace(dto.ContactPerson) ? dto.ContactPerson : "Operations Manager",
             ContactNumber = contactPhone,
@@ -325,8 +304,8 @@ public class ClientsController : ApiControllerBase
             UpdatedAt = DateTime.UtcNow
         };
 
-        _context.Clients.Add(client);
-        await _context.SaveChangesAsync(default);
+        _fomsDb.Clients.Add(client);
+        await _fomsDb.SaveChangesAsync();
 
         return Ok(new
         {
@@ -350,36 +329,51 @@ public class ClientsController : ApiControllerBase
             vatStatus = "VATable",
             vatRate = 0.12m,
             billingSchedule = dto.BillingSchedule ?? "Monthly",
-            createdAt = client.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss")
+            createdAt = (client.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss")
         });
     }
 
     [HttpDelete("{id}")]
+    [Authorize]
     public async Task<IActionResult> DeleteClient(string id)
     {
-        var client = await _context.Clients.FirstOrDefaultAsync(c => c.Id == id || c.ClientCode == id);
+        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? string.Empty;
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase))
+            return Forbid("Clients cannot delete client accounts.");
+
+        var client = await _fomsDb.Clients.FirstOrDefaultAsync(c => c.Id == id || c.ClientCode == id);
         if (client == null) return NotFound();
-        _context.Clients.Remove(client);
-        await _context.SaveChangesAsync(default);
+        client.Archived = true;
+        await _fomsDb.SaveChangesAsync();
         return Ok(new { success = true });
     }
 
     public record ClientArchiveRequest(bool Archived);
 
     [HttpPut("{id}/archive")]
+    [Authorize]
     public async Task<IActionResult> ArchiveClient(string id, [FromBody] ClientArchiveRequest request)
     {
-        var client = await _context.Clients.FirstOrDefaultAsync(c => c.Id == id || c.ClientCode == id);
+        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? string.Empty;
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase))
+            return Forbid("Clients cannot archive client accounts.");
+
+        var client = await _fomsDb.Clients.FirstOrDefaultAsync(c => c.Id == id || c.ClientCode == id);
         if (client == null) return NotFound();
         client.Archived = request.Archived;
-        await _context.SaveChangesAsync(default);
+        await _fomsDb.SaveChangesAsync();
         return Ok(new { success = true });
     }
 
     [HttpPut("{id}")]
+    [Authorize]
     public async Task<IActionResult> UpdateClient(string id, [FromBody] ClientInputDto dto)
     {
-        var client = await _context.Clients.FirstOrDefaultAsync(c => c.Id == id || c.ClientCode == id);
+        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? string.Empty;
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase))
+            return Forbid("Clients cannot modify client accounts.");
+
+        var client = await _fomsDb.Clients.FirstOrDefaultAsync(c => c.Id == id || c.ClientCode == id);
         if (client == null) return NotFound(new { message = $"Client {id} not found" });
 
         if (!string.IsNullOrWhiteSpace(dto.Name)) client.Name = dto.Name;
@@ -395,7 +389,7 @@ public class ClientsController : ApiControllerBase
         if (!string.IsNullOrWhiteSpace(dto.Status)) client.Status = dto.Status;
         client.UpdatedAt = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync(default);
+        await _fomsDb.SaveChangesAsync();
 
         return Ok(new
         {
@@ -419,7 +413,7 @@ public class ClientsController : ApiControllerBase
             vatStatus = "VATable",
             vatRate = 0.12m,
             billingSchedule = dto.BillingSchedule ?? "Monthly",
-            createdAt = client.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss")
+            createdAt = (client.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss")
         });
     }
 }

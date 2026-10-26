@@ -3,13 +3,14 @@
 -- Database: FOMS_DB (Official Source of Truth)
 -- ============================================================================
 
-IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'FOMS_DB')
+IF DB_NAME() = 'master'
 BEGIN
-    CREATE DATABASE FOMS_DB;
+    IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'FOMS_DB')
+    BEGIN
+        CREATE DATABASE FOMS_DB;
+    END;
+    USE FOMS_DB;
 END
-GO
-
-USE FOMS_DB;
 GO
 
 SET ANSI_NULLS ON;

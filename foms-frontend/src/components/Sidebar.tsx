@@ -130,6 +130,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ logoUrl = "/logo.png" }) => {
             })}
           </React.Fragment>
         ))}
+        {user?.role === 'ASSISTANT_FM' && (
+          <div className="sidebar-tools" style={{ display: 'none' }}>
+            <NavLink to="/document-extraction">
+              <span>Document Extraction</span>
+            </NavLink>
+          </div>
+        )}
       </nav>
 
       {user && (

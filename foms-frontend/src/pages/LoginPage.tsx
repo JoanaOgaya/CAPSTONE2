@@ -9,7 +9,7 @@ import { Eye, EyeOff, User, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastContext';
 import { getCentralLoginUrl, getCentralForgotPasswordUrl } from '../services/centralAuth';
-import { LANDING_PATH } from '../utils/roleAccess';
+import { LANDING_PATH, DEFAULT_LANDING_ROUTE, canAccessPath } from '../utils/roleAccess';
 import './LoginPage.css';
 
 interface FormErrors {
@@ -52,14 +52,17 @@ export function LoginPage() {
     const wasLoggedOut = typeof window !== 'undefined' && sessionStorage.getItem('loggedOut') === 'true';
     if (!isLogoutAction && !wasLoggedOut) {
       const state = location.state as { from?: string } | null;
-      const requestedFrom = state?.from && state.from !== '/login' && state.from !== '/'
-        ? state.from
-        : (LANDING_PATH[user.role] ?? '/dashboard');
+      let requestedFrom = LANDING_PATH[user.role] ?? DEFAULT_LANDING_ROUTE;
+      if (state?.from && state.from !== '/login' && state.from !== '/') {
+        if (canAccessPath(user.role, state.from)) {
+          requestedFrom = state.from;
+        }
+      }
       return <Navigate to={requestedFrom} replace />;
     }
   }
 
-  const EMP_ID_REGEX = /^EMP-\d{3}$/i;
+  const EMP_ID_REGEX = /^(EMP-\d{3}|STAFF-[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]{3,30})$/i;
 
   const validateForm = (): FormErrors => {
     const errors: FormErrors = {};
@@ -67,10 +70,10 @@ export function LoginPage() {
 
     if (!trimmedEmpId) {
       errors.employeeId = 'Employee ID is required.';
-    } else if (trimmedEmpId.length > 10) {
-      errors.employeeId = 'Employee ID cannot exceed 10 characters.';
+    } else if (trimmedEmpId.length > 50) {
+      errors.employeeId = 'Employee ID cannot exceed 50 characters.';
     } else if (!EMP_ID_REGEX.test(trimmedEmpId)) {
-      errors.employeeId = 'Employee ID must follow pattern EMP-### (e.g., EMP-001).';
+      errors.employeeId = 'Employee ID must follow pattern EMP-### or staff identifier.';
     }
 
     if (!password) {

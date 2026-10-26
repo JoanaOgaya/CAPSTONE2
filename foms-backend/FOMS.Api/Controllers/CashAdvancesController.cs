@@ -14,6 +14,7 @@ namespace FOMS.Api.Controllers;
 [Route("api/cash-advances")]
 [Route("api/v1/cash-advances")]
 [Route("cash-advances")]
+[Authorize]
 public class CashAdvancesController : ControllerBase
 {
     private readonly FomsDbContext _fomsDb;
@@ -79,7 +80,6 @@ public class CashAdvancesController : ControllerBase
     }
 
     [HttpGet]
-    [AllowAnonymous]
     public async Task<IActionResult> GetAll([FromQuery] string? status)
     {
         var query = _fomsDb.CashAdvances.AsNoTracking().AsQueryable();
@@ -100,7 +100,6 @@ public class CashAdvancesController : ControllerBase
     /// Fetch cash advances for the current user/accountant portal
     /// </summary>
     [HttpGet("mine")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetMine()
     {
         var list = await _fomsDb.CashAdvances.AsNoTracking().OrderByDescending(a => a.CreatedAt).ToListAsync();
@@ -134,7 +133,6 @@ public class CashAdvancesController : ControllerBase
     }
 
     [HttpPost]
-    [AllowAnonymous]
     public async Task<IActionResult> Create([FromBody] CashAdvanceCreateDto dto)
     {
         if (dto == null) return BadRequest(new { message = "Invalid request payload." });
@@ -182,7 +180,6 @@ public class CashAdvancesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [AllowAnonymous]
     public async Task<IActionResult> Update(string id, [FromBody] CashAdvanceCreateDto dto)
     {
         var item = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == id);
@@ -216,7 +213,6 @@ public class CashAdvancesController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetById(string id)
     {
         if (string.Equals(id, "mine", StringComparison.OrdinalIgnoreCase))
@@ -233,7 +229,6 @@ public class CashAdvancesController : ControllerBase
     /// FR-050: Finance Review and Approval of Cash Advance prior to payout.
     /// </summary>
     [HttpPost("{id}/approve")]
-    [AllowAnonymous]
     public async Task<IActionResult> Approve(string id, [FromBody] System.Text.Json.JsonElement? body)
     {
         var item = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == id);
@@ -277,7 +272,6 @@ public class CashAdvancesController : ControllerBase
     /// Records Cash Outflow in FOMS_DB.
     /// </summary>
     [HttpPost("{id}/disburse")]
-    [AllowAnonymous]
     public async Task<IActionResult> Disburse(string id, [FromBody] System.Text.Json.JsonElement? body)
     {
         var item = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == id);

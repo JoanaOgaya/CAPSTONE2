@@ -255,9 +255,9 @@ public static class PaymentFeatures
             if (invoice != null)
             {
                 // Sync Billing Invoice and ReceivableBalance
-                await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
+                await BillingSyncService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
 
-                await BillingComputationService.SyncClientBalanceAsync(payment.ClientId, _context, cancellationToken);
+                await BillingSyncService.SyncClientBalanceAsync(payment.ClientId, _context, cancellationToken);
                 await _context.SaveChangesAsync(cancellationToken);
             }
 

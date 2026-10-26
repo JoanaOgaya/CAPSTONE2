@@ -117,7 +117,7 @@ public class BillingRatesController : ControllerBase
             else
             {
                 var matched = await _fomsDb.Clients.FirstOrDefaultAsync(c => c.ClientCode == dto.ClientId || c.DmsClientId == dto.ClientId);
-                if (matched != null) targetClientId = matched.ClientId;
+                if (matched != null && matched.ClientId.HasValue) targetClientId = matched.ClientId.Value;
             }
         }
 
@@ -400,7 +400,7 @@ public class BillingRecordsController : ControllerBase
         else if (!string.IsNullOrEmpty(dto.ClientId))
         {
             var matchedClient = await _fomsDb.Clients.FirstOrDefaultAsync(c => c.ClientCode == dto.ClientId || (dto.ClientId == "CA-001" && c.ClientId == 1) || (dto.ClientId == "CA-002" && c.ClientId == 2) || (dto.ClientId == "CA-003" && c.ClientId == 3));
-            if (matchedClient != null) resolvedClientId = matchedClient.ClientId;
+            if (matchedClient != null && matchedClient.ClientId.HasValue) resolvedClientId = matchedClient.ClientId.Value;
             else if (resolvedWbId > 0)
             {
                 var wb = await _fomsDb.Waybills.FindAsync(resolvedWbId);

@@ -43,6 +43,12 @@ public class User
     [Column("is_active")]
     public bool? IsActive { get; set; }
 
+    [Column("failed_login_count")]
+    public int FailedLoginCount { get; set; } = 0;
+
+    [Column("locked_at")]
+    public DateTime? LockedAt { get; set; }
+
     [Column("created_at")]
     public DateTime? CreatedAt { get; set; }
 
@@ -54,20 +60,29 @@ public class User
 public class Client
 {
     [Key]
-    [Column("client_id")]
-    public int ClientId { get; set; }
+    [Column("Id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString();
 
-    // NOTE: dbo.Clients is created by the InitialSqlServerCreate migration with PascalCase
-    // columns. Only client_id and company_name are snake_case (added by
-    // scripts/create_foms_missing_tables.sql), so the mappings below must match that schema.
+    [Column("client_id")]
+    public int? ClientId { get; set; }
+
     [Column("DmsClientId")]
     public string? DmsClientId { get; set; }
+
+    [Column("DmsStatus")]
+    public string? DmsStatus { get; set; } = "Active";
 
     [Column("ClientCode")]
     public string? ClientCode { get; set; }
 
     [Column("company_name")]
-    public string CompanyName { get; set; } = string.Empty;
+    public string? CompanyName { get; set; }
+
+    [Column("Name")]
+    public string Name { get; set; } = string.Empty;
+
+    [Column("BusinessName")]
+    public string? BusinessName { get; set; }
 
     [Column("Address")]
     public string? Address { get; set; }
@@ -80,6 +95,36 @@ public class Client
 
     [Column("Email")]
     public string? Email { get; set; }
+
+    [Column("Tin")]
+    public string? Tin { get; set; }
+
+    [Column("CreditLimit")]
+    public decimal CreditLimit { get; set; }
+
+    [Column("CurrentBalance")]
+    public decimal CurrentBalance { get; set; }
+
+    [Column("TotalBilled")]
+    public decimal TotalBilled { get; set; }
+
+    [Column("TotalPaid")]
+    public decimal TotalPaid { get; set; }
+
+    [Column("Status")]
+    public string? Status { get; set; }
+
+    [Column("DateRegistered")]
+    public string? DateRegistered { get; set; }
+
+    [Column("LastTransaction")]
+    public string? LastTransaction { get; set; }
+
+    [Column("Archived")]
+    public bool Archived { get; set; }
+
+    [Column("PasswordHash")]
+    public string? PasswordHash { get; set; }
 
     [Column("IsActive")]
     public bool? IsActive { get; set; }
@@ -182,22 +227,24 @@ public class ClientRate
 [Table("Invoices")]
 public class Invoice
 {
+    [Key]
     [Column("Id")]
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
     [Column("InvoiceNo")]
     public string? InvoiceNo { get; set; }
 
+    [Column("ClientId")]
+    public string? ClientIdStr { get; set; }
+
     [Column("ClientName")]
     public string? ClientName { get; set; }
 
-    [Key]
-    [DatabaseGenerated(DatabaseGeneratedOption.None)]
     [Column("invoice_id")]
-    public int InvoiceId { get; set; }
+    public int? InvoiceId { get; set; }
 
     [Column("invoice_number")]
-    public string InvoiceNumber { get; set; } = string.Empty;
+    public string? InvoiceNumber { get; set; }
 
     [Column("client_id")]
     public int? ClientId { get; set; }
@@ -208,14 +255,80 @@ public class Invoice
     [Column("due_date")]
     public DateOnly? DueDate { get; set; }
 
+    [Column("DueDate")]
+    public string? DueDateStr { get; set; }
+
+    [Column("BillingDate")]
+    public string? BillingDate { get; set; }
+
+    [Column("FreightCharges")]
+    public decimal FreightCharges { get; set; }
+
+    [Column("OtherCharges")]
+    public decimal OtherCharges { get; set; }
+
+    [Column("Subtotal")]
+    public decimal Subtotal { get; set; }
+
+    [Column("VatRate")]
+    public double VatRate { get; set; }
+
+    [Column("VatAmount")]
+    public decimal VatAmount { get; set; }
+
+    [Column("Surcharge")]
+    public decimal Surcharge { get; set; }
+
     [Column("total_amount")]
+    public decimal? TotalAmountSnake { get; set; }
+
+    [Column("TotalAmount")]
     public decimal TotalAmount { get; set; }
 
     [Column("paid_amount")]
     public decimal? PaidAmount { get; set; }
 
+    [Column("AmountPaid")]
+    public decimal AmountPaid { get; set; }
+
     [Column("outstanding_balance")]
     public decimal? OutstandingBalance { get; set; }
+
+    [Column("Balance")]
+    public decimal Balance { get; set; }
+
+    [Column("PaymentStatus")]
+    public string? PaymentStatus { get; set; }
+
+    [Column("PaymentValidationStatus")]
+    public string? PaymentValidationStatus { get; set; }
+
+    [Column("AgingBucket")]
+    public string? AgingBucket { get; set; }
+
+    [Column("DaysOverdue")]
+    public int DaysOverdue { get; set; }
+
+    [Column("Description")]
+    public string? Description { get; set; }
+
+    [Column("EncodedBy")]
+    public string? EncodedBy { get; set; }
+
+    [Column("DateEncoded")]
+    public string? DateEncoded { get; set; }
+
+    [Column("LastUpdated")]
+    public string? LastUpdated { get; set; }
+
+    [Column("UpdatedBy")]
+    public string? UpdatedBy { get; set; }
+
+    [Column("Archived")]
+    public bool Archived { get; set; }
+
+    [Column("WaybillIds")]
+    public string? WaybillIds { get; set; }
 
     [Column("invoice_status")]
     public string? InvoiceStatus { get; set; }
@@ -223,17 +336,27 @@ public class Invoice
     [Column("validation_status")]
     public string? ValidationStatus { get; set; }
 
+    [NotMapped]
+    public string? CreatedBy
+    {
+        get => EncodedBy;
+        set => EncodedBy = value;
+    }
+
+    [NotMapped]
+    public string? ApprovedBy { get; set; }
+
     [Column("created_at")]
     public DateTime? CreatedAt { get; set; }
 
     [Column("updated_at")]
     public DateTime? UpdatedAt { get; set; }
 
-    [Column("EncodedBy")]
-    public string? EncodedBy { get; set; }
+    [Column("client_retention_until")]
+    public DateTime? ClientRetentionUntil { get; set; }
 
-    [Column("UpdatedBy")]
-    public string? UpdatedBy { get; set; }
+    [Column("internal_retention_until")]
+    public DateTime? InternalRetentionUntil { get; set; }
 }
 
 [Table("AccountsReceivable")]
@@ -281,6 +404,18 @@ public class AccountsReceivable
 
     [Column("updated_at")]
     public DateTime? UpdatedAt { get; set; }
+
+    [Column("client_retention_until")]
+    public DateTime? ClientRetentionUntil { get; set; }
+
+    [Column("internal_retention_until")]
+    public DateTime? InternalRetentionUntil { get; set; }
+
+    [Column("is_archived")]
+    public bool IsArchived { get; set; } = false;
+
+    [Column("archived_at")]
+    public DateTime? ArchivedAt { get; set; }
 }
 
 [Table("Payments")]
@@ -290,50 +425,95 @@ public class Payment
     [Column("Id")]
     public string Id { get; set; } = Guid.NewGuid().ToString();
 
+    [Column("OrNumber")]
+    public string? OrNumber { get; set; } = "OR-" + Guid.NewGuid().ToString("N")[..8].ToUpper();
+
+    [Column("InvoiceId")]
+    public string? InvoiceIdStr { get; set; }
+
+    [Column("InvoiceNo")]
+    public string? InvoiceNo { get; set; }
+
+    [Column("ClientId")]
+    public string? ClientIdStr { get; set; }
+
+    [Column("ClientName")]
+    public string? ClientName { get; set; }
+
+    [Column("PaymentDate")]
+    public string? PaymentDate { get; set; }
+
+    [Column("Amount")]
+    public decimal Amount { get; set; }
+
+    [Column("PaymentMethod")]
+    public string? PaymentMethod { get; set; }
+
+    [Column("ReferenceNumber")]
+    public string? ReferenceNumber { get; set; }
+
+    [Column("Remarks")]
+    public string? Remarks { get; set; }
+
+    [Column("RecordedBy")]
+    public string? RecordedBy { get; set; }
+
+    [Column("DateRecorded")]
+    public string? DateRecorded { get; set; }
+
+    [Column("ProofImageUrl")]
+    public string? ProofImageUrl { get; set; }
+
+    [Column("PaymentStatus")]
+    public string? PaymentStatus { get; set; }
+
+    [Column("Flow")]
+    public string? Flow { get; set; }
+
     [Column("payment_id")]
     public int? PaymentId { get; set; }
 
-    [Column("invoice_id")]
-    public int? InvoiceId { get; set; }
+    [NotMapped]
+    public int? InvoiceId
+    {
+        get => int.TryParse(InvoiceIdStr, out var id) ? id : null;
+        set => InvoiceIdStr = value?.ToString();
+    }
 
-    [Column("client_id")]
-    public int? ClientId { get; set; }
-
-    [Column("amount")]
-    public decimal Amount { get; set; }
-
-    [Column("payment_method")]
-    public string? PaymentMethod { get; set; }
-
-    [Column("reference_number")]
-    public string? ReferenceNumber { get; set; }
+    [NotMapped]
+    public int? ClientId
+    {
+        get => int.TryParse(ClientIdStr, out var id) ? id : null;
+        set => ClientIdStr = value?.ToString();
+    }
 
     [Column("proof_of_payment_path")]
+    [DatabaseGenerated(DatabaseGeneratedOption.Computed)]
     public string? ProofOfPaymentPath { get; set; }
 
-    [Column("payment_status")]
-    public string? PaymentStatus { get; set; }
-
-    [Column("submitted_at")]
+    [Column("SubmittedAt")]
     public DateTime? SubmittedAt { get; set; }
 
-    [Column("validated_at")]
+    [Column("ValidatedAt")]
     public DateTime? ValidatedAt { get; set; }
 
-    [Column("validated_by")]
-    public int? ValidatedBy { get; set; }
+    [Column("ValidatedBy")]
+    public string? ValidatedBy { get; set; }
 
-    [Column("rejected_at")]
+    [Column("RejectedAt")]
     public DateTime? RejectedAt { get; set; }
 
-    [Column("rejected_by")]
-    public int? RejectedBy { get; set; }
+    [Column("RejectedBy")]
+    public string? RejectedBy { get; set; }
 
-    [Column("rejection_reason")]
+    [Column("RejectionReason")]
     public string? RejectionReason { get; set; }
 
-    [Column("remarks")]
-    public string? Remarks { get; set; }
+    [Column("client_retention_until")]
+    public DateTime? ClientRetentionUntil { get; set; }
+
+    [Column("internal_retention_until")]
+    public DateTime? InternalRetentionUntil { get; set; }
 }
 
 [Table("PaymentHistory")]
@@ -473,7 +653,10 @@ public class AuditLog
     public string? remarks { get; set; }
 
     [Column("created_at")]
-    public DateTime? created_at { get; set; }
+    public DateTime? created_at { get; set; } = DateTime.UtcNow;
+
+    [Column("internal_retention_until")]
+    public DateTime? internal_retention_until { get; set; } = DateTime.UtcNow.AddYears(5);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -810,6 +993,12 @@ public class CashAdvance
 
     [Column("CreatedAt")]
     public DateTime? CreatedAt { get; set; }
+
+    [Column("client_retention_until")]
+    public DateTime? ClientRetentionUntil { get; set; }
+
+    [Column("internal_retention_until")]
+    public DateTime? InternalRetentionUntil { get; set; }
 }
 
 [Table("StarsCollectionTasks")]
@@ -922,6 +1111,12 @@ public class Liquidation
 
     [Column("created_at")]
     public DateTime? CreatedAt { get; set; }
+
+    [Column("client_retention_until")]
+    public DateTime? ClientRetentionUntil { get; set; }
+
+    [Column("internal_retention_until")]
+    public DateTime? InternalRetentionUntil { get; set; }
 }
 
 [Table("LiquidationLineItems")]

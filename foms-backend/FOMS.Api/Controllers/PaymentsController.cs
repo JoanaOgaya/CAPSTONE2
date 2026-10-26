@@ -1,14 +1,12 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using FOMS.Application.Features;
-using FOMS.Application.Interfaces;
-using FOMS.Domain.Entities;
+using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
@@ -24,35 +22,43 @@ public class PaymentDto
     public decimal? Amount { get; set; }
     public string? PaymentMethod { get; set; }
     public string? ReferenceNumber { get; set; }
-    public bool? BankConfirmed { get; set; }
+    public string? PaymentDate { get; set; }
+    public string? DateRecorded { get; set; }
     public string? ProofOfPaymentUrl { get; set; }
     public string? ProofImageUrl { get; set; }
-    public string? RecordedBy { get; set; }
-    public string? RecordedAt { get; set; }
-    public string? DateRecorded { get; set; }
-    public string? PaymentDate { get; set; }
-    public string? ValidatedBy { get; set; }
-    public DateTime? ValidatedAt { get; set; }
     public string? Status { get; set; }
     public string? PaymentStatus { get; set; }
     public string? Notes { get; set; }
     public string? Remarks { get; set; }
+    public string? RecordedBy { get; set; }
     public string? OrNumber { get; set; }
     public string? Flow { get; set; }
 }
 
+[Authorize]
 [Route("payments")]
 [Route("api/payments")]
 [Route("api/v1/payments")]
 public class PaymentsController : ApiControllerBase
 {
-    private readonly IApplicationDbContext _context;
     private readonly FomsDbContext _fomsDb;
 
-    public PaymentsController(IApplicationDbContext context, FomsDbContext fomsDb)
+    public PaymentsController(FomsDbContext fomsDb)
     {
-        _context = context;
         _fomsDb = fomsDb;
+    }
+
+    private (string role, string? clientId, string username) GetCaller()
+    {
+        var role = User.FindFirst(ClaimTypes.Role)?.Value
+            ?? User.FindFirst("role")?.Value
+            ?? string.Empty;
+        var clientId = User.FindFirst("client_id")?.Value;
+        var user = User.FindFirst("name")?.Value
+            ?? User.FindFirst(ClaimTypes.Name)?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? "User";
+        return (role, clientId, user);
     }
 
     private static object MapPayment(Payment p)
@@ -62,15 +68,15 @@ public class PaymentsController : ApiControllerBase
 
         var recDate = !string.IsNullOrWhiteSpace(p.PaymentDate) ? p.PaymentDate :
                       !string.IsNullOrWhiteSpace(p.DateRecorded) ? p.DateRecorded :
-                      p.SubmittedAt.ToString("yyyy-MM-dd");
+                      (p.SubmittedAt ?? DateTime.UtcNow).ToString("yyyy-MM-dd");
 
         return new
         {
             id = p.Id,
-            invoiceId = p.InvoiceId,
-            invoiceNumber = !string.IsNullOrEmpty(p.InvoiceNo) ? p.InvoiceNo : p.InvoiceId,
+            invoiceId = p.InvoiceIdStr ?? p.InvoiceId?.ToString(),
+            invoiceNumber = !string.IsNullOrEmpty(p.InvoiceNo) ? p.InvoiceNo : (p.InvoiceIdStr ?? p.InvoiceId?.ToString()),
             invoiceNo = p.InvoiceNo,
-            clientId = p.ClientId,
+            clientId = p.ClientIdStr ?? p.ClientId?.ToString(),
             clientName = p.ClientName,
             amount = p.Amount,
             flow = !string.IsNullOrEmpty(p.Flow) ? p.Flow : "inflow",
@@ -88,18 +94,28 @@ public class PaymentsController : ApiControllerBase
             status = status,
             paymentStatus = status,
             notes = p.Remarks,
-            remarks = p.Remarks,
-            orNumber = p.OrNumber
+            remarks = p.Remarks
         };
     }
 
     [HttpGet]
     public async Task<IActionResult> GetPayments()
     {
-        var payments = await _context.Payments
-            .OrderByDescending(p => p.SubmittedAt)
-            .ToListAsync();
+        var (role, clientIdClaim, _) = GetCaller();
 
+        var query = _fomsDb.Payments.AsNoTracking().AsQueryable();
+
+        // IAM-06: Client isolation
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim))
+                return Forbid("No client association found in token.");
+
+            query = query.Where(p => p.ClientIdStr == clientIdClaim);
+        }
+
+        var payments = await query.OrderByDescending(p => p.SubmittedAt).ToListAsync();
         var mapped = payments.Select(MapPayment).ToList();
         return Ok(mapped);
     }
@@ -107,8 +123,19 @@ public class PaymentsController : ApiControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(string id)
     {
-        var p = await _context.Payments.FirstOrDefaultAsync(x => x.Id == id || x.ReferenceNumber == id);
+        var (role, clientIdClaim, _) = GetCaller();
+
+        var p = await _fomsDb.Payments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id || x.ReferenceNumber == id);
         if (p == null) return NotFound(new { message = $"Payment {id} not found." });
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim) || p.ClientIdStr != clientIdClaim)
+            {
+                return Forbid("Access denied to payment record.");
+            }
+        }
 
         return Ok(MapPayment(p));
     }
@@ -116,21 +143,29 @@ public class PaymentsController : ApiControllerBase
     [HttpPost]
     public async Task<IActionResult> RecordPayment([FromBody] PaymentDto dto)
     {
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? dto.RecordedBy ?? "User";
+        var (role, clientIdClaim, user) = GetCaller();
 
-        var invoice = await _context.Invoices.FirstOrDefaultAsync(i => i.Id == dto.InvoiceId || i.InvoiceNo == dto.InvoiceNumber || i.InvoiceNo == dto.InvoiceId);
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim))
+                return Forbid("No client association found in token.");
+            dto.ClientId = clientIdClaim;
+        }
+
+        var invoice = await _fomsDb.Invoices.FirstOrDefaultAsync(i => i.Id == dto.InvoiceId || i.InvoiceNo == dto.InvoiceNumber || i.InvoiceNo == dto.InvoiceId);
         var invId = invoice?.Id ?? dto.InvoiceId ?? Guid.NewGuid().ToString();
         var invNo = invoice?.InvoiceNo ?? dto.InvoiceNumber ?? dto.InvoiceNo ?? $"INV-{DateTime.UtcNow:yyyyMMdd}";
-        var clientId = invoice?.ClientId ?? dto.ClientId ?? "1";
+        var clientId = invoice?.ClientIdStr ?? dto.ClientId ?? "1";
         var clientName = invoice?.ClientName ?? dto.ClientName ?? "Client";
 
         var payment = new Payment
         {
             Id = Guid.NewGuid().ToString(),
-            OrNumber = dto.OrNumber ?? $"OR-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}",
-            InvoiceId = invId,
+            InvoiceIdStr = invId,
             InvoiceNo = invNo,
-            ClientId = clientId,
+            ClientIdStr = clientId,
+            ClientId = int.TryParse(clientId, out var parsedCId) ? parsedCId : null,
             ClientName = clientName,
             PaymentDate = dto.PaymentDate ?? dto.DateRecorded ?? DateTime.UtcNow.ToString("yyyy-MM-dd"),
             Amount = dto.Amount ?? 0m,
@@ -145,7 +180,7 @@ public class PaymentsController : ApiControllerBase
             SubmittedAt = DateTime.UtcNow
         };
 
-        _context.Payments.Add(payment);
+        _fomsDb.Payments.Add(payment);
 
         if (invoice != null && (payment.PaymentStatus == "Validated" || payment.PaymentStatus == "Approved"))
         {
@@ -158,59 +193,85 @@ public class PaymentsController : ApiControllerBase
             }
         }
 
-        _context.AuditLogs.Add(new AuditLog
+        _fomsDb.AuditLogs.Add(new AuditLog
         {
-            UserId = user,
-            EntityName = "Payment",
-            EntityId = payment.Id,
-            Action = "Record Payment",
-            Details = $"Recorded payment of ₱{payment.Amount:N2} for invoice {payment.InvoiceNo}. Ref: {payment.ReferenceNumber}.",
-            LoggedAt = DateTime.UtcNow
+            role = role,
+            action = "Record Payment",
+            module = "Payments",
+            affected_record_type = "Payment",
+            before_value = null,
+            after_value = JsonSerializer.Serialize(new { payment.ReferenceNumber, payment.Amount, payment.PaymentStatus }),
+            remarks = $"Recorded payment of ₱{payment.Amount:N2} for invoice {payment.InvoiceNo}. Ref: {payment.ReferenceNumber}.",
+            created_at = DateTime.UtcNow,
+            internal_retention_until = DateTime.UtcNow.AddYears(5)
         });
 
-        await _context.SaveChangesAsync(default);
-
-        // Sync with MSSQL FomsDbContext
-        try
-        {
-            _fomsDb.Payments.Add(new FOMS.Domain.Entities.SqlServer.Payment
-            {
-                InvoiceId = int.TryParse(invoice?.Id, out var parsedInvId) ? parsedInvId : 1,
-                ClientId = int.TryParse(clientId, out var parsedCId) ? parsedCId : 1,
-                Amount = payment.Amount,
-                PaymentMethod = payment.PaymentMethod,
-                ReferenceNumber = payment.ReferenceNumber,
-                PaymentStatus = payment.PaymentStatus,
-                SubmittedAt = DateTime.UtcNow
-            });
-            await _fomsDb.SaveChangesAsync();
-        }
-        catch
-        {
-        }
+        await _fomsDb.SaveChangesAsync();
 
         return Ok(MapPayment(payment));
     }
 
-    [Authorize]
+    private async Task<(bool allowed, FinanceManagerDelegate? delegateRecord, string? errorMessage)> CheckPaymentValidationAuthorizationAsync(string role, string userId)
+    {
+        bool isFm = string.Equals(role, "Financial Manager", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(role, "FINANCIAL_MANAGER", StringComparison.OrdinalIgnoreCase);
+
+        if (isFm) return (true, null, null);
+
+        var now = DateTime.UtcNow;
+        var activeDelegate = await _fomsDb.FinanceManagerDelegates
+            .FirstOrDefaultAsync(d => d.DelegateUserId == userId && d.IsActive && d.ValidFrom <= now && d.ValidUntil >= now);
+
+        if (activeDelegate != null)
+        {
+            return (true, activeDelegate, null);
+        }
+
+        var anyDelegate = await _fomsDb.FinanceManagerDelegates
+            .OrderByDescending(d => d.CreatedAt)
+            .FirstOrDefaultAsync(d => d.DelegateUserId == userId);
+
+        if (anyDelegate != null)
+        {
+            if (!anyDelegate.IsActive)
+                return (false, null, $"Delegation for user '{userId}' has been revoked.");
+            if (now > anyDelegate.ValidUntil)
+                return (false, null, $"Delegation for user '{userId}' expired on {anyDelegate.ValidUntil:yyyy-MM-dd HH:mm:ss} UTC.");
+            if (now < anyDelegate.ValidFrom)
+                return (false, null, $"Delegation for user '{userId}' is not effective until {anyDelegate.ValidFrom:yyyy-MM-dd HH:mm:ss} UTC.");
+        }
+
+        return (false, null, "PAY-03 VIOLATION: Only the Financial Manager or a configured active delegate may validate payments.");
+    }
+
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdatePayment(string id, [FromBody] PaymentDto dto)
     {
-        var payment = await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
+        var (role, _, user) = GetCaller();
+
+        var payment = await _fomsDb.Payments.FirstOrDefaultAsync(p => p.Id == id);
         if (payment == null) return NotFound(new { message = $"Payment {id} not found." });
 
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
+        var beforeVal = JsonSerializer.Serialize(new { payment.ReferenceNumber, payment.Amount, payment.PaymentStatus });
 
         var newStatus = dto.Status ?? dto.PaymentStatus;
+        FinanceManagerDelegate? activeDelegate = null;
         if (!string.IsNullOrEmpty(newStatus))
         {
-            payment.PaymentStatus = newStatus;
             if (newStatus.Equals("Validated", StringComparison.OrdinalIgnoreCase) || newStatus.Equals("Approved", StringComparison.OrdinalIgnoreCase))
             {
-                payment.ValidatedBy = user;
+                var (allowed, delRecord, err) = await CheckPaymentValidationAuthorizationAsync(role, user);
+                if (!allowed)
+                {
+                    return StatusCode(403, new { message = err });
+                }
+                activeDelegate = delRecord;
+
+                var validatorName = activeDelegate != null ? $"{user} (Delegate: {activeDelegate.DelegateName})" : user;
+                payment.ValidatedBy = validatorName;
                 payment.ValidatedAt = DateTime.UtcNow;
 
-                var inv = await _context.Invoices.FirstOrDefaultAsync(i => i.Id == payment.InvoiceId || i.InvoiceNo == payment.InvoiceNo);
+                var inv = await _fomsDb.Invoices.FirstOrDefaultAsync(i => i.Id == payment.InvoiceIdStr || i.InvoiceNo == payment.InvoiceNo);
                 if (inv != null)
                 {
                     inv.AmountPaid += payment.Amount;
@@ -222,6 +283,7 @@ public class PaymentsController : ApiControllerBase
                     }
                 }
             }
+            payment.PaymentStatus = newStatus;
         }
 
         if (!string.IsNullOrEmpty(dto.ReferenceNumber))
@@ -230,29 +292,36 @@ public class PaymentsController : ApiControllerBase
         if (!string.IsNullOrEmpty(dto.Notes) || !string.IsNullOrEmpty(dto.Remarks))
             payment.Remarks = dto.Notes ?? dto.Remarks;
 
-        _context.AuditLogs.Add(new AuditLog
+        _fomsDb.AuditLogs.Add(new AuditLog
         {
-            UserId = user,
-            EntityName = "Payment",
-            EntityId = payment.Id,
-            Action = "Update Payment",
-            Details = $"Updated payment {payment.ReferenceNumber}. Status: {payment.PaymentStatus}.",
-            LoggedAt = DateTime.UtcNow
+            role = activeDelegate != null ? $"{role} (FM Delegate)" : role,
+            user_id = int.TryParse(user, out var u) ? u : null,
+            action = "Update Payment",
+            module = "Payments",
+            affected_record_type = "Payment",
+            before_value = beforeVal,
+            after_value = JsonSerializer.Serialize(new { payment.ReferenceNumber, payment.Amount, payment.PaymentStatus, payment.ValidatedBy }),
+            remarks = activeDelegate != null
+                ? $"Payment {payment.ReferenceNumber} updated to {payment.PaymentStatus} by delegate '{user}' under delegation #{activeDelegate.DelegateId}."
+                : $"Updated payment {payment.ReferenceNumber}. Status: {payment.PaymentStatus}.",
+            created_at = DateTime.UtcNow,
+            internal_retention_until = DateTime.UtcNow.AddYears(5)
         });
 
-        await _context.SaveChangesAsync(default);
+        await _fomsDb.SaveChangesAsync();
 
         return Ok(MapPayment(payment));
     }
 
-    [Authorize]
     [HttpPost("{id}/{actionName}")]
     public async Task<IActionResult> ActionOnPayment(string id, string actionName, [FromBody] PaymentDto? dto)
     {
-        var payment = await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
+        var (role, _, user) = GetCaller();
+
+        var payment = await _fomsDb.Payments.FirstOrDefaultAsync(p => p.Id == id);
         if (payment == null) return NotFound(new { message = $"Payment {id} not found." });
 
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
+        var beforeVal = JsonSerializer.Serialize(new { payment.ReferenceNumber, payment.Amount, payment.PaymentStatus });
 
         var newStatus = actionName.ToLower() switch
         {
@@ -261,8 +330,20 @@ public class PaymentsController : ApiControllerBase
             _ => payment.PaymentStatus
         };
 
+        FinanceManagerDelegate? activeDelegate = null;
+        if (newStatus == "Validated")
+        {
+            var (allowed, delRecord, err) = await CheckPaymentValidationAuthorizationAsync(role, user);
+            if (!allowed)
+            {
+                return StatusCode(403, new { message = err });
+            }
+            activeDelegate = delRecord;
+        }
+
+        var validatorName = activeDelegate != null ? $"{user} (Delegate: {activeDelegate.DelegateName})" : user;
         payment.PaymentStatus = newStatus;
-        payment.ValidatedBy = user;
+        payment.ValidatedBy = validatorName;
         payment.ValidatedAt = DateTime.UtcNow;
 
         if (actionName.Equals("reject", StringComparison.OrdinalIgnoreCase))
@@ -272,7 +353,7 @@ public class PaymentsController : ApiControllerBase
             payment.RejectionReason = dto?.Remarks ?? dto?.Notes ?? "Payment rejected by reviewer.";
         }
 
-        var inv = await _context.Invoices.FirstOrDefaultAsync(i => i.Id == payment.InvoiceId || i.InvoiceNo == payment.InvoiceNo);
+        var inv = await _fomsDb.Invoices.FirstOrDefaultAsync(i => i.Id == payment.InvoiceIdStr || i.InvoiceNo == payment.InvoiceNo);
         if (inv != null && newStatus == "Validated")
         {
             inv.AmountPaid += payment.Amount;
@@ -284,29 +365,24 @@ public class PaymentsController : ApiControllerBase
             }
         }
 
-        _context.AuditLogs.Add(new AuditLog
+        _fomsDb.AuditLogs.Add(new AuditLog
         {
-            UserId = user,
-            EntityName = "Payment",
-            EntityId = payment.Id,
-            Action = $"Payment {actionName}",
-            Details = $"Payment {payment.ReferenceNumber} action {actionName} -> {newStatus}.",
-            LoggedAt = DateTime.UtcNow
+            role = activeDelegate != null ? $"{role} (FM Delegate)" : role,
+            user_id = int.TryParse(user, out var u) ? u : null,
+            action = $"Payment {actionName}",
+            module = "Payments",
+            affected_record_type = "Payment",
+            before_value = beforeVal,
+            after_value = JsonSerializer.Serialize(new { payment.ReferenceNumber, payment.Amount, payment.PaymentStatus, payment.ValidatedBy }),
+            remarks = activeDelegate != null
+                ? $"Payment {payment.ReferenceNumber} validated by delegate '{user}' under delegation #{activeDelegate.DelegateId}."
+                : $"Payment {payment.ReferenceNumber} action {actionName} -> {newStatus} by '{user}'.",
+            created_at = DateTime.UtcNow,
+            internal_retention_until = DateTime.UtcNow.AddYears(5)
         });
 
-        await _context.SaveChangesAsync(default);
+        await _fomsDb.SaveChangesAsync();
 
         return Ok(MapPayment(payment));
-    }
-
-    [Authorize]
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeletePayment(string id)
-    {
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
-        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? "Unknown Role";
-        var result = await Mediator.Send(new PaymentFeatures.DeletePaymentCommand(id, user, role));
-        if (!result) return NotFound();
-        return Ok(new { success = true });
     }
 }

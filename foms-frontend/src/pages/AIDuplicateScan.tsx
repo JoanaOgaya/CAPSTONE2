@@ -610,6 +610,9 @@ export const AIDuplicateScan: React.FC = () => {
           <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: '0 0 8px' }}>
             Accountant Document Scanning Console
           </h2>
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#DC2626', textTransform: 'uppercase', marginBottom: '8px' }}>
+            Read-Only Console
+          </div>
           <p style={{ fontSize: '0.9rem', color: '#64748B', maxWidth: 480, margin: '0 auto 24px' }}>
             Financial Managers review the manual review queue and make decisions on flagged items. Document uploads and scans are restricted to Accountants per segregation of duties.
           </p>

@@ -1,8 +1,10 @@
-﻿using System.Threading.Tasks;
+using System.Threading.Tasks;
+using System.Linq;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using FOMS.Application.Interfaces;
-using FOMS.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+using FOMS.Domain.Entities.SqlServer;
+using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
 
@@ -12,28 +14,36 @@ namespace FOMS.Api.Controllers;
 [ApiController]
 public class NotificationsController : ControllerBase
 {
-    private readonly IRepository<Notification> _repository;
-    private readonly IApplicationDbContext _context;
+    private readonly FomsDbContext _fomsDb;
 
-    public NotificationsController(IRepository<Notification> repository, IApplicationDbContext context)
+    public NotificationsController(FomsDbContext fomsDb)
     {
-        _repository = repository;
-        _context = context;
+        _fomsDb = fomsDb;
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll() => Ok(await _repository.GetAllAsync());
+    public async Task<IActionResult> GetAll() => Ok(await _fomsDb.Notifications.AsNoTracking().ToListAsync());
 
-    [Authorize]
     [HttpPut("{id}/read")]
     public async Task<IActionResult> MarkRead(string id)
     {
-        var notification = await _repository.GetByIdAsync(id);
+        var notification = await _fomsDb.Notifications.FirstOrDefaultAsync(n => n.Id == id);
         if (notification == null) return NotFound();
 
         notification.Read = true;
-        _context.Notifications.Update(notification);
-        await _context.SaveChangesAsync(default);
+        await _fomsDb.SaveChangesAsync();
         return Ok(notification);
+    }
+
+    [HttpPut("read-all")]
+    public async Task<IActionResult> MarkAllRead()
+    {
+        var unread = await _fomsDb.Notifications.Where(n => !n.Read).ToListAsync();
+        foreach (var n in unread)
+        {
+            n.Read = true;
+        }
+        await _fomsDb.SaveChangesAsync();
+        return Ok(new { count = unread.Count });
     }
 }

@@ -277,10 +277,10 @@ public static class AdjustmentFeatures
             await _context.SaveChangesAsync(cancellationToken);
 
             // Sync the Billing Invoice mirror and ReceivableBalance
-            await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
+            await BillingSyncService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
 
             // Sync the client's outstanding balance
-            await BillingComputationService.SyncClientBalanceAsync(invoice.ClientId, _context, cancellationToken);
+            await BillingSyncService.SyncClientBalanceAsync(invoice.ClientId, _context, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
             return adjustment;

@@ -105,10 +105,10 @@ public static class InvoiceFeatures
             await _context.SaveChangesAsync(cancellationToken);
 
             // Synchronize Billing Invoice and ReceivableBalance
-            await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
+            await BillingSyncService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
 
             // TASK 12: Sync client balance from sum of invoices
-            await BillingComputationService.SyncClientBalanceAsync(request.ClientId, _context, cancellationToken);
+            await BillingSyncService.SyncClientBalanceAsync(request.ClientId, _context, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
             return invoice;
@@ -171,10 +171,10 @@ public static class InvoiceFeatures
             await _context.SaveChangesAsync(cancellationToken);
 
             // Synchronize Billing Invoice and ReceivableBalance
-            await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
+            await BillingSyncService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
 
             // TASK 12: Sync client balance
-            await BillingComputationService.SyncClientBalanceAsync(invoice.ClientId, _context, cancellationToken);
+            await BillingSyncService.SyncClientBalanceAsync(invoice.ClientId, _context, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
             return invoice;
@@ -239,7 +239,7 @@ public static class InvoiceFeatures
             await _context.SaveChangesAsync(cancellationToken);
 
             // TASK 12: Sync client balance after deletion
-            await BillingComputationService.SyncClientBalanceAsync(clientId, _context, cancellationToken);
+            await BillingSyncService.SyncClientBalanceAsync(clientId, _context, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
             return true;
@@ -281,10 +281,10 @@ public static class InvoiceFeatures
             await _context.SaveChangesAsync(cancellationToken);
 
             // Synchronize Billing Invoice and ReceivableBalance
-            await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
+            await BillingSyncService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
 
             // Re-sync client balance since archiving excludes the invoice from balance calc
-            await BillingComputationService.SyncClientBalanceAsync(invoice.ClientId, _context, cancellationToken);
+            await BillingSyncService.SyncClientBalanceAsync(invoice.ClientId, _context, cancellationToken);
             await _context.SaveChangesAsync(cancellationToken);
 
             return true;

@@ -41,20 +41,17 @@ public class IntegrationController : ControllerBase
 {
     private readonly IStarsIntegrationService _starsService;
     private readonly IUserService _userService;
-    private readonly IApplicationDbContext _context;
     private readonly FomsDbContext _fomsDb;
     private readonly StarsIntegrationOptions _options;
 
     public IntegrationController(
         IStarsIntegrationService starsService,
         IUserService userService,
-        IApplicationDbContext context,
         FomsDbContext fomsDb,
         IOptions<StarsIntegrationOptions> options)
     {
         _starsService = starsService;
         _userService = userService;
-        _context = context;
         _fomsDb = fomsDb;
         _options = options.Value;
     }
@@ -352,8 +349,8 @@ public class IntegrationController : ControllerBase
                 }
             }
 
-            var existing = await _context.Employees.FirstOrDefaultAsync(e =>
-                e.Id == fomsEmpId || e.Id == empId || e.Username == username || (!string.IsNullOrEmpty(email) && e.Email == email));
+            var existing = await _fomsDb.Users.FirstOrDefaultAsync(u =>
+                u.EmployeeNumber == fomsEmpId || u.EmployeeNumber == empId || u.Username == username);
 
             if (existing != null)
             {
@@ -363,60 +360,41 @@ public class IntegrationController : ControllerBase
                 }
                 if (!string.IsNullOrWhiteSpace(dto.FullName))
                 {
-                    existing.Name = dto.FullName.Trim();
+                    existing.FullName = dto.FullName.Trim();
                 }
                 if (!string.IsNullOrWhiteSpace(dto.Role))
                 {
-                    existing.Role = dto.Role.Trim();
-                }
-                if (!string.IsNullOrWhiteSpace(dto.Phone))
-                {
-                    existing.Phone = dto.Phone.Trim();
-                }
-                if (dto.SalaryRate.HasValue)
-                {
-                    existing.SalaryRate = dto.SalaryRate.Value;
-                }
-                if (dto.DateHired.HasValue)
-                {
-                    existing.DateHired = dto.DateHired.Value;
+                    var rEntity = await _fomsDb.Roles.FirstOrDefaultAsync(r => r.RoleName == dto.Role.Trim());
+                    if (rEntity != null) existing.RoleId = rEntity.RoleId;
                 }
                 existing.IsActive = string.IsNullOrWhiteSpace(dto.Status) || dto.Status.Equals("Active", StringComparison.OrdinalIgnoreCase);
-                existing.Status = string.IsNullOrWhiteSpace(dto.Status) ? "Active" : dto.Status;
                 existing.FailedLoginCount = 0;
                 existing.LockedAt = null;
 
-                await _context.SaveChangesAsync(default);
+                await _fomsDb.SaveChangesAsync();
                 return Ok(new { isSuccess = true, message = "Employee updated in FOMS.", user = existing });
             }
 
             // Direct insertion without circular STARS duplicate check
             var roleName = !string.IsNullOrWhiteSpace(dto.Role) ? dto.Role.Trim() : "Accountant";
-            var roleEntity = await _context.Roles.FirstOrDefaultAsync(r => r.Name == roleName)
-                ?? await _context.Roles.FirstOrDefaultAsync();
+            var roleEntity = await _fomsDb.Roles.FirstOrDefaultAsync(r => r.RoleName == roleName)
+                ?? await _fomsDb.Roles.FirstOrDefaultAsync();
 
-            var newEmployee = new Employee
+            var newUser = new FOMS.Domain.Entities.SqlServer.User
             {
-                Id = fomsEmpId,
+                EmployeeNumber = fomsEmpId,
                 Username = username,
-                Name = !string.IsNullOrWhiteSpace(dto.FullName) ? dto.FullName.Trim() : username,
-                Email = !string.IsNullOrWhiteSpace(email) ? email : $"{username.ToLower()}@speedex.com",
-                Role = roleName,
-                RoleId = roleEntity?.Id,
-                Phone = dto.Phone?.Trim(),
-                SalaryRate = dto.SalaryRate,
-                DateHired = dto.DateHired ?? DateTime.UtcNow,
+                FullName = !string.IsNullOrWhiteSpace(dto.FullName) ? dto.FullName.Trim() : username,
+                RoleId = roleEntity?.RoleId ?? 2,
                 IsActive = string.IsNullOrWhiteSpace(dto.Status) || dto.Status.Equals("Active", StringComparison.OrdinalIgnoreCase),
-                Status = string.IsNullOrWhiteSpace(dto.Status) ? "Active" : dto.Status,
-                SystemAccess = "Finance Operation Service",
                 CreatedAt = DateTime.UtcNow,
                 PasswordHash = AuthService.HashPassword(!string.IsNullOrWhiteSpace(dto.Password) ? dto.Password : "Password@123")
             };
 
-            await _context.Employees.AddAsync(newEmployee);
-            await _context.SaveChangesAsync(default);
+            await _fomsDb.Users.AddAsync(newUser);
+            await _fomsDb.SaveChangesAsync();
 
-            return Ok(new { isSuccess = true, message = "User provisioned successfully into FOMS.", user = newEmployee });
+            return Ok(new { isSuccess = true, message = "User provisioned successfully into FOMS.", user = newUser });
         }
         catch (Exception ex)
         {
@@ -457,8 +435,8 @@ public class IntegrationController : ControllerBase
             return BadRequest(new { isSuccess = false, message = "EmployeeId and NewPassword are required." });
 
         var cleanId = request.EmployeeId.Trim();
-        var user = await _context.Employees.FirstOrDefaultAsync(e =>
-            e.Id == cleanId || e.Username == cleanId || e.Email.ToLower() == cleanId.ToLower());
+        var user = await _fomsDb.Users.FirstOrDefaultAsync(u =>
+            u.EmployeeNumber == cleanId || u.Username == cleanId);
 
         if (user == null)
         {
@@ -466,12 +444,11 @@ public class IntegrationController : ControllerBase
         }
 
         user.PasswordHash = AuthService.HashPassword(request.NewPassword);
-        user.Status = "Active";
         user.IsActive = true;
         user.FailedLoginCount = 0;
         user.LockedAt = null;
 
-        await _context.SaveChangesAsync(default);
+        await _fomsDb.SaveChangesAsync();
         return Ok(new { isSuccess = true, message = "Password synchronized in FOMS successfully." });
     }
 }

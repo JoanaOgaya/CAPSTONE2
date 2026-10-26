@@ -78,22 +78,18 @@ public class ConfirmUniqueDto
 [Route("api/ai/duplicates")]
 [Route("api/duplicates")]
 [Route("ai/duplicates")]
-[Route("duplicates")]
-[AllowAnonymous]
+[Authorize]
 public class AiDuplicatesController : ApiControllerBase
 {
-    private readonly IApplicationDbContext _context;
     private readonly FomsDbContext _fomsDb;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
 
     public AiDuplicatesController(
-        IApplicationDbContext context,
         FomsDbContext fomsDb,
         IHttpClientFactory httpClientFactory,
         IConfiguration configuration)
     {
-        _context = context;
         _fomsDb = fomsDb;
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
@@ -121,7 +117,7 @@ public class AiDuplicatesController : ApiControllerBase
         var clientMap = new Dictionary<int, string>();
         try
         {
-            var clients = await _fomsDb.Clients.AsNoTracking().Select(c => new { c.ClientId, c.CompanyName }).ToListAsync();
+            var clients = await _fomsDb.Clients.AsNoTracking().Where(c => c.ClientId != null).Select(c => new { ClientId = c.ClientId!.Value, c.CompanyName }).ToListAsync();
             foreach (var c in clients)
             {
                 if (!clientMap.ContainsKey(c.ClientId))
@@ -133,9 +129,7 @@ public class AiDuplicatesController : ApiControllerBase
         var invoices = await _fomsDb.Invoices.AsNoTracking().ToListAsync();
         var receipts = await _fomsDb.OfficialReceipts.AsNoTracking().ToListAsync();
         var liquidations = await _fomsDb.Liquidations.AsNoTracking().Where(l => l.IsDeleted != true).ToListAsync();
-        var appInvoices = await _context.Invoices.AsNoTracking().ToListAsync();
-        var appPayments = await _context.Payments.AsNoTracking().ToListAsync();
-        var appClients = await _context.Clients.AsNoTracking().ToListAsync();
+        var appPayments = await _fomsDb.Payments.AsNoTracking().ToListAsync();
 
         var items = new List<object>();
 
@@ -157,11 +151,11 @@ public class AiDuplicatesController : ApiControllerBase
                             docNum.StartsWith("SHP", StringComparison.OrdinalIgnoreCase) ||
                             docNum.StartsWith("BI", StringComparison.OrdinalIgnoreCase) ||
                             docNum.Contains("invoice", StringComparison.OrdinalIgnoreCase) ||
-                            appInvoices.Any(i => !string.IsNullOrEmpty(i.InvoiceNo) && docNum.Contains(i.InvoiceNo, StringComparison.OrdinalIgnoreCase));
+                            invoices.Any(i => !string.IsNullOrEmpty(i.InvoiceNo) && docNum.Contains(i.InvoiceNo, StringComparison.OrdinalIgnoreCase));
             bool isRecDoc = docNum.StartsWith("OR", StringComparison.OrdinalIgnoreCase) ||
                             docNum.Contains("receipt", StringComparison.OrdinalIgnoreCase) ||
                             docNum.Contains("TX", StringComparison.OrdinalIgnoreCase) ||
-                            appPayments.Any(p => !string.IsNullOrEmpty(p.OrNumber) && docNum.Contains(p.OrNumber, StringComparison.OrdinalIgnoreCase));
+                            appPayments.Any(p => !string.IsNullOrEmpty(p.ReferenceNumber) && docNum.Contains(p.ReferenceNumber, StringComparison.OrdinalIgnoreCase));
 
             Liquidation? matchedLiq = null;
             Invoice? matchedInv = null;
@@ -191,8 +185,8 @@ public class AiDuplicatesController : ApiControllerBase
                 matchedLiq = liquidations.FirstOrDefault(l => !string.IsNullOrEmpty(l.ReferenceNumber) && (docNum.Equals(l.ReferenceNumber, StringComparison.OrdinalIgnoreCase) || cleanDocNo.Equals(l.ReferenceNumber, StringComparison.OrdinalIgnoreCase)));
             }
 
-            var appInvMatch = appInvoices.FirstOrDefault(i => i.InvoiceNo.Equals(cleanDocNo, StringComparison.OrdinalIgnoreCase) || docNum.StartsWith(i.InvoiceNo, StringComparison.OrdinalIgnoreCase));
-            var appPayMatch = appPayments.FirstOrDefault(p => (!string.IsNullOrEmpty(p.OrNumber) && (p.OrNumber.Equals(cleanDocNo, StringComparison.OrdinalIgnoreCase) || docNum.StartsWith(p.OrNumber, StringComparison.OrdinalIgnoreCase))) ||
+            var appInvMatch = invoices.FirstOrDefault(i => !string.IsNullOrEmpty(i.InvoiceNo) && (i.InvoiceNo.Equals(cleanDocNo, StringComparison.OrdinalIgnoreCase) || docNum.StartsWith(i.InvoiceNo, StringComparison.OrdinalIgnoreCase)));
+            var appPayMatch = appPayments.FirstOrDefault(p => (!string.IsNullOrEmpty(p.ReferenceNumber) && (p.ReferenceNumber.Equals(cleanDocNo, StringComparison.OrdinalIgnoreCase) || docNum.StartsWith(p.ReferenceNumber, StringComparison.OrdinalIgnoreCase))) ||
                                                                (!string.IsNullOrEmpty(p.InvoiceNo) && (p.InvoiceNo.Equals(cleanDocNo, StringComparison.OrdinalIgnoreCase) || docNum.StartsWith(p.InvoiceNo, StringComparison.OrdinalIgnoreCase))));
 
             if (matchedLiq != null || isLiqDoc)
@@ -226,7 +220,7 @@ public class AiDuplicatesController : ApiControllerBase
                         ? resolvedName
                         : "Lazada Philippines");
                 amount = appPayMatch != null ? appPayMatch.Amount : (matchedRec?.IssuedAmount ?? 0m);
-                existingRecord = appPayMatch != null && !string.IsNullOrEmpty(appPayMatch.OrNumber) ? appPayMatch.OrNumber : (matchedRec?.OrNumber ?? cleanDocNo);
+                existingRecord = appPayMatch != null && !string.IsNullOrEmpty(appPayMatch.ReferenceNumber) ? appPayMatch.ReferenceNumber : (matchedRec?.OrNumber ?? cleanDocNo);
                 createdBy = appPayMatch != null && !string.IsNullOrWhiteSpace(appPayMatch.RecordedBy)
                     ? appPayMatch.RecordedBy
                     : (matchedRec != null && !string.IsNullOrWhiteSpace(matchedRec.IssuedBy) ? matchedRec.IssuedBy : "Cashier / Collection");
@@ -334,7 +328,7 @@ public class AiDuplicatesController : ApiControllerBase
         var clientMap = new Dictionary<int, string>();
         try
         {
-            var clients = await _fomsDb.Clients.AsNoTracking().Select(c => new { c.ClientId, c.CompanyName }).ToListAsync();
+            var clients = await _fomsDb.Clients.AsNoTracking().Where(c => c.ClientId != null).Select(c => new { ClientId = c.ClientId!.Value, c.CompanyName }).ToListAsync();
             foreach (var c in clients)
             {
                 if (!clientMap.ContainsKey(c.ClientId))
@@ -656,7 +650,7 @@ public class AiDuplicatesController : ApiControllerBase
         var clientMap = new Dictionary<int, string>();
         try
         {
-            var clients = await _fomsDb.Clients.AsNoTracking().Select(c => new { c.ClientId, c.CompanyName }).ToListAsync();
+            var clients = await _fomsDb.Clients.AsNoTracking().Where(c => c.ClientId != null).Select(c => new { ClientId = c.ClientId!.Value, c.CompanyName }).ToListAsync();
             foreach (var c in clients)
             {
                 if (!clientMap.ContainsKey(c.ClientId))

@@ -153,10 +153,10 @@ public static class ValidationFeatures
                     await _context.SaveChangesAsync(cancellationToken);
 
                     // Sync Billing Invoice and ReceivableBalance
-                    await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
+                    await BillingSyncService.SyncBillingInvoiceAndReceivableAsync(invoice, _context, cancellationToken);
 
                     // Sync client balance authoritatively
-                    await BillingComputationService.SyncClientBalanceAsync(invoice.ClientId, _context, cancellationToken);
+                    await BillingSyncService.SyncClientBalanceAsync(invoice.ClientId, _context, cancellationToken);
                 }
             }
 

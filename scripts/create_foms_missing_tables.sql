@@ -3,7 +3,11 @@
 -- Safe migrations only: Does NOT drop existing tables or delete existing data
 -- ============================================================================
 
-USE FOMS_DB;
+-- Target database context is inherited from connection / sqlcmd -d
+IF DB_NAME() = 'master'
+BEGIN
+    USE FOMS_DB;
+END
 GO
 
 SET ANSI_NULLS ON;
@@ -72,6 +76,26 @@ END
 ELSE
 BEGIN
     UPDATE Roles SET role_id = 4, role_name = 'Assistant Financial Manager' WHERE Name = 'Assistant Financial Manager' OR role_name = 'Assistant Financial Manager';
+END
+IF NOT EXISTS (SELECT 1 FROM Roles WHERE role_name = 'Operations Coordinator' OR Name = 'Operations Coordinator' OR role_id = 5)
+BEGIN
+    INSERT INTO Roles (Id, Name, Description, role_id, role_name, created_at)
+    VALUES ('ROLE-005', 'Operations Coordinator', 'Operations Coordinator (STARS/DMS Non-Login)', 5, 'Operations Coordinator', SYSUTCDATETIME());
+END
+ELSE
+BEGIN
+    UPDATE Roles SET role_id = 5, role_name = 'Operations Coordinator' WHERE Name = 'Operations Coordinator' OR role_name = 'Operations Coordinator';
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM Roles WHERE role_name = 'Client' OR Name = 'Client' OR role_id = 6)
+BEGIN
+    INSERT INTO Roles (Id, Name, Description, role_id, role_name, created_at)
+    VALUES ('ROLE-006', 'Client', 'External Client Role', 6, 'Client', SYSUTCDATETIME());
+END
+ELSE
+BEGIN
+    UPDATE Roles SET role_id = 6, role_name = 'Client' WHERE Name = 'Client' OR role_name = 'Client';
 END
 GO
 
@@ -206,7 +230,75 @@ IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Invo
 BEGIN
     ALTER TABLE Invoices ADD validation_status NVARCHAR(50) NULL;
 END
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'client_id')
+BEGIN
+    ALTER TABLE Invoices ADD client_id INT NULL;
+END
 GO
+
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'total_amount')
+BEGIN
+    ALTER TABLE Invoices ADD total_amount DECIMAL(18,2) NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'paid_amount')
+BEGIN
+    ALTER TABLE Invoices ADD paid_amount DECIMAL(18,2) NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'outstanding_balance')
+BEGIN
+    ALTER TABLE Invoices ADD outstanding_balance DECIMAL(18,2) NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'due_date')
+BEGIN
+    ALTER TABLE Invoices ADD due_date DATE NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'created_at')
+BEGIN
+    ALTER TABLE Invoices ADD created_at DATETIME2 NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Invoices' AND COLUMN_NAME = 'updated_at')
+BEGIN
+    ALTER TABLE Invoices ADD updated_at DATETIME2 NULL;
+END
+GO
+
+ALTER TABLE dbo.Invoices ALTER COLUMN AgingBucket NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN PaymentStatus NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN PaymentValidationStatus NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN BillingDate NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN DueDate NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN DateEncoded NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN EncodedBy NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN LastUpdated NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN UpdatedBy NVARCHAR(MAX) NULL;
+GO
+ALTER TABLE dbo.Invoices ALTER COLUMN Description NVARCHAR(MAX) NULL;
+GO
+
+IF EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'FK_Invoices_Clients_ClientId')
+BEGIN
+    ALTER TABLE dbo.Invoices DROP CONSTRAINT FK_Invoices_Clients_ClientId;
+END
+GO
+
 
 UPDATE Invoices SET invoice_id = 1, invoice_number = InvoiceNo, invoice_status = 'Pending Validation', validation_status = 'Pending Validation', billing_period = 'October 2026' WHERE Id = 'INV-001';
 UPDATE Invoices SET invoice_id = 2, invoice_number = InvoiceNo, invoice_status = 'Approved', validation_status = 'Validated', billing_period = 'October 2026' WHERE Id = 'INV-002';
@@ -255,6 +347,16 @@ BEGIN
     ALTER TABLE Payments ADD payment_id INT NULL;
 END
 GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Payments' AND COLUMN_NAME = 'Flow')
+BEGIN
+    ALTER TABLE Payments ADD Flow NVARCHAR(100) NULL;
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Payments' AND COLUMN_NAME = 'proof_of_payment_path')
+BEGIN
+    ALTER TABLE Payments ADD proof_of_payment_path AS ([ProofImageUrl]);
+END
+GO
 UPDATE Payments SET payment_id = 1 WHERE Id = 'PAY-001';
 GO
 
@@ -295,11 +397,19 @@ BEGIN
         pod_status NVARCHAR(50) NULL DEFAULT 'Validated',
         is_billed BIT NOT NULL DEFAULT 0,
         invoice_id INT NULL,
+        invoice_no NVARCHAR(100) NULL,
         created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
         updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
     );
     CREATE INDEX IX_Waybills_Number ON Waybills(waybill_number);
     CREATE INDEX IX_Waybills_Client ON Waybills(client_id);
+END
+ELSE
+BEGIN
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'Waybills' AND COLUMN_NAME = 'invoice_no')
+    BEGIN
+        ALTER TABLE Waybills ADD invoice_no NVARCHAR(100) NULL;
+    END
 END
 GO
 
@@ -443,14 +553,47 @@ GO
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'CashAdvances')
 BEGIN
     CREATE TABLE CashAdvances (
-        cash_advance_id INT IDENTITY(1,1) PRIMARY KEY,
-        employee_id INT NULL,
-        amount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
-        purpose NVARCHAR(500) NULL,
-        status NVARCHAR(50) NOT NULL DEFAULT 'Pending Approval',
-        approved_by INT NULL,
-        created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+        AdvanceId NVARCHAR(100) PRIMARY KEY,
+        CourierName NVARCHAR(150) NULL,
+        TripReference NVARCHAR(100) NULL,
+        AmountGiven DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+        ReleaseDate DATETIME2 NULL,
+        ReleasedBy NVARCHAR(100) NULL,
+        Status NVARCHAR(50) NOT NULL DEFAULT 'Pending Finance Review',
+        Notes NVARCHAR(500) NULL,
+        ApprovedBy NVARCHAR(100) NULL,
+        ApprovedAt DATETIME2 NULL,
+        DisbursedBy NVARCHAR(100) NULL,
+        DisbursedAt DATETIME2 NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
     );
+END
+ELSE
+BEGIN
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'AdvanceId')
+        ALTER TABLE CashAdvances ADD AdvanceId NVARCHAR(100) NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'CourierName')
+        ALTER TABLE CashAdvances ADD CourierName NVARCHAR(150) NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'TripReference')
+        ALTER TABLE CashAdvances ADD TripReference NVARCHAR(100) NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'AmountGiven')
+        ALTER TABLE CashAdvances ADD AmountGiven DECIMAL(18,2) NOT NULL DEFAULT 0.00;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'ReleaseDate')
+        ALTER TABLE CashAdvances ADD ReleaseDate DATETIME2 NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'ReleasedBy')
+        ALTER TABLE CashAdvances ADD ReleasedBy NVARCHAR(100) NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'Notes')
+        ALTER TABLE CashAdvances ADD Notes NVARCHAR(500) NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'ApprovedBy')
+        ALTER TABLE CashAdvances ADD ApprovedBy NVARCHAR(100) NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'ApprovedAt')
+        ALTER TABLE CashAdvances ADD ApprovedAt DATETIME2 NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'DisbursedBy')
+        ALTER TABLE CashAdvances ADD DisbursedBy NVARCHAR(100) NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'DisbursedAt')
+        ALTER TABLE CashAdvances ADD DisbursedAt DATETIME2 NULL;
+    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'CashAdvances' AND COLUMN_NAME = 'CreatedAt')
+        ALTER TABLE CashAdvances ADD CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();
 END
 GO
 
@@ -470,8 +613,13 @@ BEGIN
         validated_by INT NULL,
         validated_at DATETIME2 NULL,
         date_submitted DATETIME2 NULL DEFAULT SYSUTCDATETIME(),
+        is_deleted BIT NOT NULL DEFAULT 0,
         created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
     );
+END
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Liquidations') AND name = 'is_deleted')
+BEGIN
+    ALTER TABLE dbo.Liquidations ADD is_deleted BIT NOT NULL DEFAULT 0;
 END
 GO
 
@@ -643,5 +791,90 @@ BEGIN
 END
 GO
 
+-- 28. AuditLogs Table Alignment with FOMS MSSQL Domain
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'audit_id')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD audit_id INT IDENTITY(1,1);
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'role')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD role NVARCHAR(MAX) NULL;
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'module')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD module NVARCHAR(MAX) NULL;
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'remarks')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD remarks NVARCHAR(MAX) NULL;
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'affected_record_type')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD affected_record_type NVARCHAR(MAX) NULL;
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'affected_record_id')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD affected_record_id INT NULL;
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'created_at')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD created_at DATETIME2 NULL DEFAULT SYSUTCDATETIME();
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'user_id')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD user_id INT NULL;
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'before_value')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD before_value NVARCHAR(MAX) NULL;
+END
+GO
+IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'AuditLogs' AND COLUMN_NAME = 'after_value')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD after_value NVARCHAR(MAX) NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('dbo.AuditLogs') AND name = 'DF_AuditLogs_Id')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD CONSTRAINT DF_AuditLogs_Id DEFAULT NEWID() FOR Id;
+END
+GO
+IF NOT EXISTS (SELECT * FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('dbo.AuditLogs') AND name = 'DF_AuditLogs_UserId')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD CONSTRAINT DF_AuditLogs_UserId DEFAULT 'SYSTEM' FOR UserId;
+END
+GO
+IF NOT EXISTS (SELECT * FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('dbo.AuditLogs') AND name = 'DF_AuditLogs_EntityName')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD CONSTRAINT DF_AuditLogs_EntityName DEFAULT 'System' FOR EntityName;
+END
+GO
+IF NOT EXISTS (SELECT * FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('dbo.AuditLogs') AND name = 'DF_AuditLogs_EntityId')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD CONSTRAINT DF_AuditLogs_EntityId DEFAULT 'System' FOR EntityId;
+END
+GO
+IF NOT EXISTS (SELECT * FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('dbo.AuditLogs') AND name = 'DF_AuditLogs_Details')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD CONSTRAINT DF_AuditLogs_Details DEFAULT '' FOR Details;
+END
+GO
+IF NOT EXISTS (SELECT * FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID('dbo.AuditLogs') AND name = 'DF_AuditLogs_LoggedAt')
+BEGIN
+    ALTER TABLE dbo.AuditLogs ADD CONSTRAINT DF_AuditLogs_LoggedAt DEFAULT SYSUTCDATETIME() FOR LoggedAt;
+END
+GO
+
 PRINT 'All FOMS_DB tables and columns checked/created successfully.';
 GO
+
+

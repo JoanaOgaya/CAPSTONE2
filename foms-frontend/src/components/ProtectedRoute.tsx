@@ -8,6 +8,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { DEFAULT_LANDING_ROUTE, getModule, LANDING_PATH, type ModuleKey } from '../utils/roleAccess';
+import { ForbiddenPage } from './shared/ForbiddenPage';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -32,8 +33,7 @@ export function RoleGuard({ module, children }: { module: ModuleKey; children: R
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (!getModule(module).roles[user.role]) {
-    // Silently redirect to the user's role dashboard without error screens or toasts
-    return <Navigate to={LANDING_PATH[user.role] || DEFAULT_LANDING_ROUTE} replace />;
+    return <ForbiddenPage />;
   }
   return <>{children}</>;
 }

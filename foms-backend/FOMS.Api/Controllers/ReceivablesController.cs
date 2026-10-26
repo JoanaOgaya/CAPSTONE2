@@ -1,13 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using FOMS.Application.Interfaces;
 using FOMS.Application.Services;
-using FOMS.Domain.Entities;
+using FOMS.Domain.Entities.SqlServer;
+using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
 
@@ -20,17 +21,37 @@ namespace FOMS.Api.Controllers;
 [ApiController]
 public class ReceivablesController : ControllerBase
 {
-    private readonly IApplicationDbContext _context;
+    private readonly FomsDbContext _fomsDb;
 
-    public ReceivablesController(IApplicationDbContext context)
+    public ReceivablesController(FomsDbContext fomsDb)
     {
-        _context = context;
+        _fomsDb = fomsDb;
+    }
+
+    private (string role, string? clientId) GetCaller()
+    {
+        var role = User.FindFirst(ClaimTypes.Role)?.Value
+            ?? User.FindFirst("role")?.Value
+            ?? string.Empty;
+        var clientId = User.FindFirst("client_id")?.Value;
+        return (role, clientId);
     }
 
     [HttpGet("records")]
     public async Task<IActionResult> GetArRecords()
     {
-        var invoices = await _context.Invoices.Where(i => !i.Archived).ToListAsync();
+        var (role, clientIdClaim) = GetCaller();
+
+        var query = _fomsDb.Invoices.AsNoTracking().Where(i => !i.Archived);
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim)) return Forbid("No client association found in token.");
+            query = query.Where(i => i.ClientIdStr == clientIdClaim || (i.ClientId.HasValue && i.ClientId.ToString() == clientIdClaim) || i.ClientName == clientIdClaim);
+        }
+
+        var invoices = await query.ToListAsync();
         foreach (var inv in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(inv);
@@ -38,16 +59,17 @@ public class ReceivablesController : ControllerBase
 
         var records = invoices.Select(i =>
         {
-            var isDueSoon = DateTime.TryParse(i.DueDate, out var dt) && (dt - DateTime.UtcNow).TotalDays <= 7 && (dt - DateTime.UtcNow).TotalDays >= 0;
+            var dueDateStr = i.DueDate?.ToString("yyyy-MM-dd") ?? i.DueDateStr;
+            var isDueSoon = DateTime.TryParse(dueDateStr, out var dt) && (dt - DateTime.UtcNow).TotalDays <= 7 && (dt - DateTime.UtcNow).TotalDays >= 0;
             return new
             {
                 id = i.Id,
                 invoiceId = i.Id,
                 invoiceNumber = i.InvoiceNo,
-                clientId = i.ClientId,
-                clientName = !string.IsNullOrEmpty(i.ClientName) ? i.ClientName : $"Client {i.ClientId}",
+                clientId = i.ClientIdStr ?? (i.ClientId.HasValue ? i.ClientId.Value.ToString() : "1"),
+                clientName = !string.IsNullOrEmpty(i.ClientName) ? i.ClientName : $"Client {i.ClientIdStr}",
                 invoiceDate = i.BillingDate,
-                dueDate = i.DueDate,
+                dueDate = dueDateStr,
                 originalAmount = i.TotalAmount,
                 paidAmount = i.AmountPaid,
                 outstandingBalance = i.Balance,
@@ -68,7 +90,18 @@ public class ReceivablesController : ControllerBase
     [HttpGet("aging")]
     public async Task<IActionResult> GetArAging()
     {
-        var invoices = await _context.Invoices.Where(i => !i.Archived && i.Balance > 0).ToListAsync();
+        var (role, clientIdClaim) = GetCaller();
+
+        var query = _fomsDb.Invoices.AsNoTracking().Where(i => !i.Archived && i.Balance > 0);
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim)) return Forbid("No client association found in token.");
+            query = query.Where(i => i.ClientIdStr == clientIdClaim || (i.ClientId.HasValue && i.ClientId.ToString() == clientIdClaim) || i.ClientName == clientIdClaim);
+        }
+
+        var invoices = await query.ToListAsync();
         foreach (var inv in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(inv);
@@ -87,62 +120,61 @@ public class ReceivablesController : ControllerBase
     }
 
     [HttpGet("follow-ups")]
-    public IActionResult GetFollowUps()
-    {
-        return Ok(new List<object>());
-    }
+    public IActionResult GetFollowUps() => Ok(new List<object>());
 
     [HttpPost("follow-ups")]
-    public IActionResult LogFollowUp([FromBody] object body)
-    {
-        return Ok(body);
-    }
+    public IActionResult LogFollowUp([FromBody] object body) => Ok(body);
 
-    /// <summary>
-    /// GET /api/receivables â€” Returns all ReceivableBalance records projected to safe DTOs
-    /// (avoids circular reference serialization from navigation properties).
-    /// </summary>
-    [Authorize]
     [HttpGet]
     public async Task<IActionResult> GetReceivables()
     {
-        var receivables = await _context.ReceivableBalances
-            .ToListAsync();
+        var (role, clientIdClaim) = GetCaller();
 
-        // Project to a safe DTO to avoid circular reference serialization issues
-        // (Client.Receivables -> ReceivableBalance.Client -> Client...)
+        var query = _fomsDb.AccountsReceivable.AsNoTracking().AsQueryable();
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim)) return Forbid("No client association found in token.");
+            if (int.TryParse(clientIdClaim, out var parsedCId))
+            {
+                query = query.Where(r => r.ClientId == parsedCId);
+            }
+        }
+
+        var receivables = await query.ToListAsync();
         var result = receivables.Select(r => new
         {
-            r.Id,
-            r.ClientId,
-            r.InvoiceId,
-            r.BalanceAmount,
-            r.DueDate,
+            Id = r.ArId.ToString(),
+            ClientId = r.ClientId.ToString(),
+            InvoiceId = r.InvoiceId.ToString(),
+            BalanceAmount = r.OutstandingBalance ?? 0m,
+            DueDate = r.DueDate?.ToString("yyyy-MM-dd"),
         }).ToList();
 
         return Ok(result);
     }
 
-    /// <summary>
-    /// GET /api/receivables/outstanding â€” Live computation of outstanding balances
-    /// from the Invoices table with dynamic aging refresh.
-    /// This is the authoritative endpoint for the Outstanding Balances page.
-    /// </summary>
-    [Authorize]
     [HttpGet("outstanding")]
     public async Task<IActionResult> GetOutstandingBalances()
     {
-        var invoices = await _context.Invoices
-            .Where(i => !i.Archived)
-            .ToListAsync();
+        var (role, clientIdClaim) = GetCaller();
 
-        // Dynamically refresh aging, overdue status, and balance on every GET
+        var query = _fomsDb.Invoices.AsNoTracking().Where(i => !i.Archived);
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim)) return Forbid("No client association found in token.");
+            query = query.Where(i => i.ClientIdStr == clientIdClaim || (i.ClientId.HasValue && i.ClientId.ToString() == clientIdClaim) || i.ClientName == clientIdClaim);
+        }
+
+        var invoices = await query.ToListAsync();
         foreach (var invoice in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(invoice);
         }
 
-        // Only return invoices with an outstanding balance > 0
         var outstanding = invoices
             .Where(i => i.Balance > 0)
             .OrderByDescending(i => i.DaysOverdue)
@@ -151,17 +183,21 @@ public class ReceivablesController : ControllerBase
         return Ok(outstanding);
     }
 
-    /// <summary>
-    /// GET /api/receivables/summary â€” Aggregate totals for the Bookkeeper dashboard.
-    /// </summary>
-    [Authorize]
     [HttpGet("summary")]
     public async Task<IActionResult> GetOutstandingSummary()
     {
-        var invoices = await _context.Invoices
-            .Where(i => !i.Archived)
-            .ToListAsync();
+        var (role, clientIdClaim) = GetCaller();
 
+        var query = _fomsDb.Invoices.AsNoTracking().Where(i => !i.Archived);
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim)) return Forbid("No client association found in token.");
+            query = query.Where(i => i.ClientIdStr == clientIdClaim || (i.ClientId.HasValue && i.ClientId.ToString() == clientIdClaim) || i.ClientName == clientIdClaim);
+        }
+
+        var invoices = await query.ToListAsync();
         foreach (var invoice in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(invoice);
@@ -189,26 +225,28 @@ public class ReceivablesController : ControllerBase
         return Ok(summary);
     }
 
-    /// <summary>
-    /// GET /api/receivables/aging-accounts â€” Returns aging accounts with dynamically refreshed DaysPastDue.
-    /// </summary>
-    [Authorize]
     [HttpGet("aging-accounts")]
     public async Task<IActionResult> GetAgingAccounts()
     {
-        var invoices = await _context.Invoices
-            .Where(i => !i.Archived && i.Balance > 0)
-            .ToListAsync();
+        var (role, clientIdClaim) = GetCaller();
 
-        // Refresh aging dynamically â€” AgingAccounts DB table may be stale
+        var query = _fomsDb.Invoices.AsNoTracking().Where(i => !i.Archived && i.Balance > 0);
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim)) return Forbid("No client association found in token.");
+            query = query.Where(i => i.ClientIdStr == clientIdClaim || (i.ClientId.HasValue && i.ClientId.ToString() == clientIdClaim) || i.ClientName == clientIdClaim);
+        }
+
+        var invoices = await query.ToListAsync();
         foreach (var invoice in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(invoice);
         }
 
-        // Project to a fresh aging view from invoice data (authoritative)
         var aging = invoices
-            .GroupBy(i => i.ClientId)
+            .GroupBy(i => i.ClientIdStr ?? (i.ClientId.HasValue ? i.ClientId.Value.ToString() : "1"))
             .Select(g => new
             {
                 ClientId = g.Key,
@@ -224,17 +262,21 @@ public class ReceivablesController : ControllerBase
         return Ok(aging);
     }
 
-    /// <summary>
-    /// GET /api/receivables/overdue-accounts â€” Returns clients with overdue invoices (DaysOverdue > 0).
-    /// </summary>
-    [Authorize]
     [HttpGet("overdue-accounts")]
     public async Task<IActionResult> GetOverdueAccounts()
     {
-        var invoices = await _context.Invoices
-            .Where(i => !i.Archived && i.Balance > 0)
-            .ToListAsync();
+        var (role, clientIdClaim) = GetCaller();
 
+        var query = _fomsDb.Invoices.AsNoTracking().Where(i => !i.Archived && i.Balance > 0);
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim)) return Forbid("No client association found in token.");
+            query = query.Where(i => i.ClientIdStr == clientIdClaim || (i.ClientId.HasValue && i.ClientId.ToString() == clientIdClaim) || i.ClientName == clientIdClaim);
+        }
+
+        var invoices = await query.ToListAsync();
         foreach (var invoice in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(invoice);
@@ -242,7 +284,7 @@ public class ReceivablesController : ControllerBase
 
         var overdue = invoices
             .Where(i => i.DaysOverdue > 0)
-            .GroupBy(i => i.ClientId)
+            .GroupBy(i => i.ClientIdStr ?? (i.ClientId.HasValue ? i.ClientId.Value.ToString() : "1"))
             .Select(g => new
             {
                 ClientId = g.Key,
@@ -258,23 +300,28 @@ public class ReceivablesController : ControllerBase
         return Ok(overdue);
     }
 
-    /// <summary>
-    /// GET /api/receivables/{clientId} â€” Returns outstanding balance details for a specific client.
-    /// Accepts both CL- (frontend) and CA- (billing account) prefixed client IDs.
-    /// </summary>
-    [Authorize]
     [HttpGet("{clientId}")]
     public async Task<IActionResult> GetClientOutstanding(string clientId)
     {
-        // Normalize: build both CL- and CA- variant to search across both ID namespaces
+        var (role, clientIdClaim) = GetCaller();
+
+        if (string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "CLIENT", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(clientIdClaim) || (!clientId.Equals(clientIdClaim, StringComparison.OrdinalIgnoreCase) && !clientIdClaim.Contains(clientId)))
+            {
+                return Forbid("Access denied to another client's outstanding balance.");
+            }
+        }
+
         var altClientId = clientId.StartsWith("CL-")
             ? clientId.Replace("CL-", "CA-")
             : clientId.StartsWith("CA-")
                 ? clientId.Replace("CA-", "CL-")
                 : clientId;
 
-        var invoices = await _context.Invoices
-            .Where(i => (i.ClientId == clientId || i.ClientId == altClientId) && !i.Archived && i.Balance > 0)
+        var invoices = await _fomsDb.Invoices
+            .Where(i => (i.ClientIdStr == clientId || i.ClientIdStr == altClientId || (i.ClientId.HasValue && i.ClientId.ToString() == clientId)) && !i.Archived && i.Balance > 0)
             .ToListAsync();
 
         foreach (var invoice in invoices)
@@ -282,28 +329,16 @@ public class ReceivablesController : ControllerBase
             BillingComputationService.RefreshInvoiceAging(invoice);
         }
 
-        var client = await _context.Clients.FirstOrDefaultAsync(c => c.Id == clientId || c.Id == altClientId);
+        var client = await _fomsDb.Clients.FirstOrDefaultAsync(c => c.Id == clientId || c.ClientCode == clientId || c.Id == altClientId);
 
         var result = new
         {
             ClientId = clientId,
-            ClientName = client?.Name ?? invoices.FirstOrDefault()?.ClientName ?? "Unknown",
+            ClientName = client?.Name ?? client?.CompanyName ?? invoices.FirstOrDefault()?.ClientName ?? "Unknown",
             TotalOutstanding = invoices.Sum(i => i.Balance),
             Invoices = invoices.OrderByDescending(i => i.DaysOverdue).ToList()
         };
 
         return Ok(result);
-    }
-
-    /// <summary>
-    /// POST /api/receivables â€” Manually create a ReceivableBalance record (Accountant only).
-    /// </summary>
-    [Authorize]
-    [HttpPost]
-    public async Task<IActionResult> Create([FromBody] ReceivableBalance request)
-    {
-        await _context.ReceivableBalances.AddAsync(request);
-        await _context.SaveChangesAsync(default);
-        return CreatedAtAction(nameof(GetReceivables), new { id = request.Id }, request);
     }
 }

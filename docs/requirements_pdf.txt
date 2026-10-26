@@ -1,0 +1,1680 @@
+--- PAGE 1 ---
+FOMS Merged Requirements and
+Recommended Flow (Capstone 2)
+Oct 24, 2026 · @joooo · Revised to include the budget control decisions
+Summary: what changed and what is locked
+The merged FOMS keeps Capstone 1's delivery-to-collection backbone, removes its
+duplicate and contradictory requirements, and adds the consultation revisions:
+companywide finance, budgets, a profit-or-loss report, computed billing, and stricter AR
+and payment controls. The interviews changed four earlier recommendations, shown
+below. The budget control decisions (FIN-01, FIN-02, FIN-08 to FIN-13) are merged in this
+version.
+Locked decisions: the flow in section 3 is approved. Speedex is VAT-registered and issues
+paper invoices only (no e-invoicing now). Reports must export to Excel (.xlsx), which the
+interviews prefer. Retention is 2 years for client-visible records and 5 years for internal
+records.
+Topic Earlier recommendation Now (per interviews)
+Partial payments Allowed, with a Partially Paid
+status
+Not accepted. The client settles the
+exact invoiced amount. A short or
+over payment goes to an exception
+queue
+Who validates
+payments
+Accountant Finance Manager validates that funds
+entered the account. The owner/CEO
+approves large outflows and
+discounts
+Online payments Webhook confirms payment The gateway webhook only marks
+"Paid at gateway". Finance still
+confirms before the invoice becomes
+Paid
+Official Receipt Supplementary document The collector's reference number is
+the OR. The invoice stays the
+principal tax document (EOPT)
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 1 of 37
+--- PAGE 2 ---
+Locked budget decisions
+Locked scope decision (one month left): SpeedPay is cut to a client portal with proof-of-
+payment upload. The PayMongo payment (SPD-02 to SPD-05, SPD-07) moves to stretch
+scope and is built only if the core is tested by the end of week 3. SPD-05 stays traceable
+to the consultation revision on separate first and last names. The AI document checking
+(AIL-04) is also stretch. Nothing in the DMS integrations or the main billing-to-cash flow
+changes. Confirm with your adviser that the gateway is not required. FOMS already
+exists, so it is audited first and cleaned up against this document (see the Annex: Existing
+system cleanup and data migration).
+Topic Decision
+Over-budget handling Soft block: allowed only with an override, a reason
+and an approver
+Budget level Per category, per department, per month, rolling up
+to the annual company total
+Budget transfers Allowed with approval. The Finance Manager
+requests, the CEO/president approves, a reason is
+required, and the company total does not change
+Approvals The Finance Manager approves cash advances
+within budget and small overrides (at or below the
+CSH-09 threshold). The CEO/president approves
+overrides above the threshold, budget transfers,
+carry-overs and the annual budget. The Finance
+Manager requests transfers and carry-overs. The
+Head Accountant is not in the budget approval
+chain
+Unused monthly budget No automatic carry-over. It stays within the annual
+total and is shown as "Remaining". Finance can
+request a carry-over, which is treated like a
+transfer: it needs approval and is logged
+Weekly view Budget is not set weekly. The weekly report shows
+actual spending against the monthly budget
+Departments One shared department list in DMS and FOMS
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 2 of 37
+--- PAGE 3 ---
+Business rules confirmed by the interviews
+These rules come straight from the finance interview and the liquidation/billing
+questionnaire. Every requirement in section 6 traces back to one of them.
+Area Rule
+Billing basis Deliver first, invoice after. Only the original client-
+signed waybill/POD is billable. A lost original needs
+a certified true copy (CTC). A POD with a missing
+counterpart is not billable
+Duplicate control Accounting keeps its own copy of each POD and
+gross-checks it against the original when it arrives.
+Duplicate waybills are the top billing problem, so
+the system must alert when the same waybill
+number is entered twice
+Billing schedule Standard is monthly. Weekly or 15/30 on client
+request. The invoice goes to Operations for
+dispatch only after Accounting has billed it
+Rates Each client has its own rates from the signed
+proposal. Rates depend on area (NCR, Luzon,
+Visayas, Mindanao) plus an ODA (outside delivery
+area) rate
+Chargeable weight The higher of volumetric weight (L × W × H in cm ÷
+3500) and actual kilos
+Charges per line Freight, valuation (1% of declared value), ODA, 12%
+VAT, then fuel surcharge by matrix. Taxes and
+surcharges are added line by line
+Review The Head Accountant verifies invoices and does
+random checks. The system must pre-alert on a
+suspect computation
+Terms 30 days from the client's receipt of the invoice.
+Accounting follows up about a week after billing to
+confirm receipt. Finance runs a weekly aging of
+accounts
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 3 of 37
+--- PAGE 4 ---
+Area Rule
+Payment channels Check (priority), online bank transfer, cash. No
+partial payments: the client settles the invoiced
+amount
+Payment proof Deposit slip, or a screenshot of the reference
+number for online transfers. Finance confirms
+funds reached the account before the payment is
+valid
+Receipt A collector is assigned every Friday. The reference
+number issued at collection serves as the OR
+Unidentified payment Held for verification until a client claims it
+Discount Usually 10%, approved by the CEO/president,
+deducted from the invoice total
+Credit memo Used for lost or damaged cargo owed to the client
+Liquidation Original receipts only. Due the next day for
+NCR/Luzon, on return for out-of-delivery-area
+trips. Late or invalid items are deducted from the
+liable person. Leftover cash goes back in the
+courier's envelope. Overspending needs
+supervisor pre-approval and an original receipt
+Rejection reasons Wrong receipt date or amount, manual fuel receipt,
+late submission
+Expense categories Fuel, toll fees, parking, food allowance, vulcanizing.
+Other outflows: hotel, food allowance and office
+supplies for supervisor branch visits
+Cash accounts Bank (cheque deposit, client cash deposit) and
+cash on hand
+Net cash Beginning balance + validated inflows − validated
+outflows. Liquidation updates outflow daily. Large
+outflows need CEO/president approval
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 4 of 37
+--- PAGE 5 ---
+Final recommended flow
+Every payment is confirmed by Finance before an invoice is Paid.
+Billing to cash flow: 12 stages, 1 decision.
+1. Delivery done (DMS)
+2. POD check (Accountant)
+3. Billing run (System, by schedule)
+4. Draft invoice (Accountant)
+5. Invoice review (Head Accountant)
+6. Issue and send (System, via STARS)
+Area Rule
+Budget control Budgets are set per category, per department, per
+month and roll up to the annual company total.
+Every cash advance and direct disbursement is
+checked against Available = Budget − Committed −
+Actual. Over budget is a soft block that needs an
+override, a reason and an approver. Budget
+transfers need CEO/president approval. Unused
+monthly budget does not carry over automatically
+Roles Finance Manager audits expenses and cash flow
+and validates incoming payments. The Assistant
+validates liquidations. Only the Head Accountant
+audits accounts. The owner approves discounts,
+budget transfers and large outflows
+Client changes The account's coordinator manages the change
+and informs Accounting. It applies from the next
+billing
+Retention 2 years for client-visible and billing history, 5 years
+for internal records
+Reports Aging of accounts is the most frequent report.
+Invoices are the real-time basis. Excel is preferred
+Confidentiality A client must never see another client's billing
+amounts
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 5 of 37
+--- PAGE 6 ---
+7. Client receives (STARS returns the signed copy)
+8. AR and aging (Due = receipt + 30 days)
+9. Client pays (Proof of payment)
+10. Finance check (Finance Manager). Decision: yes leads to Paid, no leads to the
+Exception queue
+11. Paid (OR reference, cash inflow)
+12. Exception queue (Held for review)
+Two checks gate billing (POD check, invoice review) and one gates payment (Finance
+check). A failed delivery stays out of billing until re-delivery. A payment that is short, over,
+duplicate or unidentified goes to the exception queue, never to Paid.
+Runs alongside the main flow:
+Collections: weekly aging by Finance, follow-up about a week after billing, then at due
+date, with disputed invoices on a separate track.
+Adjustments: credit memos for lost or damaged cargo, and discounts of about 10%
+with CEO approval. Both reduce the receivable. Neither is a cash outflow.
+Cash advance and liquidation: request (with category and department), budget
+check, approval (higher position by amount, which reserves the amount as
+Committed), release (outflow), liquidation by the courier, validation by the Assistant
+(Committed becomes Actual and unused commitment is released), then settlement of
+any returned cash or reimbursement. Over budget at the check: override with a
+reason, or transfer budget first.
+Company finance: budget set and approved, budget check on every request, expense
+records, alerts, and one Reports page (weekly, monthly, annual) showing whether the
+company earned a profit.
+Status model
+Each record has its own status field, so a workflow step is never mixed with a payment
+result. Overdue and aging bucket are derived from the due date and are not stored.
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 6 of 37
+--- PAGE 7 ---
+Record Statuses Rule
+Waybill / POD Pending, Validated, CTC, On
+Hold, Rejected
+Validated = original, client-
+signed, matched to
+Accounting's copy. CTC =
+original lost, a certified true
+copy attached with approver
+and reason. Both are billable,
+but CTC is flagged on the
+invoice and in the audit trail.
+On Hold = failed delivery or a
+floating counterpart
+Invoice (document) Draft, For Review, Approved,
+Sent, Received, Disputed, Void
+No edit after Approved. A
+correction is a credit memo.
+Received sets the due date
+Invoice (payment) Unpaid, Paid Paid only when a Finance-
+confirmed payment equals the
+invoice amount. There is no
+partial status because
+Speedex does not accept
+partial payments
+Payment Pending Validation, Validated,
+Rejected, On Hold
+(unidentified), Exception
+(short, over, duplicate)
+Finance Manager validates
+that funds entered the bank or
+cash account. If the stretch
+gateway module is built, a
+gateway result adds the sub-
+state Paid at Gateway before
+Finance confirms
+Aging bucket Not Yet Due, Due Soon, 1–30, 31–
+60, 61–90, 90+ days overdue
+Counted in calendar days from
+the due date (received date +
+30 days). Due Soon window is
+configurable
+Liquidation Pending, Validated, Rejected,
+For Correction, Late
+Rejection reasons are a fixed
+dropdown: wrong receipt date
+or amount, manual fuel receipt,
+late submission, other (with
+remarks)
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 7 of 37
+--- PAGE 8 ---
+The aging buckets follow common AR practice (Current, 1–30, 31–60, 61–90, 90+). The
+interviews do not name the buckets, so confirm them with Finance.
+Billing computation
+The system computes every invoice line from the client's rate configuration and shows
+each step on the invoice. A bare total is never displayed. The formulas below reproduce
+Speedex's own worked example ( ₱ 773.20 for two boxes to NCR).
+Chargeable weight (CW) = max(volumetric kg, actual kg), where volumetric kg = (L ×
+W × H × pieces) ÷ 3500
+Freight = R_min + max(0, CW − 5) × R_excess
+Subtotal = Freight + 0.01 × Declared value + ODA
+VAT = 0.12 × Subtotal
+Fuel surcharge = f × Freight
+Grand total = Subtotal + VAT + Fuel surcharge
+The base rates below are the defaults from the interview. Per-client rates override them,
+and every rate row carries an effective date so past invoices keep their original rates.
+Record Statuses Rule
+Cash advance Requested, Approved,
+Released, Liquidated
+Approval reserves the amount
+as Committed. Release is the
+cash outflow. A validated
+liquidation converts the
+commitment to Actual and
+settles the advance
+Budget line (amounts,
+not statuses)
+Budget, Committed, Actual,
+Available, Remaining
+Available = Budget −
+Committed − Actual.
+Remaining is the unused
+monthly budget and does not
+carry over automatically
+Area Minimum charge (first 5 kg) Excess per kg
+NCR / Metro Manila ₱ 100 ₱ 25
+Luzon ₱ 130 ₱ 45
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 8 of 37
+--- PAGE 9 ---
+Worked example from the interview: 2 boxes to NCR, declared value ₱ 1,000, boxes 35 ×
+50 × 25 cm, actual weight 20 kg, fuel surcharge rate 15%.
+Invoice breakdown: each waybill is a block with its weights, rate lookup, and the lines
+above, then the invoice totals. The printable invoice shows only the invoice (header, client,
+waybill blocks, totals, terms), with no sidebar, navigation or dashboard. The web view uses
+the same breakdown, and the AI layer's explanation reuses it.
+Zero and negative guard: a computed line, invoice, balance or payment of zero or less is
+blocked and sent to an exception queue with a clear reason. It is never shown silently. The
+only legitimate negative is an overpayment, which becomes an explicit unapplied credit
+awaiting review.
+Area Minimum charge (first 5 kg) Excess per kg
+Visayas ₱ 150 ₱ 50
+Mindanao ₱ 150 ₱ 50
+Step Computation Amount
+( ₱ )
+Volumetric weight 35 × 50 × 25 × 2 ÷ 3500 = 25 kg, higher than the
+20 kg actual, so 25 kg is chargeable
+25 kg
+Freight 100 + (25 − 5) × 25 600.00
+Valuation 1% × 1,000 10.00
+ODA Not applicable in this example 0.00
+Subtotal 600 + 10 610.00
+VAT 12% 12% × 610 73.20
+Total before fuel
+surcharge
+610 + 73.20 683.20
+Fuel surcharge 15% × 600 (freight cost) 90.00
+Grand total 683.20 + 90 773.20
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 9 of 37
+--- PAGE 10 ---
+Merged functional requirements
+The 69 Capstone 1 FRs and 25 AI-layer FRs merge into 13 modules. Duplicates are folded
+into one requirement, the AI layer keeps only what is new (scoring, similarity, OCR), and
+each row lists the old IDs it replaces. Priority: H = High, M = Medium, S = Stretch (build
+only if time allows). IDs are written with a hyphen throughout.
+1. Identity and access (IAM)
+The "Coordinator" is not a FOMS login role. It appears only as the account handler on a
+client record.
+ID Requirement Pri Replaces
+IAM-
+01
+Authorized users (Financial
+Manager, Head Accountant,
+Accountant, Assistant of Financial
+Manager, Client) log in through the
+central gateway with JWT
+credentials, and credentials are
+verified before access
+H FR-001, FR-002
+IAM-
+02
+Users can log out securely, and
+inactive sessions end automatically
+after 15 minutes
+H FR-003, FR-007, NFR-007
+IAM-
+03
+Role-based access: each role sees
+and changes only the modules and
+actions its permission matrix allows,
+and unauthenticated or
+unauthorized access is blocked
+H FR-004, FR-005, NFR-006, AI NFR-
+005, AI NFR-008
+IAM-
+04
+Users can view their own profile:
+name, role, recent login history
+M FR-006
+IAM-
+05
+All authentication attempts are
+logged, and accounts lock after
+repeated failures
+H NFR-008
+IAM-
+06
+A client sees only its own invoices,
+payments and amounts, never
+another client's
+H New (interview: billing
+confidentiality)
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 10 of 37
+--- PAGE 11 ---
+2. Client and rate management (CRM)
+3. Waybill and POD validation (POD)
+ID Requirement Pri Replaces
+CRM-01 Authorized users create, view, update and search
+client accounts: name, contact, address, TIN, billing
+schedule, credit term, account handler
+H FR-008, FR-009
+CRM-02 A client becomes billable only after the signed
+proposal and agreed rates are attached
+H New (interview)
+CRM-03 Rate configuration per client: area rates (NCR,
+Luzon, Visayas, Mindanao), minimum and excess
+rates, ODA rate, valuation %, fuel surcharge matrix,
+each with an effective date and approver. Old rates
+are kept
+H FR-010
+CRM-04 Client detail changes are made by the account
+handler or an authorized user, logged, and apply
+from the next billing
+M New (interview)
+CRM-05 Client billing history shows invoices, payment
+status, outstanding balance and aging bucket
+H FR-067
+ID Requirement Pri Replaces
+POD-
+01
+Waybill and POD records arrive from DMS
+(waybill number, delivery status, recipient,
+date and time, POD reference, driver).
+Manual entry is only for exceptions
+H FR-011
+POD-
+02
+The system alerts when a waybill number
+already exists, at entry or on receipt, and
+blocks billing until reviewed
+H AI FR-002, interview
+POD-
+03
+Billing requires a validated original, client-
+signed POD. Accounting records the check
+of its own copy against the original
+H FR-012, FR-013
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 11 of 37
+--- PAGE 12 ---
+4. Billing and invoicing (BIL)
+ID Requirement Pri Replaces
+POD-
+04
+A lost original can be billed only with a CTC:
+attached document, reason and approver.
+CTC is its own status and is flagged on the
+invoice and audit trail
+M FR-014
+POD-
+05
+A waybill can be billed once. A billed waybill
+is locked to its invoice. Failed deliveries and
+unmatched PODs are On Hold until
+resolved
+H New (interview, DMS
+integration)
+ID Requirement Pri Replaces
+BIL-01 A billing run groups billable waybills by client and
+schedule (weekly, 15/30, monthly) into draft
+invoices
+H FR-015, FR-018
+BIL-02 Each line is computed from the client's rate
+configuration as in the billing computation section,
+never typed in or merely displayed
+H FR-016, FR-017
+BIL-03 The invoice, on screen and in print, shows a per-
+waybill breakdown: weights, rate lookup, freight,
+valuation, ODA, VAT, fuel surcharge, discount,
+totals
+H Revision
+BIL-04 The printable view contains only the invoice. No
+dashboard, sidebar, navigation or other system UI
+H Revision
+BIL-05 Zero or negative amounts or balances are blocked
+and sent to an exception queue with a reason
+H Revision
+BIL-06 A pre-alert flags a suspect computation (missing
+rate, deviation from rate configuration, unusual
+total) before review
+H Interview Q24
+BIL-07 A discount (usually 10%) needs recorded
+CEO/president approval and is deducted from the
+invoice total as its own line
+M New (interview)
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 12 of 37
+--- PAGE 13 ---
+5. Accounts receivable and collections (ARC)
+ID Requirement Pri Replaces
+BIL-08 The Head Accountant reviews and verifies
+invoices, with random-check sampling. An invoice
+is Approved only after verification
+H FR-019, FR-020
+BIL-09 Invoice document status and payment status are
+separate fields. Payment status updates
+automatically from confirmed payments
+H FR-021, FR-022
+BIL-10 Invoice numbers are sequential. An Approved
+invoice cannot be edited. Corrections use a credit
+memo, and a void needs a reason
+H New
+BIL-11 After approval the invoice is released to
+Operations for dispatch, through the STARS
+endorsement task
+H Integration
+ID Requirement Pri Replaces
+ARC-01 An invoice marked Sent becomes a receivable
+with status Awaiting Acknowledgment and no
+due date yet
+H FR-023
+ARC-
+02
+On receipt of the signed copy, the due date is
+set to received date + 30 days (term
+configurable per client)
+H FR-028
+ARC-
+03
+AR per client shows invoices, due dates,
+amounts, outstanding balance and aging bucket
+H FR-024, FR-025, FR-026
+ARC-
+04
+A weekly aging of accounts report is the
+primary report, exportable to Excel
+H FR-027, FR-063
+ARC-
+05
+Follow-up reminders: about one week after
+billing if no acknowledgment, then due soon
+and overdue
+M FR-059, FR-068,
+interview
+ARC-
+06
+A disputed invoice carries a reason code and is
+excluded from collection prioritization but
+stays visible
+M Research
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 13 of 37
+--- PAGE 14 ---
+6. Payment collection (PAY)
+ID Requirement Pri Replaces
+ARC-
+07
+At period close, AR ledger total equals the
+aging report total
+H Research
+ID Requirement Pri Replaces
+PAY-01 Authorized users record payments by
+channel (check, bank transfer, cash; gateway
+only if the stretch module is built). Each
+payment settles one or more invoices in full
+H FR-029, FR-030
+PAY-
+02
+Proof of payment can be uploaded: deposit
+slip, or a screenshot of the reference
+number for online transfers (PDF, JPG, PNG)
+H FR-037, AI FR-020
+PAY-
+03
+Only the Finance Manager validates a
+payment, after confirming the funds entered
+the bank or cash account. Only then does it
+count
+H FR-032, FR-033
+PAY-
+04
+An invoice becomes Paid only when
+validated payments equal the invoice
+amount. A short or over payment goes to the
+exception queue
+H FR-031 (revised)
+PAY-
+05
+Duplicate reference numbers (bank
+reference, collector reference, and
+SpeedPay reference if the gateway is built)
+trigger an alert before validation
+H AI FR-004, AI FR-005
+PAY-
+06
+A payment with no client or invoice
+reference is held as Unidentified until a
+client claims it
+M New (interview)
+PAY-
+07
+The collector's reference number is
+recorded as the OR and linked to the invoice
+and payment. It is supplementary to the
+invoice
+H FR-034, FR-040, FR-041, BR-
+008
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 14 of 37
+--- PAGE 15 ---
+7. SpeedPay client portal (SPD)
+Core (in scope):
+Stretch (PayMongo, build only if the core is tested by the end of week 3):
+ID Requirement Pri Replaces
+PAY-
+08
+A validated payment updates invoice status,
+AR, cash flow and dashboard automatically
+H FR-022, FR-069, interview
+Q15
+PAY-
+09
+A rejected payment records a reason and
+notifies the client
+M FR-039
+ID Requirement Pri Replaces
+SPD-01 Clients log in, see their unpaid invoices and select
+one to pay or to upload proof for
+H FR-035
+SPD-
+06
+Clients and Finance see payment status: Pending
+Validation, Validated, Rejected (and Failed if the
+gateway is built)
+H FR-038, FR-039
+SPD-
+08
+Clients upload proof of payment for an invoice
+(deposit slip, or a screenshot of the reference
+number), which feeds PAY-02 and goes to Finance
+validation (PAY-03)
+H New (scope
+decision)
+ID Requirement Pri Replaces
+SPD-02 Payment uses PayMongo (GCash, Maya, online
+banking) through a Payment Intent that carries the
+invoice number as its description
+S FR-036, BR-007
+SPD-03 The gateway webhook (payment paid or failed)
+sets Paid at Gateway or Failed. A browser redirect
+is never treated as proof of payment
+S Research
+SPD-04 A Paid at Gateway payment still needs Finance
+confirmation (PAY-03) before the invoice becomes
+Paid
+S Interview
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 15 of 37
+--- PAGE 16 ---
+8. Adjustments and credit memos (ADJ)
+9. Cash flow and liquidation (CSH)
+ID Requirement Pri Replaces
+SPD-05 Customer first name and last name are separate
+fields with validation
+S Revision
+SPD-07 Capstone scope runs in the PayMongo test mode
+only, with no live company accounts
+S BR-007
+ID Requirement Pri Replaces
+ADJ-01 Credit memos record lost or damaged cargo,
+linked to the invoice or waybill, and reduce the
+receivable
+H FR-055, FR-056, FR-
+057
+ADJ-
+02
+The Finance Manager approves adjustments. The
+CEO/president approves discounts
+H Interview Q3, Q18
+ADJ-
+03
+A credit memo is not a cash outflow. A client
+refund is a separate cash outflow record
+H FR-043 (corrected)
+ADJ-
+04
+Adjustment and credit memo records are stored
+for audit and traceability
+H FR-054, FR-058
+ID Requirement Pri Replaces
+CSH-
+01
+Cash accounts are tracked separately: bank
+(cheque and cash deposits) and cash on
+hand
+H New (interview)
+CSH-
+02
+Inflows are created from validated
+payments. Outflows come from cash
+advance release, validated liquidation,
+reimbursements, other approved expenses
+and refunds. Each is classified inflow or
+outflow with a category
+H FR-042 to FR-045
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 16 of 37
+--- PAGE 17 ---
+ID Requirement Pri Replaces
+CSH-
+03
+Net cash = beginning balance + validated
+inflows − validated outflows, viewable by
+date range, account, type and status
+H FR-046, FR-047, interview
+Q10
+CSH-
+04
+A cash advance is requested (from DMS)
+with a category and department, checked
+against budget (FIN-08), approved, released
+and later liquidated. The approval screen
+shows the budget check result. Release
+posts the outflow
+H Integration (revised for
+budget)
+CSH-
+05
+A liquidation has itemized lines (category,
+amount, date, original receipt attachment)
+with a running subtotal. Categories: fuel,
+toll, parking, food allowance, vulcanizing,
+hotel, office supplies
+H FR-048, FR-049
+CSH-
+06
+Submission deadline: next day for
+NCR/Luzon, on return for out-of-delivery-
+area trips. Late items are flagged for
+deduction from the liable person
+H New (questionnaire Q8)
+CSH-
+07
+The Assistant of Financial Manager
+validates or rejects liquidations with a
+rejection-reason dropdown (wrong date or
+amount, manual fuel receipt, late
+submission, other) and remarks
+H FR-050 to FR-053
+CSH-
+08
+The system computes leftover cash to
+return and overspend to reimburse. An
+overspend needs a recorded supervisor
+pre-approval and an original receipt
+H New (questionnaire Q5, Q6)
+CSH-
+09
+A cash outflow above a configured
+threshold needs CEO/president approval
+before posting. The same threshold decides
+who approves a budget override (FIN-10).
+The threshold value is still to be provided
+M New (questionnaire Q14)
+CSH-
+10
+The Financial Manager can view all
+liquidation reports and their validation
+status
+H Revision
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 17 of 37
+--- PAGE 18 ---
+10. Company finance, budget, reports and dashboard (FIN)
+ID Requirement Pri Replaces
+FIN-01 Budget allocation records fiscal year, month,
+category, department, amount, approver and
+revision history. The annual budget is the
+sum of its monthly lines and is approved by
+the CEO/president. Categories match CSH-
+05
+H Revision
+FIN-
+02
+Budget, Committed, Actual, Available and
+Remaining are shown per category and
+department, by month and for the year.
+Weekly and monthly reports show actuals
+against the monthly budget
+H Revision
+FIN-
+03
+Expense records outside liquidation (for
+example office supplies) can be entered and
+categorized
+M Revision
+FIN-
+04
+One Reports page holds every report. A
+report-type dropdown, grouped by category,
+selects the report: Receivables (invoices,
+collections, outstanding balances, aging),
+Payments (payment validation, adjustments
+and credit memos), Cash and expenses
+(cash flow, liquidation, expenses), Budget
+(budget against actual) and Company (profit
+or loss). Each report has weekly, monthly
+and annual views and the date, client,
+account and status filters that apply to it. A
+user sees only the reports their role allows,
+as set in the Report access by role table
+below (IAM-03)
+H FR-062, FR-064, BR-013,
+revision
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 18 of 37
+--- PAGE 19 ---
+ID Requirement Pri Replaces
+FIN-
+05
+The Reports page shows clearly whether the
+company earned a profit or a loss for the
+period (revenue minus expenses), and
+shows both bases side by side: invoiced
+revenue (accrual) and collected revenue
+(cash)
+H Revision
+FIN-
+06
+Every report is exported from the Reports
+page, to Excel (.xlsx), the preferred format,
+and to PDF. The export matches what the
+screen shows with the same filters. Each
+export is logged (AUD-01)
+M FR-065
+FIN-
+07
+The dashboard shows total invoices, unpaid,
+overdue, outstanding balance, collections,
+net cash, aging summary, pending
+validations, pending liquidation count and AI
+alerts
+H FR-066, FR-069, interview
+Q11
+FIN-
+08
+Every cash advance from DMS and every
+direct disbursement is checked against
+Available = Budget − Committed − Actual for
+its category, department and month. The
+result is returned to the requester
+H Revision (budget control)
+FIN-
+09
+Approval reserves the amount (Committed).
+A validated liquidation converts it to Actual.
+Unused commitment is released. Rejected or
+cancelled requests release it too. A direct
+disbursement skips liquidation and becomes
+Actual at release
+H Revision (budget control)
+FIN-10 An over-budget request is a soft block. It
+proceeds only with an override, a reason and
+an approver by threshold: the Finance
+Manager for small overrides, the
+CEO/president above the CSH-09 threshold.
+The override is logged
+H Revision (budget control)
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 19 of 37
+--- PAGE 20 ---
+Budget is set per category, per department and per month, and there is no weekly budget.
+Departments come from one shared list used by DMS and FOMS.
+Report access by role (FIN-04, FIN-06). V = can view and export. Blank = hidden from
+that user's report dropdown. Clients have no Reports page and see only their own data in
+the portal (IAM-06, CRM-05).
+ID Requirement Pri Replaces
+FIN-11 A budget transfer between categories or
+departments needs a reason and
+CEO/president approval. The Finance
+Manager requests it. Both lines change, the
+company total stays the same, and the
+history is kept
+H Revision (budget control)
+FIN-12 Unused monthly budget is shown as
+Remaining and does not carry over
+automatically. A carry-over request follows
+FIN-11
+M Revision (budget control)
+FIN-13 Alerts fire at a configurable percentage
+(default 80%) and at 100% of the monthly
+budget, and go to the Finance Manager
+(NTF-01)
+M Revision (budget control)
+Report (category) Finance
+Manager
+Head
+Accountant
+Accountant Assistant of
+Finance Manager
+Invoices (Receivables) V V V
+Collections
+(Receivables)
+V V V
+Outstanding balances
+(Receivables)
+V V V
+Aging of accounts
+(Receivables)
+V V V
+Payment validation
+(Payments)
+V V
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 20 of 37
+--- PAGE 21 ---
+Assumptions until Speedex confirms: profit or loss stays with the Finance Manager only.
+The Accountant does not see the payment validation report, because only the Finance
+Manager validates payments (PAY-03). The CEO/president has no column because there
+is no CEO login (Q14). A configured delegate for an absent Finance Manager (Q9) gets the
+same access, and every export is logged (AUD-01).
+11. Notifications (NTF)
+Report (category) Finance
+Manager
+Head
+Accountant
+Accountant Assistant of
+Finance Manager
+Adjustments and credit
+memos (Payments)
+V V
+Cash flow (Cash and
+expenses)
+V
+Liquidation (Cash and
+expenses)
+V V
+Expenses (Cash and
+expenses)
+V
+Budget against actual
+(Budget)
+V
+Profit or loss (Company) V
+ID Requirement Pri Replaces
+NTF-01 Authorized users get alerts for due soon,
+overdue, pending payment validation, rejected
+payments, pending liquidation review, duplicate
+and computation pre-alerts, and budget alerts
+(FIN-13: threshold percentage, 100% and override
+requests)
+M FR-059, FR-060, FR-
+061
+NTF-
+02
+Clients are notified by email about payment
+status. SMS and phone follow-up stay manual
+M Interview Q16
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 21 of 37
+--- PAGE 22 ---
+12. AI decision support (AIL)
+ID Requirement Pri Replaces
+AIL-
+01
+Similarity-based duplicate checks for
+waybill, invoice, OR and SpeedPay
+reference (if built), complementing the
+exact checks in POD-02 and PAY-05
+H AI FR-002 to FR-007
+AIL-
+02
+A receivable risk score (low, medium,
+high) from invoice amount, due date,
+aging and payment status. Unpaid, due
+soon and overdue come from the core
+AR, not recomputed
+H AI FR-008 to FR-013
+AIL-
+03
+A collection priority list and follow-up
+suggestions for finance review
+H AI FR-014 to FR-017
+AIL-
+04
+Document checking for completeness of
+proof of payment and supporting
+documents, with extracted fields shown
+for user validation
+S AI FR-021 to FR-024
+AIL-
+05
+AI output never approves, updates or
+posts an official record. A finance user
+validates every final action
+H AI FR-018, FR-019, AI NFR-013, AI
+NFR-023
+AIL-
+06
+AI outputs are stored, linked to the
+related record, retained per policy and
+retrievable for audit
+M AI FR-025, AI NFR-017 to NFR-
+020
+AIL-
+07
+The invoice computation view explains
+how the final amount was derived, using
+the same breakdown as BIL-03
+M Revision
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 22 of 37
+--- PAGE 23 ---
+13. Audit and retention (AUD)
+Merged non-functional requirements
+The 22 Capstone 1 NFRs and 24 AI-layer NFRs merge into the rows below. Two are
+changed: microservices is replaced by what the stack actually is, and money handling is
+new.
+ID Requirement Pri Replaces
+AUD-
+01
+Create, update, approve, reject and void
+actions are logged with user, time and
+before/after values. Budget revisions,
+transfers, overrides and carry-overs are
+logged the same way. Report exports are
+logged with user, report type, period and
+time. The log cannot be edited or deleted
+by anyone
+H NFR-019, missing FR-074 to
+FR-076
+AUD-
+02
+Client-visible and billing history is kept for
+2 years and internal finance records for 5
+years, then archived
+H Assumptions, interview
+AUD-
+03
+Only the Head Accountant can audit
+accounts. The Finance Manager audits
+expenses and cash flow
+M Interview Q23, IV-1
+ID Requirement Replaces
+NFR-
+01
+The dashboard loads within 3 seconds, and
+AI features within 3 seconds, under normal
+network conditions
+NFR-001, AI NFR-001, AI NFR-004
+NFR-
+02
+Invoice creation and billing computation
+finish within 5 seconds per transaction.
+Duplicate checks finish within 5 seconds
+NFR-002, AI NFR-002
+NFR-
+03
+Reports and risk results for up to 12
+months of data generate within 10 seconds
+NFR-004, AI NFR-003
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 23 of 37
+--- PAGE 24 ---
+ID Requirement Replaces
+NFR-
+04
+At least 50 concurrent users without
+noticeable slowdown
+NFR-003
+NFR-
+05
+Passwords and sensitive financial data are
+encrypted at rest and in transit
+NFR-005
+NFR-
+06
+Uploaded proofs, PODs, invoices and
+liquidation documents are protected from
+unauthorized access or change. Only PDF,
+JPG, PNG and CSV/XLSX are accepted
+NFR-022, AI NFR-007
+NFR-
+07
+Client and financial data handling complies
+with the Data Privacy Act (RA 10173)
+NFR-009
+NFR-
+08
+99% uptime during business hours NFR-010
+NFR-
+09
+A system failure mid-process never leaves
+an invoice marked Paid or a transaction
+half-finalized. Related writes succeed or
+fail together
+NFR-011
+NFR-
+10
+Finance and transaction data are backed
+up at least daily
+NFR-012
+NFR-11 Referential integrity holds between
+invoices, payments, receivables,
+adjustments, and AI outputs at all times
+NFR-020, AI NFR-018
+NFR-12 Money is stored as exact decimals in pesos
+with a single rounding rule applied per line,
+never as floating-point
+New
+NFR-13 The interface is consistent across modules,
+built on the shared Speedex component
+set, usable on desktop and tablet in
+Chrome, Edge and Firefox
+NFR-013, NFR-015, NFR-021
+NFR-
+14
+Errors are specific, for example duplicate
+waybill, amount does not match invoice,
+missing rate
+NFR-014
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 24 of 37
+--- PAGE 25 ---
+Integrations with STARS and DMS
+The six integrations from your integration document stay, rewritten against the new
+statuses and rules. Three rules apply to all of them: every message is keyed by an
+idempotency key (waybill number, invoice number or request ID) so a retry never creates
+a duplicate; failed calls are retried and logged; and no integration can set an invoice to
+Paid. Only the Finance check in FOMS can do that.
+STARS and FOMS
+1. Invoice endorsement and client acknowledgment
+Trigger and direction: Invoice becomes Approved and is released. FOMS → STARS →
+FOMS
+Data exchanged: Out: invoice number, client details, invoice document, remarks. Back:
+STARS task ID, assignee, signed receiving copy, received date, completion result
+FOMS handling: Status moves Sent, then Received. The due date is set to received
+date + 30 days. The receivable already exists from Sent (ARC-01, ARC-02). No return in
+about 7 days triggers a reminder (ARC-05)
+Changed from Capstone 1: Receivable is recorded at Sent, before the due date is
+known. Status names align with BIL-09
+ID Requirement Replaces
+NFR-15 Code is modular and documented. New
+billing schedules, payment methods, report
+types and AI features can be added
+without redesigning the core. AI updates
+do not disrupt core finance transactions
+NFR-017, NFR-018, AI NFR-022, AI
+NFR-024
+NFR-16 The system is a modular core API plus a
+separate AI service behind a gateway, not
+full microservices. Identity, billing, finance
+operations and reporting are separate
+modules inside the core
+NFR-016 (changed)
+NFR-17 AI outputs are shown consistently, use
+plain risk labels (unpaid, due soon,
+overdue, low, medium, high), and are easy
+to review
+AI NFR-012, NFR-014 to NFR-016
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 25 of 37
+--- PAGE 26 ---
+2. Payment status to STARS dashboard
+Trigger and direction: Any change to invoice or payment status. FOMS → STARS
+Data exchanged: Client account ID, invoice number, document status and payment
+status as separate fields, aging bucket, due date, outstanding balance
+FOMS handling: STARS shows status for the coordinator's own accounts. Amount
+visibility follows IAM-03 and IAM-06
+Changed from Capstone 1: Document status and payment status were one mixed
+field. They are now two
+3. Overdue collection routing
+Trigger and direction: An invoice becomes overdue or due soon. FOMS → STARS →
+FOMS
+Data exchanged: Out: invoice number, due date, amount due, aging bucket, client
+contact. Back: follow-up outcome (promised date, collected, disputed)
+FOMS handling: STARS creates a Collection Follow-up task and routes it to the
+assigned collector or account handler. The outcome is logged in FOMS, and any
+payment still goes through PAY-03
+Changed from Capstone 1: There was no return path. Routing no longer assumes an
+operations Coordinator is the collector
+DMS and FOMS
+1. Completed delivery to billing
+Trigger and direction: Delivery is Completed after POD. DMS → FOMS
+Data exchanged: Waybill number, delivery status, recipient, date and time, POD image
+or reference, driver
+FOMS handling: Creates a POD record as Pending, with the duplicate-waybill check.
+Accountant validates it (Validated or CTC). It is billed in the next billing run for the
+client's schedule
+Changed from Capstone 1: DMS no longer causes an invoice directly. Billing is by
+schedule (BIL-01)
+2. Failed delivery and re-delivery
+Trigger and direction: Driver records Failed Delivery, later a successful re-delivery.
+DMS → FOMS
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 26 of 37
+--- PAGE 27 ---
+Data exchanged: Waybill number, failure reason, remarks, re-delivery reference, new
+Completed status, new POD
+FOMS handling: Sets the waybill On Hold, then releases it after the new POD is
+validated. A held waybill cannot enter a billing run (POD-05)
+Changed from Capstone 1: Aligned to the On Hold status
+3. Cash advance and liquidation
+Trigger and direction: Operations raises a cash advance. DMS ↔  FOMS
+Data exchanged: Request ID, delivery reference, requester, purpose, category,
+department, requested and released amount, receipts, returned balance,
+reimbursement, liquidation status. FOMS returns the budget check result, including
+"Over budget, override needed"
+FOMS handling: FOMS checks the request against budget (FIN-08). Finance approves
+by amount, and approval commits the budget (FIN-09). Release posts the outflow
+(CSH-04). The Assistant validates the liquidation, the commitment becomes Actual,
+unused commitment is released, and the status returns to DMS as Liquidated or For
+Correction
+Changed from Capstone 1: Outflow is posted at release, not at liquidation. Variance
+and deadline rules added (CSH-06, CSH-08). Category and department are now
+required. The budget changes only at commit and at validated liquidation, not at
+release
+Consultation revisions: where each is handled
+Every revision from your consultation maps to at least one requirement.
+Revision Handled in
+Financial Manager can see the Assistant's
+liquidation reports
+CSH-10
+Overall finance of the whole company FIN-01 to FIN-13
+Budget allocation, with a form for the overall
+budget
+FIN-01, FIN-02, FIN-08 to FIN-13
+Reports on one page FIN-04
+Weekly, monthly and annual reports FIN-04
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 27 of 37
+--- PAGE 28 ---
+Reconciled tech stack and UI basis
+The stack documents disagree in six places. The table picks one answer for each, mostly
+the choice that matches the code you already have.
+Final stack. Frontend: React 19, TypeScript 5.6, Vite, React Router DOM 7, Recharts,
+Lucide React, Vanilla CSS, Context API, JWT, plus jsPDF + AutoTable, XLSX, Playwright and
+ESLint (the four highlighted in your screenshot). Core backend: ASP.NET Core (.NET 10),
+C#, EF Core 10, JWT bearer, Swagger, Clean Architecture, MSSQL. AI service: Python,
+FastAPI, Pandas/NumPy, scikit-learn, RapidFuzz, Tesseract or EasyOCR, APScheduler,
+PostgreSQL + pgvector, MongoDB time series. Infrastructure: Docker, Docker Compose,
+Revision Handled in
+Show whether the company earned a profit or a
+loss
+FIN-05
+Base rate computed from the applicable rate
+configuration, not just displayed
+CRM-03, BIL-02, billing computation
+section
+Validated and CTC are different statuses with
+different purposes
+POD-03, POD-04, status model
+Clear billing breakdown on the invoice BIL-03
+Invoice view and print show only the invoice, no
+system UI
+BIL-04
+Fix the end-to-end Accounts Receivable flow ARC-01 to ARC-07, final flow
+PayMongo customer first and last name
+separate, with validation
+SPD-05
+Frontend computation breakdown similar to the
+AI layer
+BIL-03, AIL-07
+Detect zero or negative amounts or balances BIL-05, PAY-04
+Pre-alert on a wrong computation (interview) BIL-06
+Alert on same waybill number at input
+(interview)
+POD-02, AIL-01
+Excel preferred (interview) ARC-04, FIN-06
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 28 of 37
+--- PAGE 29 ---
+Nginx, proxy/API gateway, seed SQL, service account or API key for the AI service.
+Payments: PayMongo in test mode (stretch scope), with the webhook endpoint in the
+ASP.NET backend.
+UI basis and shared components
+The shared UI follows the Speedex Design System v2.0 and the screens already in the
+current FOMS and STARS. No external template repo is used. The parts below are built
+inside the FOMS repo, or reworked from the existing ones when they pass the Design
+System:
+Layout: DashboardLayoutShell, DashboardLayout, Sidebar and GlobalHeader. FOMS
+mounts under the /foms/* route, and replaces any placeholder dashboard.
+Conflict Decision Reason
+Tailwind CSS v4 (screenshot)
+vs Vanilla CSS (frontend
+document)
+Vanilla CSS The Design System specifies
+Vanilla CSS with CSS
+variable tokens
+PDF and CSV (NFR-022) vs
+jsPDF and XLSX (screenshot)
+jsPDF + AutoTable for PDF,
+XLSX for Excel, CSV
+optional
+Excel is preferred in the
+interview. These are
+additions to the system
+InfluxDB vs MongoDB time
+series
+MongoDB time series
+collection
+The "updated polyglot
+database" section chose it
+AI service pulls data
+(APScheduler) vs backend
+pushes data to AI
+Both, by purpose On-demand checks:
+frontend → ASP.NET →
+FastAPI → back. Batch
+trends: AI service pulls read-
+only data from secured
+ASP.NET endpoints on a
+schedule. The AI service
+never touches MSSQL
+directly
+Microservices (NFR-016) vs
+Clean Architecture API
+Modular core API +
+separate AI service
+Matches the stack and the
+Docker Compose setup
+Fetch API vs Axios Fetch API Fetch needs no extra
+dependency
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 29 of 37
+--- PAGE 30 ---
+Tables and forms: DataTable (sorting, filters, pagination, column resize, virtual rows),
+TextField, SelectField, TextareaField, PhoneField, CalendarPicker,
+CalendarRangePicker.
+Feedback: StatusBadge (already styles aging ranges, overdue, paid, inflow and
+outflow), ConfirmModal, toasts, Notifications.
+Session and login: the central login through STARS, role and token storage, and a 15-
+minute inactivity logout (IAM-02).
+Environment: VITE_FOMS_URL and VITE_FOMS_API_URL for the FOMS endpoints.
+To build or complete: print layout, PDF and Excel export, charts, and every FOMS
+page not yet in the system.
+FOMS pages to build under /foms
+Page Main roles Reuses
+Dashboard Financial Manager, Head
+Accountant
+Recharts, StatusBadge
+Clients and rates Accountant DataTable, form fields
+Waybill and POD Accountant DataTable, StatusBadge
+(Validated, CTC, On Hold)
+Billing and invoices Accountant, Head
+Accountant
+DataTable, ConfirmModal
+Invoice print view Accountant, Head
+Accountant, Client
+New route outside the layout
+shell
+Accounts receivable and
+aging
+Accountant, Head
+Accountant
+DataTable, StatusBadge
+Payments and validation Accountant, Financial
+Manager
+DataTable, upload field,
+ConfirmModal
+Client portal (SpeedPay;
+PayMongo is stretch)
+Client Form fields
+Adjustments and credit
+memos
+Head Accountant, Financial
+Manager
+Form fields
+Cash flow Financial Manager Recharts, DataTable
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 30 of 37
+--- PAGE 31 ---
+The invoice print view must be a route placed outside DashboardLayoutShell, for example
+/foms/print/invoice/:id, declared more specifically than the /foms/* catch-all. That is how
+BIL-04 gets an invoice with no sidebar or header.
+Open questions and conflicts
+These need a decision from Speedex or your adviser. Each row says what the document
+assumes until then.
+Page Main roles Reuses
+Liquidation Assistant of Financial
+Manager, Financial
+Manager
+DataTable, form fields
+Budget and company
+finance (monthly budget
+grid, budget check results,
+overrides, transfers and
+carry-over requests,
+remaining and alerts)
+Financial Manager Form fields, Recharts,
+DataTable, ConfirmModal
+Reports Financial Manager, Head
+Accountant
+Recharts, SelectField (report
+type), DataTable, export
+buttons
+AI insights Finance users StatusBadge, Recharts
+Audit log Head Accountant DataTable
+# Question Assumed for now
+1 Can one payment settle several invoices,
+each in full? The interview says no partial
+payments but does not say this
+Yes, each in full (PAY-01)
+2 Is the fuel surcharge subject to VAT? The
+sample adds it after VAT. Also confirm
+ODA amounts and whether valuation is
+always 1%
+Follow the sample: surcharge added after
+VAT. Confirm with the accountant
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 31 of 37
+--- PAGE 32 ---
+# Question Assumed for now
+3 The first letter to Speedex mentions
+payroll integration with HR, but
+Capstone 1 puts payroll out of scope.
+Should payroll cost appear in profit or
+loss?
+Out of scope. Profit or loss uses invoiced
+or collected revenue minus recorded
+expenses only
+4 Which expenses count in profit or loss:
+liquidation, other outflows, budget
+categories only?
+Validated liquidation + other recorded
+expenses (FIN-03). Cash advance
+release is not counted again. Direct
+disbursements count at release
+5 CEO/president approval threshold for
+large cash outflows. The interviews give
+no amount. It also decides who approves
+a budget override
+Configurable, no default (CSH-09, FIN-
+10)
+6 Aging buckets, Due Soon window, and
+number of follow-ups before escalation.
+The interview left the follow-up count
+blank
+1–30, 31–60, 61–90, 90+. Due Soon 7 days.
+Follow-ups configurable
+7 How are invoices printed today:
+preprinted BIR-approved stock, or
+system-generated? A system-generated
+invoice may need BIR registration of the
+accounting system
+Print matches Speedex's current invoice
+format. Check with the accountant
+before go-live
+8 Which STARS users may see invoice
+amounts and balances? Clients must not
+see each other's billing
+Status flags only for STARS coordinators,
+amounts for finance roles
+9 Finance Manager is the only payment
+validator. Who covers when absent?
+A configured delegate with the same
+permission, logged
+10 Collection follow-up: finance collector or
+STARS coordinator?
+Assigned collector or account handler
+11 Deductions from liable personnel (late or
+missing receipts) touch payroll
+FOMS flags and records them.
+Deduction itself happens outside FOMS
+12 Maximum discount: the interview says
+"usually 10%"
+Configurable cap, default 10%, CEO
+approval required
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 32 of 37
+--- PAGE 33 ---
+Annex: Existing system cleanup and data migration
+FOMS already exists, and some of its flows come from Capstone 1. The requirements in
+this document replace them. The existing system is audited first, then each part is kept,
+reworked or removed. Nothing is rebuilt without a reason, and no financial record is ever
+deleted. The legacy flows below are suspected from the earlier recommendations in this
+document and from the screens in use. The audit confirms which ones actually exist.
+Migration requirements (MIG)
+# Question Assumed for now
+13 Tailwind or Vanilla CSS? The screenshot
+and the frontend document differ
+Vanilla CSS, as in the Design System
+14 New: the CEO/president approves
+budgets, transfers, large overrides and
+discounts, but IAM-01 lists no CEO login
+role. Does the CEO get a FOMS login, or
+does the Finance Manager record the
+CEO's approval?
+Approval is recorded with approver
+name, date and evidence, as for
+discounts (BIL-07). Confirm with
+Speedex
+15 New: what counts as a "small" override
+that the Finance Manager can approve?
+Everything at or below the CSH-09
+threshold. Same value, still to be
+provided
+ID Requirement Pri Replaces
+MIG-01 Before any change, the existing pages, endpoints,
+tables, statuses, roles and integrations are listed
+and each is marked KEEP, REWORK or REMOVE
+against this document. Nothing is removed before
+the list is approved
+H New
+MIG-
+02
+A database backup and a rollback script exist
+before any destructive change. Work happens on
+a separate branch
+H New
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 33 of 37
+--- PAGE 34 ---
+Legacy flows to remove or rewrite (suspected until the audit confirms)
+ID Requirement Pri Replaces
+MIG-03 Financial records (invoices, payments,
+receivables, adjustments, cash records) are never
+deleted. Records that break the new rules are
+flagged, archived or corrected through the
+documented mapping, and original records are
+never edited
+H New (AUD-02, NFR-
+11)
+MIG-
+04
+Legacy statuses and fields are mapped to the
+new status model using the mapping table below.
+A migration report lists counts moved, flagged
+and unchanged, and totals before and after must
+match
+H New
+MIG-05 Each legacy flow in the table below is removed or
+rewritten, and a test proves it is gone
+H New
+MIG-06 After migration, referential integrity holds and the
+AR ledger total equals the aging total (ARC-07) on
+the migrated data
+M NFR-11, ARC-07
+# Legacy behavior Correct behavior IDs
+1 Partial payments or a Partially
+Paid status
+The exact invoiced amount only.
+A short or over payment goes to
+the exception queue
+PAY-04
+2 Anyone other than the Finance
+Manager validates payments
+Only the Finance Manager, or a
+configured and logged delegate
+PAY-03
+3 A webhook, DMS, STARS or any
+integration sets an invoice to
+Paid
+Paid only after the Finance
+check
+PAY-04, SPD-
+04
+4 An invoice is created directly
+when a delivery completes
+POD validated first, then the
+billing run by client schedule
+POD-03, BIL-01
+5 Document status and payment
+status in one field
+Two separate fields BIL-09
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 34 of 37
+--- PAGE 35 ---
+# Legacy behavior Correct behavior IDs
+6 Overdue or aging stored as a
+status
+Derived from the due date, not
+stored
+ARC-03, status
+model
+7 Approved invoices can be
+edited
+Immutable. Corrections use a
+credit memo
+BIL-10
+8 Float money, typed-in rates, or
+a bare total
+Exact decimals, rates computed
+from configuration, per-waybill
+breakdown
+NFR-12, BIL-02,
+BIL-03
+9 Credit memos or discounts
+treated as cash outflow
+They reduce the receivable only ADJ-03
+10 Outflow posted at liquidation Outflow posted at release CSH-04
+11 Official Receipt as a separate
+generated document
+The collector's reference
+number is the OR, linked to the
+payment
+PAY-07
+12 Receivable created at the
+wrong time, or due date not set
+from the received date
+Receivable at Sent, due date =
+received date + 30 days
+ARC-01, ARC-
+02
+13 Missing duplicate alerts or zero
+and negative guards
+Duplicate waybill and reference
+alerts, zero and negative
+blocked
+POD-02, PAY-
+05, BIL-05
+14 Role gaps, a client seeing
+another client's amounts, an
+editable audit log
+Role matrix enforced, client sees
+only its own data, append-only
+log
+IAM-03, IAM-
+06, AUD-01
+15 PayMongo gateway wired into
+the core flow
+Stretch only, behind a flag, out of
+the core flow
+SPD-02 to SPD-
+05
+16 UI that breaks the Design
+System (Tailwind, solid badges,
+gradients, spinners, icon-only
+buttons, developer wording)
+Design System v2.0 tokens and
+rules
+NFR-13
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 35 of 37
+--- PAGE 36 ---
+Data mapping for migrated records
+Legacy value Becomes Note
+Invoice marked Partially Paid Unpaid, plus an Exception
+record for the amount received
+Finance reviews the
+exception
+Invoice marked Paid by a
+gateway, webhook or
+integration without Finance
+validation
+Unpaid, with the payment set
+to Pending Validation
+Flagged for the Finance
+Manager
+Payment validated by a role
+other than the Finance
+Manager
+Record kept, marked for re-
+validation
+Finance Manager re-
+validates
+One mixed invoice status field Split into document status and
+payment status
+Unclear rows go to a
+review list
+Stored Overdue or aging value Dropped and derived from the
+due date
+No data loss
+Invoice created straight from
+a delivery
+Kept as Draft or on the review
+list, waybills linked
+Flagged as created
+before a billing run
+Credit memo or discount
+recorded as cash outflow
+Reclassified as a receivable
+adjustment, cash flow
+recomputed
+Correcting entry,
+original untouched
+Outflow posted at liquidation Re-posted at release date with
+a correcting entry
+Original untouched
+Float amounts Exact decimals with the single
+rounding rule
+Difference report
+produced
+Official Receipt document The number becomes the OR
+reference on the payment, the
+document stays as an
+attachment
+No document lost
+Edits made to Approved
+invoices
+Invoice locked, edit history
+kept
+Corrections now by
+credit memo
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 36 of 37
+--- PAGE 37 ---
+Open items. First, is the existing data real or only test data? If it is only test data, reset
+and reseed the database instead of mapping it. Second, who approves each removal?
+Assumed: the project owner, one phase at a time.
+FOMS Merged Requirements and Recommended Flow (Capstone 2) – with Budget Control
+Page 37 of 37

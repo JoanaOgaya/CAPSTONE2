@@ -4,7 +4,7 @@ using FOMS.Domain.Entities.SqlServer;
 
 namespace FOMS.Infrastructure.Persistence;
 
-public class FomsDbContext : DbContext
+public class FomsDbContext : DbContext, FOMS.Application.Interfaces.IFomsDbContext
 {
     public FomsDbContext(DbContextOptions<FomsDbContext> options) : base(options)
     {
@@ -45,6 +45,11 @@ public class FomsDbContext : DbContext
     public DbSet<ApprovalThresholdSetting> ApprovalThresholdSettings { get; set; } = null!;
     public DbSet<CashOutflowApprovalRequest> CashOutflowApprovalRequests { get; set; } = null!;
     public DbSet<CashOutflowApprovalHistory> CashOutflowApprovalHistories { get; set; } = null!;
+    public DbSet<Department> Departments { get; set; } = null!;
+    public DbSet<UserClientMapping> UserClientMappings { get; set; } = null!;
+    public DbSet<RevokedToken> RevokedTokens { get; set; } = null!;
+    public DbSet<ExecutiveApprovalRecord> ExecutiveApprovalRecords { get; set; } = null!;
+    public DbSet<FinanceManagerDelegate> FinanceManagerDelegates { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -85,5 +90,9 @@ public class FomsDbContext : DbContext
         modelBuilder.Entity<ApprovalThresholdSetting>().ToTable("ApprovalThresholdSettings", "dbo");
         modelBuilder.Entity<CashOutflowApprovalRequest>().ToTable("CashOutflowApprovalRequests", "dbo");
         modelBuilder.Entity<CashOutflowApprovalHistory>().ToTable("CashOutflowApprovalHistory", "dbo");
+        modelBuilder.Entity<Department>().ToTable("Departments", "dbo");
+        modelBuilder.Entity<UserClientMapping>().ToTable("UserClientMappings", "dbo");
+        modelBuilder.Entity<RevokedToken>().ToTable("RevokedTokens", "dbo");
+        modelBuilder.Entity<ExecutiveApprovalRecord>().ToTable("ExecutiveApprovalRecords", "dbo");
     }
 }

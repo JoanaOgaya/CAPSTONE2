@@ -8,6 +8,7 @@ public class AuthResultDto
     public string AccessToken { get; set; } = string.Empty;
     public string RefreshToken { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
+    public int ExpiresIn { get; set; } = 900;
     public UserDto User { get; set; } = new UserDto();
 }
 

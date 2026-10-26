@@ -306,9 +306,44 @@ app.Use(async (context, next) =>
 app.UseRouting();
 app.UseCors("FomsPolicy");
 app.UseAuthentication();
+
+// Token Revocation & Sliding Inactivity Check (IAM-02, Condition #4 & #6)
+app.Use(async (context, next) =>
+{
+    var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        var rawToken = authHeader["Bearer ".Length..].Trim();
+        var authService = context.RequestServices.GetRequiredService<FOMS.Application.Interfaces.IAuthService>();
+        if (await authService.IsTokenRevokedAsync(rawToken))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"success\":false,\"message\":\"Token has been revoked. Please log in again.\"}");
+            return;
+        }
+
+        // 15-Minute Sliding Inactivity Enforcement (IAM-02)
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        var tokenHash = Convert.ToHexString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(rawToken)));
+        var (isExpired, _) = FOMS.Application.Services.SessionActivityTracker.CheckAndUpdateActivity(tokenHash, TimeSpan.FromMinutes(15));
+        if (isExpired)
+        {
+            await authService.LogoutAsync(rawToken);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"success\":false,\"message\":\"Session expired due to 15 minutes of inactivity. Please log in again.\"}");
+            return;
+        }
+    }
+    await next();
+});
+
 app.UseAuthorization();
 app.MapControllers();
 app.MapGet("/", () => Results.Redirect("/swagger"));
+app.MapGet("/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow, service = "FOMS API" })).AllowAnonymous();
+app.MapGet("/api/health", () => Results.Ok(new { status = "Healthy", timestamp = DateTime.UtcNow, service = "FOMS API" })).AllowAnonymous();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START WEB SERVER FIRST (so Render health checks pass while migrations run)

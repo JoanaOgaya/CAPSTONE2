@@ -317,7 +317,7 @@ public class StarsIntegrationService : IStarsIntegrationService
                         ar = new FOMS.Domain.Entities.SqlServer.AccountsReceivable
                         {
                             ArId = nextArId,
-                            InvoiceId = sqlInvoice.InvoiceId,
+                            InvoiceId = sqlInvoice.InvoiceId ?? 0,
                             ClientId = sqlInvoice.ClientId ?? 1,
                             InvoiceAmount = sqlInvoice.TotalAmount,
                             PaidAmount = sqlInvoice.PaidAmount ?? 0m,

@@ -37,6 +37,7 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<ApplicationDbContext>());
+        services.AddScoped<IFomsDbContext>(provider => provider.GetRequiredService<FomsDbContext>());
         services.AddScoped(typeof(IRepository<>), typeof(EfRepository<>));
 
         services.Configure<FOMS.Application.Configuration.StarsIntegrationOptions>(

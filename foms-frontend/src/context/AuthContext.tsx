@@ -16,7 +16,7 @@ import { bootstrapIncomingAuth, clearStoredSession, getCentralLoginUrl, getIniti
 // Bootstrap any SSO auth params returned when entering FOMS from Speedex Central Portal
 bootstrapIncomingAuth();
 
-const INACTIVITY_TIMEOUT_MS = Number(import.meta.env.VITE_INACTIVITY_TIMEOUT_MS) || 30 * 60 * 1000;
+const INACTIVITY_TIMEOUT_MS = Number(import.meta.env.VITE_INACTIVITY_TIMEOUT_MS) || 15 * 60 * 1000;
 const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'scroll'];
 
 const AuthContext = createContext<AuthContextValue | null>(null);

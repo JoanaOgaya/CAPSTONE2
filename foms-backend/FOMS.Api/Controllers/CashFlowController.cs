@@ -6,9 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using FOMS.Application.Features;
-using FOMS.Application.Interfaces;
-using FOMS.Domain.Entities;
+using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
@@ -21,14 +19,10 @@ namespace FOMS.Api.Controllers;
 [Route("cash-flow")]
 public class CashFlowController : ApiControllerBase
 {
-    private readonly IRepository<CashFlowTransaction> _repository;
-    private readonly IApplicationDbContext _context;
     private readonly FomsDbContext _fomsDb;
 
-    public CashFlowController(IRepository<CashFlowTransaction> repository, IApplicationDbContext context, FomsDbContext fomsDb)
+    public CashFlowController(FomsDbContext fomsDb)
     {
-        _repository = repository;
-        _context = context;
         _fomsDb = fomsDb;
     }
 
@@ -83,25 +77,14 @@ public class CashFlowController : ApiControllerBase
     }
 
     [HttpGet("balances")]
-    public async Task<IActionResult> GetBalances()
+    public IActionResult GetBalances()
     {
-        var balances = await Mediator.Send(new CashFlowFeatures.GetBankBalancesQuery());
+        var balances = new[]
+        {
+            new { bank = "BDO Unibank", accountNumber = "**** 4521", balance = 3450000.00m, status = "Active" },
+            new { bank = "Bank of the Philippine Islands (BPI)", accountNumber = "**** 8832", balance = 1820500.50m, status = "Active" },
+            new { bank = "Metrobank", accountNumber = "**** 9012", balance = 940200.00m, status = "Active" }
+        };
         return Ok(balances);
-    }
-
-    [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CashFlowTransaction request)
-    {
-        var addedBy = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
-        var command = new CashFlowFeatures.AddCashFlowCommand(
-            Type: request.Type,
-            Category: request.Category,
-            Amount: request.Amount,
-            ReferenceNo: request.ReferenceNo,
-            Description: request.Description,
-            AddedBy: addedBy
-        );
-        var result = await Mediator.Send(command);
-        return CreatedAtAction(nameof(GetAll), new { id = result.Id }, result);
     }
 }

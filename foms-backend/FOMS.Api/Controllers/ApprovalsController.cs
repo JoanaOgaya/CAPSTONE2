@@ -763,7 +763,6 @@ public class ApprovalsController : ControllerBase
     /// Submit an entity (CashAdvance, Payment, Settlement, FinancialAdjustment) into the multi-level approval workflow
     /// </summary>
     [HttpPost("{entityType}/{id}/submit")]
-    [AllowAnonymous]
     public async Task<IActionResult> SubmitEntity(string entityType, string id)
     {
         var (userId, username, role, employeeId) = GetCurrentUserInfo();

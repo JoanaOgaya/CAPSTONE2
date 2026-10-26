@@ -32,15 +32,22 @@ public static class BillingComputationService
     public const double VAT_RATE = 0.12;
     public const double SURCHARGE_RATE = 0.05;
 
+    /// <summary>
+    /// Uniform Money Rounding Rule:
+    /// Half-Up rounding (MidpointRounding.AwayFromZero) to 2 decimal places per line.
+    /// Assumption documented for confirmation with Speedex finance team.
+    /// </summary>
+    public static decimal RoundMoney(decimal value) => Math.Round(value, 2, MidpointRounding.AwayFromZero);
+
     // ─────────────────────────────────────────────────────────────────
     // INVOICE COMPUTATION
     // ─────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Compute the VAT amount: Subtotal × 12%, rounded to 2 decimal places.
+    /// Compute the VAT amount: Subtotal × 12%, rounded to 2 decimal places using MidpointRounding.AwayFromZero.
     /// </summary>
     public static decimal ComputeVat(decimal subtotal)
-        => Math.Round(subtotal * (decimal)VAT_RATE, 2);
+        => RoundMoney(subtotal * (decimal)VAT_RATE);
 
     /// <summary>
     /// Compute surcharge (5%) if the invoice due date has already passed.
@@ -50,7 +57,7 @@ public static class BillingComputationService
     {
         if (DateTime.TryParse(dueDate, out var parsedDue) && DateTime.UtcNow.Date > parsedDue.Date)
         {
-            return Math.Round((subtotal + vatAmount) * (decimal)SURCHARGE_RATE, 2);
+            return RoundMoney((subtotal + vatAmount) * (decimal)SURCHARGE_RATE);
         }
         return 0m;
     }
@@ -155,44 +162,71 @@ public static class BillingComputationService
         invoice.PaymentStatus = ComputePaymentStatus(invoice.Balance, invoice.AmountPaid, invoice.DueDate);
     }
 
+    public static void RefreshInvoiceAging(FOMS.Domain.Entities.SqlServer.Invoice invoice)
+    {
+        if (invoice == null) return;
+        if (invoice.Balance <= 0m)
+        {
+            invoice.PaymentStatus = "Paid";
+            invoice.DaysOverdue = 0;
+            invoice.AgingBucket = "Current";
+            return;
+        }
+
+        var dueDateStr = invoice.DueDate?.ToString("yyyy-MM-dd") ?? invoice.DueDateStr;
+        invoice.DaysOverdue = ComputeDaysOverdue(dueDateStr);
+        invoice.AgingBucket = ComputeAgingBucket(dueDateStr);
+        invoice.PaymentStatus = ComputePaymentStatus(invoice.Balance, invoice.AmountPaid, dueDateStr);
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // CLIENT BALANCE ENGINE
     // ─────────────────────────────────────────────────────────────────
 
+    // ─────────────────────────────────────────────────────────────────
+    // PURE CAPSTONE 2 FORMULA COMPUTATIONS
+    // ─────────────────────────────────────────────────────────────────
+
     /// <summary>
-    /// Synchronize Client.CurrentBalance so it always equals
-    /// the sum of all unpaid Invoice balances for that client.
-    ///
-    /// This is the ONLY authoritative way to update a client's balance.
-    /// No feature should manually do: client.CurrentBalance -= amount.
+    /// Computes Chargeable Weight: max(actualWeight, volumetricWeight)
+    /// Volumetric = (L × W × H × pieces) / 3500 (per NFR-12 & BIL-02)
     /// </summary>
-    public static async Task SyncClientBalanceAsync(
-        string clientId,
-        IApplicationDbContext context,
-        CancellationToken cancellationToken = default)
+    public static decimal ComputeChargeableWeight(decimal actualWeight, decimal lengthCm, decimal widthCm, decimal heightCm, int pieces = 1)
     {
-        var client = await context.Clients
-            .FirstOrDefaultAsync(c => c.Id == clientId, cancellationToken);
+        if (lengthCm <= 0 || widthCm <= 0 || heightCm <= 0 || pieces <= 0)
+            return RoundMoney(Math.Max(0m, actualWeight));
 
-        if (client == null) return;
-
-        var outstandingBalance = await context.Invoices
-            .Where(i => i.ClientId == clientId && !i.Archived)
-            .SumAsync(i => i.Balance, cancellationToken);
-
-        var totalBilled = await context.Invoices
-            .Where(i => i.ClientId == clientId && !i.Archived)
-            .SumAsync(i => i.TotalAmount, cancellationToken);
-
-        var totalPaid = await context.Invoices
-            .Where(i => i.ClientId == clientId && !i.Archived)
-            .SumAsync(i => i.AmountPaid, cancellationToken);
-
-        client.CurrentBalance = outstandingBalance;
-        client.TotalBilled = totalBilled;
-        client.TotalPaid = totalPaid;
-        client.LastTransaction = DateTime.UtcNow.ToString("MMM dd, yyyy");
+        var volumetric = (lengthCm * widthCm * heightCm * pieces) / 3500m;
+        return RoundMoney(Math.Max(actualWeight, volumetric));
     }
+
+    /// <summary>
+    /// Computes Freight Charges: R_min + max(0, CW - 5) × R_excess
+    /// </summary>
+    public static decimal ComputeFreight(decimal chargeableWeight, decimal baseRateMin, decimal excessRatePerKg, decimal minWeightKg = 5.0m)
+    {
+        var excessWeight = Math.Max(0m, chargeableWeight - minWeightKg);
+        var freight = baseRateMin + (excessWeight * excessRatePerKg);
+        return RoundMoney(freight);
+    }
+
+    /// <summary>
+    /// Computes Valuation Charge (1% of Declared Value)
+    /// </summary>
+    public static decimal ComputeValuation(decimal declaredValue, decimal rate = 0.01m)
+        => RoundMoney(Math.Max(0m, declaredValue) * rate);
+
+    /// <summary>
+    /// Computes Fuel Surcharge: f × Freight
+    /// </summary>
+    public static decimal ComputeFuelSurcharge(decimal freight, decimal fuelSurchargeRate)
+        => RoundMoney(Math.Max(0m, freight) * Math.Max(0m, fuelSurchargeRate));
+
+    /// <summary>
+    /// Computes Grand Total: Subtotal + VAT + Fuel Surcharge
+    /// </summary>
+    public static decimal ComputeGrandTotal(decimal subtotal, decimal vatAmount, decimal fuelSurcharge)
+        => RoundMoney(subtotal + vatAmount + fuelSurcharge);
 
     // ─────────────────────────────────────────────────────────────────
     // PAYMENT VALIDATION
@@ -214,141 +248,6 @@ public static class BillingComputationService
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // DYNAMIC INVOICE & RECEIVABLE SYNCHRONIZATION
-    // ─────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Synchronize standard Billing Invoice (BI-...) and ReceivableBalance when an Invoice is updated.
-    /// </summary>
-    public static async Task SyncBillingInvoiceAndReceivableAsync(
-        Invoice invoice,
-        IApplicationDbContext context,
-        CancellationToken cancellationToken = default)
-    {
-        // 1. Determine the corresponding Billing Invoice No
-        string billingInvoiceNo;
-        var parts = invoice.InvoiceNo.Split('-');
-        if (parts.Length >= 3)
-        {
-            billingInvoiceNo = $"BI-{parts[1]}-{parts[2]}";
-        }
-        else
-        {
-            billingInvoiceNo = invoice.InvoiceNo;
-        }
-
-        // Only sync if they are actually different (i.e. sync client invoice to billing invoice)
-        if (invoice.InvoiceNo != billingInvoiceNo)
-        {
-            var billingInvoice = await context.Invoices
-                .FirstOrDefaultAsync(i => i.InvoiceNo == billingInvoiceNo, cancellationToken);
-
-            if (billingInvoice != null)
-            {
-                // Sync financial values
-                billingInvoice.FreightCharges = invoice.FreightCharges;
-                billingInvoice.OtherCharges = invoice.OtherCharges;
-                billingInvoice.Subtotal = invoice.Subtotal;
-                billingInvoice.VatRate = invoice.VatRate;
-                billingInvoice.VatAmount = invoice.VatAmount;
-                billingInvoice.Surcharge = invoice.Surcharge;
-                billingInvoice.TotalAmount = invoice.TotalAmount;
-                billingInvoice.AmountPaid = invoice.AmountPaid;
-                billingInvoice.Balance = invoice.Balance;
-                billingInvoice.DaysOverdue = invoice.DaysOverdue;
-                billingInvoice.AgingBucket = invoice.AgingBucket;
-                billingInvoice.PaymentStatus = invoice.PaymentStatus;
-                billingInvoice.LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-dd");
-                billingInvoice.UpdatedBy = invoice.UpdatedBy;
-                billingInvoice.Archived = invoice.Archived;
-
-                context.Invoices.Update(billingInvoice);
-            }
-            else
-            {
-                // If the billing invoice does not exist, create it (e.g., when a client invoice is newly created)
-                var billingClientId = invoice.ClientId.StartsWith("CL-") 
-                    ? invoice.ClientId.Replace("CL-", "CA-") 
-                    : invoice.ClientId;
-
-                billingInvoice = new Invoice
-                {
-                    Id = billingInvoiceNo,
-                    InvoiceNo = billingInvoiceNo,
-                    ClientId = billingClientId,
-                    ClientName = invoice.ClientName.Contains("Account") ? invoice.ClientName : invoice.ClientName + " Account",
-                    BillingDate = invoice.BillingDate,
-                    DueDate = invoice.DueDate,
-                    FreightCharges = invoice.FreightCharges,
-                    OtherCharges = invoice.OtherCharges,
-                    Subtotal = invoice.Subtotal,
-                    VatRate = invoice.VatRate,
-                    VatAmount = invoice.VatAmount,
-                    Surcharge = invoice.Surcharge,
-                    TotalAmount = invoice.TotalAmount,
-                    AmountPaid = invoice.AmountPaid,
-                    Balance = invoice.Balance,
-                    PaymentStatus = invoice.PaymentStatus,
-                    AgingBucket = invoice.AgingBucket,
-                    DaysOverdue = invoice.DaysOverdue,
-                    Description = invoice.Description,
-                    EncodedBy = invoice.EncodedBy,
-                    DateEncoded = invoice.DateEncoded,
-                    LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-dd"),
-                    UpdatedBy = invoice.UpdatedBy,
-                    Archived = invoice.Archived
-                };
-                context.Invoices.Add(billingInvoice);
-            }
-        }
-
-        // 2. Synchronize ReceivableBalance record
-        // receivableClientId: always use CA- prefix (billing account ID)
-        var receivableClientId = invoice.ClientId.StartsWith("CL-") 
-            ? invoice.ClientId.Replace("CL-", "CA-") 
-            : invoice.ClientId;
-
-        // receivableInvoiceId: always use the BI- invoice number (authoritative FK)
-        // Use InvoiceNo (not Id) because BI- invoices created by the sync use InvoiceNo as their Id,
-        // but direct billing invoices also need InvoiceNo as the stable identifier.
-        var receivableInvoiceId = invoice.InvoiceNo.StartsWith("BI-") ? invoice.InvoiceNo : billingInvoiceNo;
-
-        var receivable = await context.ReceivableBalances
-            .FirstOrDefaultAsync(r => r.InvoiceId == receivableInvoiceId, cancellationToken);
-
-        // Remove receivable if archived OR fully paid (balance == 0)
-        if (invoice.Archived || invoice.Balance <= 0m)
-        {
-            if (receivable != null)
-            {
-                context.ReceivableBalances.Remove(receivable);
-            }
-        }
-        else
-        {
-            var dueDate = DateTime.TryParse(invoice.DueDate, out var parsedDue) ? parsedDue : DateTime.UtcNow;
-            if (receivable != null)
-            {
-                receivable.BalanceAmount = invoice.Balance;
-                receivable.DueDate = dueDate;
-                context.ReceivableBalances.Update(receivable);
-            }
-            else
-            {
-                // Create new receivable record for this invoice
-                receivable = new ReceivableBalance
-                {
-                    ClientId = receivableClientId,
-                    InvoiceId = receivableInvoiceId,
-                    BalanceAmount = invoice.Balance,
-                    DueDate = dueDate
-                };
-                context.ReceivableBalances.Add(receivable);
-            }
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────
     // FULL INVOICE RECALCULATION — called on create and update
     // ─────────────────────────────────────────────────────────────────
 
@@ -364,7 +263,7 @@ public static class BillingComputationService
         if (invoice.FreightCharges == 0 && invoice.OtherCharges == 0 && invoice.TotalAmount > 0)
         {
             invoice.Subtotal = invoice.TotalAmount / (decimal)(1 + VAT_RATE);
-            invoice.FreightCharges = Math.Round(invoice.Subtotal, 2);
+            invoice.FreightCharges = RoundMoney(invoice.Subtotal);
         }
 
         invoice.Subtotal = invoice.FreightCharges + invoice.OtherCharges;

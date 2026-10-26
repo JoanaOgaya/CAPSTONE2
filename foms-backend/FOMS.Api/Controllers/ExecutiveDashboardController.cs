@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
-using FOMS.Application.Interfaces;
 using FOMS.Application.Services;
 using FOMS.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -20,12 +19,10 @@ namespace FOMS.Api.Controllers;
 [Route("financial-manager/executive-dashboard")]
 public class ExecutiveDashboardController : ControllerBase
 {
-    private readonly IApplicationDbContext _context;
     private readonly FomsDbContext _fomsDb;
 
-    public ExecutiveDashboardController(IApplicationDbContext context, FomsDbContext fomsDb)
+    public ExecutiveDashboardController(FomsDbContext fomsDb)
     {
-        _context = context;
         _fomsDb = fomsDb;
     }
 
@@ -40,9 +37,9 @@ public class ExecutiveDashboardController : ControllerBase
 
         var now = DateTime.UtcNow;
         var today = now.Date;
-        var invoices = await _context.Invoices
+        var invoices = await _fomsDb.Invoices
             .AsNoTracking()
-            .Where(invoice => !invoice.Archived && (string.IsNullOrEmpty(clientId) || invoice.ClientId == clientId))
+            .Where(invoice => !invoice.Archived && (string.IsNullOrEmpty(clientId) || invoice.ClientIdStr == clientId || (invoice.ClientId.HasValue && invoice.ClientId.ToString() == clientId)))
             .ToListAsync();
 
         foreach (var invoice in invoices)
@@ -50,31 +47,26 @@ public class ExecutiveDashboardController : ControllerBase
             BillingComputationService.RefreshInvoiceAging(invoice);
         }
 
-        var clientIds = invoices.Select(invoice => invoice.ClientId).Distinct().ToList();
-        var clients = await _context.Clients
+        var clientIds = invoices.Select(invoice => invoice.ClientIdStr ?? (invoice.ClientId.HasValue ? invoice.ClientId.Value.ToString() : "1")).Distinct().ToList();
+        var clients = await _fomsDb.Clients
             .AsNoTracking()
-            .Where(client => clientIds.Contains(client.Id))
+            .Where(client => clientIds.Contains(client.Id) || (client.ClientCode != null && clientIds.Contains(client.ClientCode)))
             .ToListAsync();
         var clientNames = clients.ToDictionary(client => client.Id, client => client.Name);
 
-        var paymentsQuery = _context.Payments.AsNoTracking()
+        var paymentsQuery = _fomsDb.Payments.AsNoTracking()
             .Where(payment =>
                 (payment.PaymentStatus == "Validated" || payment.PaymentStatus == "Approved") &&
-                payment.Flow.ToLower() == "inflow");
+                payment.Flow != null && payment.Flow.ToLower() == "inflow");
         if (!string.IsNullOrEmpty(clientId))
         {
-            paymentsQuery = paymentsQuery.Where(payment => payment.ClientId == clientId);
+            paymentsQuery = paymentsQuery.Where(payment => payment.ClientIdStr == clientId);
         }
         var payments = await paymentsQuery.ToListAsync();
 
-        var cashFlow = (await _context.CashFlowTransactions
-                .AsNoTracking()
-                .ToListAsync())
-            .Select(transaction => (
-                date: transaction.TransactionDate,
-                type: transaction.Type,
-                amount: transaction.Amount))
-            .ToList();
+        var inflows = await _fomsDb.CashInflows
+            .AsNoTracking()
+            .ToListAsync();
 
         var totalBilled = invoices.Sum(invoice => invoice.TotalAmount);
         var totalCollected = invoices.Sum(invoice => invoice.AmountPaid);
@@ -82,9 +74,9 @@ public class ExecutiveDashboardController : ControllerBase
         var collectionRate = totalBilled > 0
             ? Math.Round((double)(totalCollected / totalBilled * 100m), 1)
             : 0d;
-        var cashInflowThisMonth = cashFlow
-            .Where(row => row.type == "Inflow" && row.date.Month == now.Month && row.date.Year == now.Year)
-            .Sum(row => row.amount);
+        var cashInflowThisMonth = inflows
+            .Where(row => (row.TransactionDate ?? row.CreatedAt ?? DateTime.UtcNow).Month == now.Month && (row.TransactionDate ?? row.CreatedAt ?? DateTime.UtcNow).Year == now.Year)
+            .Sum(row => row.Amount);
 
         var nearDueInvoices = invoices
             .Where(invoice =>
@@ -96,12 +88,13 @@ public class ExecutiveDashboardController : ControllerBase
             {
                 TryGetDate(invoice.DueDate, out var dueDate);
                 var daysRemaining = (dueDate.Date - today).Days;
+                var cId = invoice.ClientIdStr ?? (invoice.ClientId.HasValue ? invoice.ClientId.Value.ToString() : "1");
                 var name = !string.IsNullOrWhiteSpace(invoice.ClientName)
                     ? invoice.ClientName
-                    : clientNames.GetValueOrDefault(invoice.ClientId, invoice.ClientId);
+                    : clientNames.GetValueOrDefault(cId, cId);
                 return new
                 {
-                    clientId = invoice.ClientId,
+                    clientId = cId,
                     clientName = name,
                     invoiceNumber = invoice.InvoiceNo,
                     amountDue = invoice.Balance,
@@ -132,7 +125,7 @@ public class ExecutiveDashboardController : ControllerBase
         };
 
         var topPayingClients = payments
-            .GroupBy(payment => payment.ClientId)
+            .GroupBy(payment => payment.ClientIdStr ?? (payment.ClientId.HasValue ? payment.ClientId.Value.ToString() : "1"))
             .Select(group => new
             {
                 clientId = group.Key,
@@ -149,159 +142,172 @@ public class ExecutiveDashboardController : ControllerBase
             .CountAsync(review => review.IsDeleted != true && review.FinalDecision != null &&
                 (review.FinalDecision.Contains("Duplicate") || review.FinalDecision.Contains("Flagged") || review.FinalDecision.Contains("FLAGGED") || review.FinalDecision.Contains("PENDING_REVIEW")));
 
-        var recentLogs = await _context.AuditLogs
+        var recentLogs = await _fomsDb.AuditLogs
             .AsNoTracking()
-            .OrderByDescending(log => log.LoggedAt)
+            .OrderByDescending(log => log.created_at)
             .Take(5)
             .ToListAsync();
         var recentUserIds = recentLogs
-            .Select(log => log.UserId)
+            .Select(log => log.user_id?.ToString())
             .Where(userId => !string.IsNullOrWhiteSpace(userId))
             .Distinct()
             .ToList();
-        var recentUsers = await _context.Employees
+        var recentUsers = await _fomsDb.Users
             .AsNoTracking()
-            .Where(user => recentUserIds.Contains(user.Id))
-            .ToDictionaryAsync(user => user.Id, user => user.Name);
+            .ToDictionaryAsync(user => user.UserId.ToString(), user => user.FullName);
+
         var recentActivity = recentLogs.Select(log => new
         {
-            id = log.Id,
-            timestamp = log.LoggedAt,
-            userId = log.UserId,
-            userFullName = recentUsers.TryGetValue(log.UserId, out var userName)
+            id = log.audit_id.ToString(),
+            timestamp = log.created_at ?? DateTime.UtcNow,
+            userId = log.user_id?.ToString() ?? "System",
+            userFullName = log.user_id.HasValue && recentUsers.TryGetValue(log.user_id.Value.ToString(), out var userName)
                 ? userName
-                : log.UserId,
-            userRole = string.Empty,
-            action = log.Action,
-            module = log.EntityName,
-            recordId = log.EntityId,
-            recordType = log.EntityName,
-            details = log.Details,
+                : (log.user_id?.ToString() ?? "System"),
+            userRole = log.role ?? string.Empty,
+            action = log.action,
+            module = log.module,
+            recordId = log.affected_record_id?.ToString(),
+            recordType = log.affected_record_type,
+            details = log.remarks,
             ipAddress = string.Empty
         }).ToList();
 
-        var insights = new List<object>();
-        var overdueInvoices = invoices
-            .Where(invoice => invoice.Balance > 0 &&
-                TryGetDate(invoice.DueDate, out var dueDate) &&
-                dueDate.Date < today)
+        var daysInTrend = period?.ToLowerInvariant() switch
+        {
+            "weekly" => 7,
+            "quarterly" => 90,
+            "annual" => 365,
+            _ => 30
+        };
+
+        var trendStart = today.AddDays(-daysInTrend + 1);
+        var invoicesInTrend = invoices
+            .Where(invoice =>
+                TryGetDate(invoice.BillingDate, out var billingDate) &&
+                billingDate.Date >= trendStart &&
+                billingDate.Date <= today)
             .ToList();
-        if (overdueInvoices.Count > 0)
+        var paymentsInTrend = payments
+            .Where(payment =>
+                TryGetDate(payment.PaymentDate, out var paymentDate) &&
+                paymentDate.Date >= trendStart &&
+                paymentDate.Date <= today)
+            .ToList();
+
+        var collectionTrend = new List<object>();
+        for (var date = trendStart; date <= today; date = date.AddDays(1))
         {
-            insights.Add(new
+            var dateStr = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var billed = invoicesInTrend
+                .Where(invoice => TryGetDate(invoice.BillingDate, out var billingDate) && billingDate.Date == date)
+                .Sum(invoice => invoice.TotalAmount);
+            var collected = paymentsInTrend
+                .Where(payment => TryGetDate(payment.PaymentDate, out var paymentDate) && paymentDate.Date == date)
+                .Sum(payment => payment.Amount);
+            collectionTrend.Add(new
             {
-                id = "overdue-receivables",
-                type = "collection",
-                title = "Overdue receivables need follow-up",
-                message = $"{overdueInvoices.Count} overdue invoice(s) with {FormatCurrency(overdueInvoices.Sum(invoice => invoice.Balance))} outstanding.",
-                severity = "high",
-                entityId = overdueInvoices[0].Id,
-                targetRoute = "/accounts-receivable",
-                createdAt = now
-            });
-        }
-        else if (nearDueInvoices.Count > 0)
-        {
-            insights.Add(new
-            {
-                id = "upcoming-receivables",
-                type = "collection",
-                title = "Receivables due soon",
-                message = $"{nearDueInvoices.Count} account(s) have {FormatCurrency(nearDueInvoices.Sum(account => account.amountDue))} due within 7 days.",
-                severity = "medium",
-                entityId = nearDueInvoices[0].invoiceNumber,
-                targetRoute = "/accounts-receivable",
-                createdAt = now
+                date = dateStr,
+                billed,
+                collected
             });
         }
 
-        if (duplicateAlerts > 0)
-        {
-            insights.Add(new
-            {
-                id = "open-duplicate-alerts",
-                type = "duplicate",
-                title = "Duplicate alerts need review",
-                message = $"{duplicateAlerts} open duplicate alert(s) are awaiting review.",
-                severity = "high",
-                entityId = (string?)null,
-                targetRoute = "/flagged-duplicates",
-                createdAt = now
-            });
-        }
-
-        var monthly = string.Equals(period, "monthly", StringComparison.OrdinalIgnoreCase);
-        var cashFlowAnalytics = monthly
-            ? Enumerable.Range(1, 12)
-                .Select(month =>
-                {
-                    var monthStart = new DateTime(now.Year, month, 1, 0, 0, 0, DateTimeKind.Utc);
-                    var rows = cashFlow.Where(row => row.date.Year == now.Year && row.date.Month == month).ToList();
-                    var inflow = rows.Where(row => row.type == "Inflow").Sum(row => row.amount);
-                    var outflow = rows.Where(row => row.type == "Outflow").Sum(row => row.amount);
-                    return new
-                    {
-                        period = monthStart.ToString("MMM", CultureInfo.InvariantCulture),
-                        inflow,
-                        outflow,
-                        net = inflow - outflow
-                    };
-                })
-                .ToList()
-            : Enumerable.Range(0, 7)
-                .Select(offset =>
-                {
-                    var date = today.AddDays(offset - 6);
-                    var rows = cashFlow.Where(row => row.date.Date == date).ToList();
-                    var inflow = rows.Where(row => row.type == "Inflow").Sum(row => row.amount);
-                    var outflow = rows.Where(row => row.type == "Outflow").Sum(row => row.amount);
-                    return new
-                    {
-                        period = date.ToString("ddd", CultureInfo.InvariantCulture),
-                        inflow,
-                        outflow,
-                        net = inflow - outflow
-                    };
-                })
-                .ToList();
+        var cashFlowAnalytics = BuildCashFlowAnalytics(inflows, period);
 
         return Ok(new
         {
             success = true,
             data = new
             {
-                asOf = now,
-                period = monthly ? "monthly" : "weekly",
-                clientId,
                 totalInvoicesBilled = invoices.Count,
                 totalInvoiceAmount = totalBilled,
                 totalCollected,
                 totalArOutstanding,
                 collectionRate,
                 cashInflowThisMonth,
-                duplicateAlerts,
                 accountsNearDueDate = nearDueInvoices.Count,
-                cashFlowAnalytics,
-                agingBuckets,
-                topPayingClients,
+                potentialDuplicateAlerts = duplicateAlerts,
                 nearDueAccounts = nearDueInvoices,
-                recentActivity,
-                insights
+                agingBuckets,
+                collectionTrend,
+                cashFlowAnalytics,
+                topPayingClients,
+                recentActivity
             }
         });
     }
 
-    private static string FormatCurrency(decimal amount) =>
-        $"₱{amount.ToString("N2", CultureInfo.InvariantCulture)}";
+    private static bool IsFinancialManager(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role)) return false;
+        return role.Equals("Financial Manager", StringComparison.OrdinalIgnoreCase) ||
+               role.Equals("FINANCIAL_MANAGER", StringComparison.OrdinalIgnoreCase) ||
+               role.Equals("FinancialManager", StringComparison.OrdinalIgnoreCase);
+    }
 
-    private static bool IsFinancialManager(string? role) =>
-        string.Equals(role, "Financial Manager", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, "Finance Manager", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, "FINANCIAL_MANAGER", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, "FINANCE_MANAGER", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, "System Admin", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, "SYSTEM_ADMIN", StringComparison.OrdinalIgnoreCase);
+    private static bool TryGetDate(DateOnly? raw, out DateTime date)
+    {
+        if (raw.HasValue)
+        {
+            date = raw.Value.ToDateTime(TimeOnly.MinValue);
+            return true;
+        }
+        date = default;
+        return false;
+    }
 
-    private static bool TryGetDate(string? value, out DateTime date) =>
-        DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out date);
+    private static bool TryGetDate(string? raw, out DateTime date)
+    {
+        if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+        {
+            return true;
+        }
+
+        return DateTime.TryParse(raw, out date);
+    }
+
+    private static List<object> BuildCashFlowAnalytics(
+        List<FOMS.Domain.Entities.SqlServer.CashInflow> inflows,
+        string? period)
+    {
+        var normalizedPeriod = period?.ToLowerInvariant();
+        if (normalizedPeriod == "weekly")
+        {
+            var sevenDaysAgo = DateTime.UtcNow.Date.AddDays(-6);
+            return Enumerable.Range(0, 7)
+                .Select(offset => sevenDaysAgo.AddDays(offset))
+                .Select(day => new
+                {
+                    period = day.ToString("ddd", CultureInfo.InvariantCulture),
+                    inflow = inflows
+                        .Where(row => (row.TransactionDate ?? row.CreatedAt ?? DateTime.UtcNow).Date == day)
+                        .Sum(row => row.Amount),
+                    outflow = 0m
+                })
+                .Cast<object>()
+                .ToList();
+        }
+
+        var now = DateTime.UtcNow;
+        var months = new List<DateTime>();
+        for (var offset = 5; offset >= 0; offset--)
+        {
+            months.Add(new DateTime(now.Year, now.Month, 1).AddMonths(-offset));
+        }
+
+        return months
+            .Select(month => new
+            {
+                period = month.ToString("MMM yyyy", CultureInfo.InvariantCulture),
+                inflow = inflows
+                    .Where(row =>
+                        (row.TransactionDate ?? row.CreatedAt ?? DateTime.UtcNow).Month == month.Month &&
+                        (row.TransactionDate ?? row.CreatedAt ?? DateTime.UtcNow).Year == month.Year)
+                    .Sum(row => row.Amount),
+                outflow = 0m
+            })
+            .Cast<object>()
+            .ToList();
+    }
 }

@@ -1,13 +1,14 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Security.Claims;
-using System.Threading;
+using System.Text;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using FOMS.Application.Interfaces;
-using FOMS.Domain.Entities;
+using FOMS.Domain.Entities.SqlServer;
+using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
 
@@ -21,114 +22,230 @@ public class AuditLogInputDto
     public string? RecordType { get; set; }
     public string? Details { get; set; }
     public string? Remarks { get; set; }
-    public string? IpAddress { get; set; }
+    public string? BeforeValue { get; set; }
+    public string? AfterValue { get; set; }
     public string? UserId { get; set; }
-    public string? UserFullName { get; set; }
     public string? UserRole { get; set; }
 }
 
+/// <summary>
+/// AUD-01 to AUD-03: Append-Only Immutable Audit Trail.
+/// Only Head Accountant and Financial Manager can view audit logs.
+/// Head Accountant audits Accounts and Journal entries.
+/// Financial Manager audits Expenses and Cash Flow.
+/// Both can view Executive Approvals.
+/// All other roles receive 403 Forbidden.
+/// Physical UPDATE and DELETE are prohibited.
+/// </summary>
 [Authorize]
 [ApiController]
 [Route("api/audit-logs")]
-[Route("api/v1/audit-logs")]
 [Route("audit-logs")]
 public class AuditLogsController : ControllerBase
 {
-    private readonly IApplicationDbContext _context;
+    private readonly FomsDbContext _fomsDb;
 
-    public AuditLogsController(IApplicationDbContext context)
+    public AuditLogsController(FomsDbContext fomsDb)
     {
-        _context = context;
+        _fomsDb = fomsDb;
+    }
+
+    private (string role, string userId) GetUserRoleAndId()
+    {
+        var role = User.FindFirst(ClaimTypes.Role)?.Value
+            ?? User.FindFirst("role")?.Value
+            ?? string.Empty;
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value
+            ?? string.Empty;
+
+        return (role, userId);
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll([FromQuery] string? module = null, [FromQuery] string? search = null, [FromQuery] string? startDate = null, [FromQuery] string? endDate = null)
     {
-        var logs = await _context.AuditLogs
-            .AsNoTracking()
-            .OrderByDescending(a => a.LoggedAt)
-            .ToListAsync();
-        var userIds = logs
-            .Select(log => log.UserId)
-            .Where(userId => !string.IsNullOrWhiteSpace(userId))
-            .Distinct()
-            .ToList();
-        var users = await _context.Employees
-            .AsNoTracking()
-            .Where(employee => userIds.Contains(employee.Id))
-            .ToDictionaryAsync(employee => employee.Id, employee => employee.Name);
+        var (role, _) = GetUserRoleAndId();
 
-        var result = logs.Select(a => new
+        // AUD-03: Access Guard — Only Head Accountant and Financial Manager may view audit logs
+        if (!string.Equals(role, "Head Accountant", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(role, "HEAD_ACCOUNTANT", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(role, "Financial Manager", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(role, "FINANCIAL_MANAGER", StringComparison.OrdinalIgnoreCase))
         {
-            id = a.Id,
-            auditId = a.Id,
-            timestamp = a.LoggedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
-            loggedAt = a.LoggedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
-            userId = a.UserId,
-            userFullName = users.GetValueOrDefault(a.UserId, a.UserId),
-            userRole = string.Empty,
-            role = string.Empty,
-            action = a.Action,
-            module = a.EntityName,
-            entityName = a.EntityName,
-            recordId = a.EntityId,
-            entityId = a.EntityId,
-            recordType = a.EntityName,
-            details = a.Details,
-            remarks = a.Details,
-            ipAddress = string.Empty
+            return Forbid("Access denied. Only the Head Accountant and Financial Manager may view the audit trail per AUD-03.");
+        }
+
+        var query = _fomsDb.AuditLogs.AsNoTracking().AsQueryable();
+
+        // AUD-03 Role Scoping:
+        // Head Accountant audits Accounts, Billing, Payments, Invoices, Settlements, Adjustments
+        // Financial Manager audits Expenses, Cash Advances, Liquidations, Cash Outflow, Budget
+        // Both can audit Executive Approvals
+        if (string.Equals(role, "Head Accountant", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, "HEAD_ACCOUNTANT", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(a => 
+                a.module == "ExecutiveApprovals" ||
+                a.module == "Invoices" ||
+                a.module == "Payments" ||
+                a.module == "AccountsReceivable" ||
+                a.module == "Billing" ||
+                a.module == "Settlements" ||
+                a.module == "Adjustments" ||
+                a.module == "Clients" ||
+                a.module == "Rates" ||
+                a.affected_record_type == "ExecutiveApproval" ||
+                a.affected_record_type == "Invoice" ||
+                a.affected_record_type == "Payment");
+        }
+        else if (string.Equals(role, "Financial Manager", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(role, "FINANCIAL_MANAGER", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(a => 
+                a.module == "ExecutiveApprovals" ||
+                a.module == "CashAdvances" ||
+                a.module == "Liquidations" ||
+                a.module == "CashFlow" ||
+                a.module == "CashOutflows" ||
+                a.module == "Budget" ||
+                a.module == "Expenses" ||
+                a.affected_record_type == "ExecutiveApproval" ||
+                a.affected_record_type == "CashOutflow" ||
+                a.affected_record_type == "CashAdvance" ||
+                a.affected_record_type == "Liquidation");
+        }
+
+        if (!string.IsNullOrWhiteSpace(module) && module != "All")
+        {
+            query = query.Where(a => a.module == module);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(a => 
+                a.action.Contains(search) || 
+                (a.remarks != null && a.remarks.Contains(search)) ||
+                (a.affected_record_type != null && a.affected_record_type.Contains(search)));
+        }
+
+        if (DateTime.TryParse(startDate, out var start))
+        {
+            query = query.Where(a => a.created_at >= start);
+        }
+        if (DateTime.TryParse(endDate, out var end))
+        {
+            query = query.Where(a => a.created_at <= end.AddDays(1));
+        }
+
+        var list = await query.OrderByDescending(a => a.created_at).Take(500).ToListAsync();
+
+        var result = list.Select(a => new
+        {
+            id = a.audit_id.ToString(),
+            auditId = a.audit_id.ToString(),
+            timestamp = a.created_at?.ToString("yyyy-MM-ddTHH:mm:ss") ?? DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss"),
+            loggedAt = a.created_at?.ToString("yyyy-MM-ddTHH:mm:ss") ?? DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss"),
+            userId = a.user_id?.ToString() ?? "SYSTEM",
+            userFullName = a.role ?? "System User",
+            userRole = a.role ?? string.Empty,
+            role = a.role ?? string.Empty,
+            action = a.action,
+            module = a.module,
+            entityName = a.affected_record_type ?? a.module,
+            recordId = a.affected_record_id?.ToString() ?? string.Empty,
+            entityId = a.affected_record_id?.ToString() ?? string.Empty,
+            recordType = a.affected_record_type ?? a.module,
+            beforeValue = a.before_value,
+            afterValue = a.after_value,
+            details = a.remarks ?? $"{a.action} on {a.module}",
+            remarks = a.remarks
         }).ToList();
 
         return Ok(result);
     }
 
+    [HttpGet("export")]
+    public async Task<IActionResult> ExportCsv([FromQuery] string? module, [FromQuery] string? startDate, [FromQuery] string? endDate)
+    {
+        var (role, _) = GetUserRoleAndId();
+        if (!string.Equals(role, "Head Accountant", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(role, "HEAD_ACCOUNTANT", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(role, "Financial Manager", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(role, "FINANCIAL_MANAGER", StringComparison.OrdinalIgnoreCase))
+        {
+            return Forbid("Access denied.");
+        }
+
+        var query = _fomsDb.AuditLogs.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(module) && module != "All") query = query.Where(a => a.module == module);
+        if (DateTime.TryParse(startDate, out var start)) query = query.Where(a => a.created_at >= start);
+        if (DateTime.TryParse(endDate, out var end)) query = query.Where(a => a.created_at <= end.AddDays(1));
+
+        var logs = await query.OrderByDescending(a => a.created_at).Take(2000).ToListAsync();
+
+        var sb = new StringBuilder();
+        sb.AppendLine("AuditID,Timestamp,User,Role,Action,Module,RecordType,RecordID,Remarks");
+        foreach (var l in logs)
+        {
+            sb.AppendLine($"\"{l.audit_id}\",\"{l.created_at:yyyy-MM-dd HH:mm:ss}\",\"{l.user_id}\",\"{l.role}\",\"{l.action}\",\"{l.module}\",\"{l.affected_record_type}\",\"{l.affected_record_id}\",\"{l.remarks?.Replace("\"", "\"\"")}\"");
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+        return File(bytes, "text/csv", $"FOMS_Audit_Trail_{DateTime.UtcNow:yyyyMMdd}.csv");
+    }
+
+    /// <summary>
+    /// Append an immutable audit record (AUD-01).
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] AuditLogInputDto dto)
     {
-        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? dto.UserRole ?? "User";
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? dto.UserId
-            ?? "EMP-001";
-        var userName = User.FindFirst("name")?.Value
-            ?? User.FindFirst(ClaimTypes.Name)?.Value
-            ?? dto.UserFullName
-            ?? userId;
-        var entityName = dto.Module ?? dto.EntityName ?? dto.RecordType ?? "General";
-        var entityId = dto.RecordId ?? dto.EntityId ?? string.Empty;
-        var action = dto.Action ?? "USER_ACTION";
-        var details = dto.Details ?? dto.Remarks ?? $"{action} on {entityName}";
-        var audit = new AuditLog
+        var (role, userId) = GetUserRoleAndId();
+        var effectiveRole = !string.IsNullOrWhiteSpace(role) ? role : (dto.UserRole ?? "User");
+        var effectiveUserId = !string.IsNullOrWhiteSpace(userId) ? userId : (dto.UserId ?? "SYSTEM");
+
+        int? parsedUserId = null;
+        if (int.TryParse(effectiveUserId.Replace("EMP-", "").Replace("USER-", ""), out var uid))
         {
-            UserId = userId,
-            EntityName = entityName,
-            EntityId = entityId,
-            Action = action,
-            Details = details,
-            LoggedAt = DateTime.UtcNow
+            parsedUserId = uid;
+        }
+
+        int? parsedRecordId = null;
+        var rawRecordId = dto.RecordId ?? dto.EntityId;
+        if (!string.IsNullOrWhiteSpace(rawRecordId) && int.TryParse(rawRecordId.Replace("INV-", "").Replace("CO-", "").Replace("CA-", ""), out var rid))
+        {
+            parsedRecordId = rid;
+        }
+
+        var log = new AuditLog
+        {
+            user_id = parsedUserId,
+            role = effectiveRole,
+            action = dto.Action ?? "USER_ACTION",
+            module = dto.Module ?? dto.EntityName ?? "General",
+            affected_record_type = dto.RecordType ?? dto.EntityName ?? "General",
+            affected_record_id = parsedRecordId,
+            before_value = dto.BeforeValue,
+            after_value = dto.AfterValue,
+            remarks = dto.Remarks ?? dto.Details ?? $"{dto.Action} recorded",
+            created_at = DateTime.UtcNow
         };
 
-        _context.AuditLogs.Add(audit);
-        await _context.SaveChangesAsync(CancellationToken.None);
+        _fomsDb.AuditLogs.Add(log);
+        await _fomsDb.SaveChangesAsync();
 
         return Ok(new
         {
-            id = audit.Id,
-            auditId = audit.Id,
-            timestamp = audit.LoggedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
-            loggedAt = audit.LoggedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
-            userId = audit.UserId,
-            userFullName = userName,
-            userRole = role,
-            role,
-            action = audit.Action,
-            module = audit.EntityName,
-            entityName = audit.EntityName,
-            recordId = audit.EntityId,
-            entityId = audit.EntityId,
-            recordType = audit.EntityName,
-            details = audit.Details,
-            remarks = audit.Details,
-            ipAddress = string.Empty
+            id = log.audit_id.ToString(),
+            auditId = log.audit_id.ToString(),
+            timestamp = log.created_at?.ToString("yyyy-MM-ddTHH:mm:ss"),
+            loggedAt = log.created_at?.ToString("yyyy-MM-ddTHH:mm:ss"),
+            userId = effectiveUserId,
+            role = effectiveRole,
+            action = log.action,
+            module = log.module,
+            remarks = log.remarks
         });
     }
 }

@@ -37,6 +37,17 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
     {
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+        if (!FOMS.Application.Services.AuthService.CheckIpRateLimit(ip, out var retryAfter))
+        {
+            Response.Headers.Append("Retry-After", retryAfter.ToString());
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
+            {
+                success = false,
+                message = $"Too many login attempts from this IP address. Please wait {retryAfter} seconds before trying again."
+            });
+        }
+
         var identifier = request.GetIdentifier();
         if (string.IsNullOrWhiteSpace(identifier) || string.IsNullOrWhiteSpace(request.Password))
             return BadRequest(new { success = false, message = "Employee number and password are required." });
@@ -154,7 +165,12 @@ public class AuthController : ControllerBase
     [HttpPost("logout")]
     public async Task<IActionResult> Logout([FromBody] LogoutRequestDto? request)
     {
-        if (!string.IsNullOrWhiteSpace(request?.RefreshToken))
+        var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            await _authService.LogoutAsync(authHeader);
+        }
+        else if (!string.IsNullOrWhiteSpace(request?.RefreshToken))
         {
             await _authService.LogoutAsync(request.RefreshToken);
         }
