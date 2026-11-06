@@ -1,0 +1,168 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using FOMS.Domain.Entities.SqlServer;
+
+
+namespace FOMS.Infrastructure.Persistence;
+
+public class FomsDbContext : DbContext
+{
+    public FomsDbContext(DbContextOptions<FomsDbContext> options) : base(options)
+    {
+    }
+
+    public DbSet<Role> Roles { get; set; } = null!;
+    public DbSet<User> Users { get; set; } = null!;
+    public DbSet<Client> Clients { get; set; } = null!;
+    public DbSet<ClientFinanceSetting> ClientFinanceSettings { get; set; } = null!;
+    public DbSet<ClientRate> ClientRates { get; set; } = null!;
+    public DbSet<Invoice> Invoices { get; set; } = null!;
+    public DbSet<AccountsReceivable> AccountsReceivable { get; set; } = null!;
+    public DbSet<Payment> Payments { get; set; } = null!;
+    public DbSet<PaymentHistory> PaymentHistory { get; set; } = null!;
+    public DbSet<Notification> Notifications { get; set; } = null!;
+    public DbSet<AuditLog> AuditLogs { get; set; } = null!;
+    public DbSet<Waybill> Waybills { get; set; } = null!;
+    public DbSet<WaybillDuplicateAlert> WaybillDuplicateAlerts { get; set; } = null!;
+    public DbSet<ExceptionRecord> ExceptionRecords { get; set; } = null!;
+    public DbSet<ProofOfDelivery> ProofOfDeliveries { get; set; } = null!;
+    public DbSet<BillingDocument> BillingDocuments { get; set; } = null!;
+    public DbSet<InvoiceLineItem> InvoiceLineItems { get; set; } = null!;
+    public DbSet<InvoiceComputation> InvoiceComputations { get; set; } = null!;
+    public DbSet<FomsOfficialReceipt> OfficialReceipts { get; set; } = null!;
+    public DbSet<CashInflow> CashInflows { get; set; } = null!;
+    public DbSet<CashOutflow> CashOutflows { get; set; } = null!;
+    public DbSet<CashAdvance> CashAdvances { get; set; } = null!;
+    public DbSet<Liquidation> Liquidations { get; set; } = null!;
+    public DbSet<LiquidationLineItem> LiquidationLineItems { get; set; } = null!;
+    public DbSet<LiquidationDocument> LiquidationDocuments { get; set; } = null!;
+    public DbSet<FinancialAdjustment> FinancialAdjustments { get; set; } = null!;
+    public DbSet<CreditMemo> CreditMemos { get; set; } = null!;
+    public DbSet<Settlement> Settlements { get; set; } = null!;
+    public DbSet<AIReviewHistory> AIReviewHistories { get; set; } = null!;
+    public DbSet<AIOutputHistory> AIOutputHistories { get; set; } = null!;
+    public DbSet<AIScanLog> AIScanLogs { get; set; } = null!;
+    public DbSet<StarsCollectionTask> StarsCollectionTasks { get; set; } = null!;
+    public DbSet<Report> Reports { get; set; } = null!;
+    public DbSet<ApprovalThresholdSetting> ApprovalThresholdSettings { get; set; } = null!;
+    public DbSet<CashOutflowApprovalRequest> CashOutflowApprovalRequests { get; set; } = null!;
+    public DbSet<CashOutflowApprovalHistory> CashOutflowApprovalHistories { get; set; } = null!;
+    public DbSet<InvoiceFollowUpLog> InvoiceFollowUpLogs { get; set; } = null!;
+    public DbSet<FOMS.Domain.Entities.AccountingPeriodClose> AccountingPeriodCloses { get; set; } = null!;
+    public DbSet<FinanceManagerDelegate> FinanceManagerDelegates { get; set; } = null!;
+    public DbSet<Department> Departments { get; set; } = null!;
+    public DbSet<AnnualBudget> AnnualBudgets { get; set; } = null!;
+    public DbSet<MonthlyBudgetLine> MonthlyBudgetLines { get; set; } = null!;
+    public DbSet<BudgetOverride> BudgetOverrides { get; set; } = null!;
+    public DbSet<BudgetTransfer> BudgetTransfers { get; set; } = null!;
+    public DbSet<DirectDisbursement> DirectDisbursements { get; set; } = null!;
+    public DbSet<Reimbursement> Reimbursements { get; set; } = null!;
+    public DbSet<GoLiveOpeningBalance> GoLiveOpeningBalances { get; set; } = null!;
+    public DbSet<FinancialStatementApproval> FinancialStatementApprovals { get; set; } = null!;
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<Role>().ToTable("Roles", "dbo");
+        modelBuilder.Entity<User>().ToTable("Users", "dbo");
+        modelBuilder.Entity<Client>().ToTable("Clients", "dbo");
+        modelBuilder.Entity<ClientFinanceSetting>().ToTable("ClientFinanceSettings", "dbo");
+        modelBuilder.Entity<ClientRate>().ToTable("ClientRates", "dbo");
+        modelBuilder.Entity<Invoice>().ToTable("Invoices", "dbo");
+        modelBuilder.Entity<AccountsReceivable>().ToTable("AccountsReceivable", "dbo");
+        modelBuilder.Entity<Payment>().ToTable("Payments", "dbo");
+        modelBuilder.Entity<PaymentHistory>().ToTable("PaymentHistory", "dbo");
+        modelBuilder.Entity<Notification>().ToTable("Notifications", "dbo");
+        modelBuilder.Entity<AuditLog>().ToTable("AuditLogs", "dbo");
+        modelBuilder.Entity<Waybill>().ToTable("Waybills", "dbo");
+        modelBuilder.Entity<WaybillDuplicateAlert>().ToTable("WaybillDuplicateAlerts", "dbo");
+        modelBuilder.Entity<ProofOfDelivery>().ToTable("ProofOfDeliveries", "dbo");
+        modelBuilder.Entity<BillingDocument>().ToTable("BillingDocuments", "dbo");
+        modelBuilder.Entity<InvoiceLineItem>().ToTable("InvoiceLineItems", "dbo");
+        modelBuilder.Entity<InvoiceComputation>().ToTable("InvoiceComputations", "dbo");
+        modelBuilder.Entity<FomsOfficialReceipt>().ToTable("OfficialReceipts", "dbo");
+        modelBuilder.Entity<CashInflow>().ToTable("CashInflows", "dbo");
+        modelBuilder.Entity<CashOutflow>().ToTable("CashOutflows", "dbo");
+        modelBuilder.Entity<CashAdvance>().ToTable("CashAdvances", "dbo");
+        modelBuilder.Entity<Liquidation>().ToTable("Liquidations", "dbo");
+        modelBuilder.Entity<LiquidationLineItem>().ToTable("LiquidationLineItems", "dbo");
+        modelBuilder.Entity<LiquidationDocument>().ToTable("LiquidationDocuments", "dbo");
+        modelBuilder.Entity<FinancialAdjustment>().ToTable("FinancialAdjustments", "dbo");
+        modelBuilder.Entity<CreditMemo>().ToTable("CreditMemos", "dbo");
+        modelBuilder.Entity<RefundRequest>().ToTable("RefundRequests", "dbo");
+        modelBuilder.Entity<Settlement>().ToTable("Settlements", "dbo");
+        modelBuilder.Entity<AIReviewHistory>().ToTable("AIReviewHistory", "dbo");
+        modelBuilder.Entity<AIOutputHistory>().ToTable("AIOutputHistory", "dbo");
+        modelBuilder.Entity<AIScanLog>().ToTable("ai_scan_logs", "dbo");
+        modelBuilder.Entity<StarsCollectionTask>().ToTable("StarsCollectionTasks", "dbo");
+        modelBuilder.Entity<Report>().ToTable("Reports", "dbo");
+        modelBuilder.Entity<ApprovalThresholdSetting>().ToTable("ApprovalThresholdSettings", "dbo");
+        modelBuilder.Entity<CashOutflowApprovalRequest>().ToTable("CashOutflowApprovalRequests", "dbo");
+        modelBuilder.Entity<CashOutflowApprovalHistory>().ToTable("CashOutflowApprovalHistory", "dbo");
+        modelBuilder.Entity<FOMS.Domain.Entities.AccountingPeriodClose>().ToTable("AccountingPeriodCloses", "dbo");
+        modelBuilder.Entity<FinanceManagerDelegate>().ToTable("FinanceManagerDelegates", "dbo");
+        modelBuilder.Entity<Department>().ToTable("Departments", "dbo");
+        modelBuilder.Entity<AnnualBudget>().ToTable("AnnualBudgets", "dbo");
+        modelBuilder.Entity<MonthlyBudgetLine>().ToTable("MonthlyBudgetLines", "dbo");
+        modelBuilder.Entity<BudgetOverride>().ToTable("BudgetOverrides", "dbo");
+        modelBuilder.Entity<BudgetTransfer>().ToTable("BudgetTransfers", "dbo");
+    }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        await EnforceClosedPeriodLocksAsync(cancellationToken);
+        return await base.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task EnforceClosedPeriodLocksAsync(CancellationToken cancellationToken)
+    {
+        var periods = await AccountingPeriodCloses.AsNoTracking().ToListAsync(cancellationToken);
+        if (periods.Count == 0)
+            return;
+
+        var paymentOnlyInvoiceChanges = new HashSet<string>(StringComparer.Ordinal)
+        {
+            nameof(Invoice.PaidAmount),
+            nameof(Invoice.OutstandingBalance),
+            nameof(Invoice.InvoiceStatus),
+            nameof(Invoice.UpdatedAt)
+        };
+
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
+                continue;
+
+            DateTime? transactionDate = entry.Entity switch
+            {
+                Invoice invoice when entry.State != EntityState.Modified ||
+                    entry.Properties.Any(property => property.IsModified && !paymentOnlyInvoiceChanges.Contains(property.Metadata.Name)) ||
+                    (entry.Property(nameof(Invoice.InvoiceStatus)).IsModified &&
+                     !(entry.Property(nameof(Invoice.PaidAmount)).IsModified &&
+                       entry.Property(nameof(Invoice.OutstandingBalance)).IsModified))
+                    => DateTime.TryParse(invoice.BillingPeriod, out var billingPeriod)
+                        ? billingPeriod.Date
+                        : invoice.CreatedAt?.Date,
+                Payment payment => payment.SubmittedAt?.Date,
+                Liquidation liquidation => (liquidation.DateSubmitted ?? liquidation.CreatedAt)?.Date,
+                CashInflow inflow => (inflow.TransactionDate ?? inflow.CreatedAt)?.Date,
+                CashOutflow outflow => (outflow.TransactionDate ?? outflow.OutflowDate ?? outflow.CreatedAt)?.Date,
+                CashAdvance advance => (advance.ReleaseDate ?? advance.CreatedAt)?.Date,
+                _ => null
+            };
+
+            if (transactionDate == null)
+                continue;
+
+            if (periods.Any(period => transactionDate.Value >= period.PeriodStart.Date &&
+                                      transactionDate.Value <= period.PeriodEnd.Date))
+                throw new InvalidOperationException(
+                    $"Accounting period containing {transactionDate:yyyy-MM-dd} is closed. Record a correcting entry dated after the period instead.");
+        }
+    }
+}
