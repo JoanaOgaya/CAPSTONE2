@@ -378,6 +378,15 @@ public class HeadAccountantController : ControllerBase
             return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot validate their own payment." });
         }
 
+        if (payment.InvoiceId.HasValue)
+        {
+            var invoice = await _fomsDb.Invoices.FirstOrDefaultAsync(i => i.InvoiceId == payment.InvoiceId.Value);
+            if (invoice != null && (invoice.DocumentStatus == "Void" || invoice.PaymentStatus == "Void"))
+            {
+                return BadRequest(new { success = false, message = "Cannot validate payment for a void invoice. Void is terminal." });
+            }
+        }
+
         payment.PaymentStatus = "Validated";
         payment.ValidatedAt = DateTime.UtcNow;
         payment.ValidatedBy = 2;
@@ -398,6 +407,12 @@ public class HeadAccountantController : ControllerBase
         await LogAuditAsync("VALIDATE_PAYMENT", "Payments", "Payment", paymentId, "Pending", "Validated", "Payment validated by Head Accountant.");
 
         return Ok(new { success = true, message = "Payment validated successfully." });
+    }
+
+    [HttpPost("payments/{paymentId}/approve")]
+    public Task<IActionResult> ApprovePayment(string paymentId)
+    {
+        return Task.FromResult<IActionResult>(StatusCode(StatusCodes.Status403Forbidden, new { message = "Final approval is FM-only. Head Accountant is not authorized to approve payments." }));
     }
 
     [HttpPost("payments/{paymentId}/reject")]

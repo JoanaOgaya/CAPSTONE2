@@ -26,6 +26,8 @@ export const REALTIME_EVENT_QUERY_MAP: Record<string, readonly string[]> = {
   'invoice:verified': ['invoices', 'ar', 'dashboard', 'reports', 'notifications', 'review:invoices'],
   'invoice:returned': ['invoices', 'ar', 'dashboard', 'reports', 'notifications', 'review:invoices'],
   'payment:verified': ['payments', 'invoices', 'ar', 'dashboard', 'reports', 'notifications', 'cashflow', 'receipts'],
+  'payment:approved': ['payments', 'invoices', 'ar', 'dashboard', 'reports', 'notifications', 'cashflow', 'receipts'],
+  'payment:validated': ['payments', 'invoices', 'ar', 'dashboard', 'reports', 'notifications', 'cashflow', 'receipts'],
   'payment:returned': ['payments', 'dashboard', 'reports', 'notifications'],
   'settlement:verified': ['settlements', 'cashflow', 'dashboard', 'reports', 'notifications'],
   'settlement:returned': ['settlements', 'cashflow', 'dashboard', 'reports', 'notifications'],
@@ -52,7 +54,9 @@ export const REALTIME_EVENT_QUERY_MAP: Record<string, readonly string[]> = {
 
   // Canonical resource domains
   invoices: ['invoices', 'ar', 'dashboard', 'reports', 'notifications', 'review:invoices'],
-  payments: ['payments', 'invoices', 'ar', 'cashflow', 'dashboard', 'reports', 'notifications'],
+  payments: ['payments', 'invoices', 'ar', 'cashflow', 'dashboard', 'reports', 'notifications', 'receipts'],
+  receipts: ['receipts', 'payments', 'ar', 'dashboard', 'reports', 'notifications'],
+  'receipt:issued': ['receipts', 'payments', 'ar', 'dashboard', 'reports', 'notifications'],
   settlements: ['settlements', 'cashflow', 'dashboard', 'reports', 'notifications'],
   liquidations: ['liquidations', 'cashflow', 'dashboard', 'reports', 'notifications'],
   adjustments: ['adjustments', 'ar', 'dashboard', 'reports', 'notifications'],
@@ -64,7 +68,7 @@ export const REALTIME_EVENT_QUERY_MAP: Record<string, readonly string[]> = {
 };
 
 function resolveWsUrl(): string | null {
-  const raw: string | undefined = import.meta.env.VITE_WS_URL;
+  const raw: string | undefined = import.meta.env.VITE_WS_URL || '/ws';
   if (!raw) return null;
   if (/^wss?:\/\//i.test(raw)) return raw;
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

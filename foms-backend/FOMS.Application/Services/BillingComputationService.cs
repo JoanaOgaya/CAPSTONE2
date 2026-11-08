@@ -474,7 +474,7 @@ public static class BillingComputationService
                     Id = billingInvoiceNo,
                     InvoiceNo = billingInvoiceNo,
                     ClientId = billingClientId,
-                    ClientName = invoice.ClientName.Contains("Account") ? invoice.ClientName : invoice.ClientName + " Account",
+                    ClientName = ((invoice.ClientName ?? "Client").Contains("Account") ? (invoice.ClientName ?? "Client") : (invoice.ClientName ?? "Client") + " Account"),
                     BillingDate = invoice.BillingDate,
                     DueDate = invoice.DueDate,
                     FreightCharges = invoice.FreightCharges,

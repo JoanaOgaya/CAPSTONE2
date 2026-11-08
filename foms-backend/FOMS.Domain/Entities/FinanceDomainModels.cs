@@ -93,6 +93,8 @@ public class PaymentCollection
 public class OfficialReceipt
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? PaymentId { get; set; }
+    public Payment? Payment { get; set; }
     public string PaymentCollectionId { get; set; } = string.Empty;
     public PaymentCollection? PaymentCollection { get; set; }
     public string ReceiptNumber { get; set; } = string.Empty;

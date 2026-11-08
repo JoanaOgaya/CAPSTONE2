@@ -247,6 +247,19 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
 
         // Phase 3: Unique constraints for strict data integrity
         modelBuilder.Entity<Payment>()
+            .Property(p => p.RowVersion)
+            .IsRowVersion();
+
+        modelBuilder.Entity<OfficialReceipt>(entity =>
+        {
+            entity.Property(o => o.PaymentId)
+                .HasMaxLength(450);
+            entity.HasIndex(o => o.PaymentId)
+                .HasDatabaseName("IX_OfficialReceipts_PaymentId_Unique")
+                .IsUnique()
+                .HasFilter("[PaymentId] IS NOT NULL");
+        });
+        modelBuilder.Entity<Payment>()
             .HasIndex(p => p.OrNumber)
             .IsUnique();
 
