@@ -13,52 +13,74 @@ namespace FOMS.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<string>(
-                name: "Flow",
-                table: "Payments",
-                type: "nvarchar(max)",
-                nullable: false,
-                defaultValue: "inflow");
+            migrationBuilder.Sql(
+                """
+                SET QUOTED_IDENTIFIER ON; SET ANSI_NULLS ON;
 
-            migrationBuilder.AddColumn<byte[]>(
-                name: "RowVersion",
-                table: "Payments",
-                type: "rowversion",
-                rowVersion: true,
-                nullable: true);
+                IF OBJECT_ID(N'[dbo].[Payments]', N'U') IS NOT NULL
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Payments]') AND name = N'Flow')
+                    BEGIN
+                        ALTER TABLE [dbo].[Payments] ADD [Flow] nvarchar(max) NOT NULL CONSTRAINT [DF_Payments_Flow] DEFAULT N'inflow';
+                    END;
 
-            migrationBuilder.AddColumn<string>(
-                name: "PaymentId",
-                table: "OfficialReceipts",
-                type: "nvarchar(450)",
-                nullable: true);
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Payments]') AND name = N'RowVersion')
+                    BEGIN
+                        ALTER TABLE [dbo].[Payments] ADD [RowVersion] rowversion;
+                    END;
+                END;
 
-            migrationBuilder.CreateIndex(
-                name: "IX_OfficialReceipts_PaymentId_Unique",
-                table: "OfficialReceipts",
-                column: "PaymentId",
-                unique: true,
-                filter: "[PaymentId] IS NOT NULL");
+                IF OBJECT_ID(N'[dbo].[OfficialReceipts]', N'U') IS NOT NULL
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[OfficialReceipts]') AND name = N'PaymentId')
+                    BEGIN
+                        ALTER TABLE [dbo].[OfficialReceipts] ADD [PaymentId] nvarchar(450) NULL;
+                    END;
+                END;
+                """);
+
+            migrationBuilder.Sql(
+                """
+                SET QUOTED_IDENTIFIER ON; SET ANSI_NULLS ON;
+
+                IF OBJECT_ID(N'[dbo].[OfficialReceipts]', N'U') IS NOT NULL
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[OfficialReceipts]') AND name = N'IX_OfficialReceipts_PaymentId_Unique')
+                    BEGIN
+                        EXEC(N'CREATE UNIQUE NONCLUSTERED INDEX [IX_OfficialReceipts_PaymentId_Unique] ON [dbo].[OfficialReceipts]([PaymentId]) WHERE [PaymentId] IS NOT NULL;');
+                    END;
+                END;
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_OfficialReceipts_PaymentId_Unique",
-                table: "OfficialReceipts");
+            migrationBuilder.Sql(
+                """
+                SET QUOTED_IDENTIFIER ON; SET ANSI_NULLS ON;
 
-            migrationBuilder.DropColumn(
-                name: "PaymentId",
-                table: "OfficialReceipts");
+                IF OBJECT_ID(N'[dbo].[OfficialReceipts]', N'U') IS NOT NULL
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[OfficialReceipts]') AND name = N'IX_OfficialReceipts_PaymentId_Unique')
+                    BEGIN
+                        DROP INDEX [IX_OfficialReceipts_PaymentId_Unique] ON [dbo].[OfficialReceipts];
+                    END;
 
-            migrationBuilder.DropColumn(
-                name: "RowVersion",
-                table: "Payments");
+                    IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[OfficialReceipts]') AND name = N'PaymentId')
+                    BEGIN
+                        ALTER TABLE [dbo].[OfficialReceipts] DROP COLUMN [PaymentId];
+                    END;
+                END;
 
-            migrationBuilder.DropColumn(
-                name: "Flow",
-                table: "Payments");
+                IF OBJECT_ID(N'[dbo].[Payments]', N'U') IS NOT NULL
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Payments]') AND name = N'RowVersion')
+                    BEGIN
+                        ALTER TABLE [dbo].[Payments] DROP COLUMN [RowVersion];
+                    END;
+                END;
+                """);
         }
     }
 }
