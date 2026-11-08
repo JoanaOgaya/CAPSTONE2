@@ -1,9 +1,12 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using FOMS.Domain.Constants;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
@@ -15,6 +18,7 @@ public class LiquidationDto
     public string? ReferenceNumber { get; set; }
     public string? SubmittedByName { get; set; }
     public string? SubmittedBy { get; set; }
+    public string? SubmittedByEmployeeId { get; set; }
     public decimal? TotalAmount { get; set; }
     public decimal? Amount { get; set; }
     public decimal? LeftoverCash { get; set; }
@@ -38,10 +42,28 @@ public class LiquidationsController : ControllerBase
         _fomsDb = fomsDb;
     }
 
+    private (bool isAuthenticated, string role, string username, string empId) GetCallerInfo()
+    {
+        if (User?.Identity?.IsAuthenticated != true)
+        {
+            return (false, string.Empty, string.Empty, string.Empty);
+        }
+
+        var role = FomsRoles.GetClaimRole(User);
+        var username = FomsRoles.GetClaimUsername(User);
+        var empId = FomsRoles.GetClaimEmployeeId(User);
+        return (true, role, username, empId);
+    }
+
     [HttpGet]
-    [AllowAnonymous]
     public async Task<IActionResult> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
+        var (isAuthenticated, role, _, _) = GetCallerInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+        if (!FomsRoles.IsRole(role, FomsRoles.AllCanonicalRoles))
+            return StatusCode(403, new { message = "Forbidden: Missing or unrecognized role claim." });
+
         var query = _fomsDb.Liquidations.AsNoTracking().Where(l => l.IsDeleted != true && l.Status != "Deleted");
         var total = await query.CountAsync();
         var liquidations = await query
@@ -66,6 +88,7 @@ public class LiquidationsController : ControllerBase
             referenceNumber = l.ReferenceNumber ?? $"LIQ-{l.LiquidationId:D4}",
             submittedBy = l.SubmittedByName ?? $"Employee {l.SubmittedBy}",
             submittedByName = l.SubmittedByName ?? $"Employee {l.SubmittedBy}",
+            submittedByEmployeeId = l.SubmittedByEmployeeId,
             submittedAt = (l.DateSubmitted ?? l.CreatedAt ?? DateTime.UtcNow).ToString("o"),
             dateSubmitted = (l.DateSubmitted ?? l.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-dd"),
             amount = l.TotalAmount,
@@ -98,9 +121,14 @@ public class LiquidationsController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetById(int id)
     {
+        var (isAuthenticated, role, _, _) = GetCallerInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+        if (!FomsRoles.IsRole(role, FomsRoles.AllCanonicalRoles))
+            return StatusCode(403, new { message = "Forbidden: Missing or unrecognized role claim." });
+
         var item = await _fomsDb.Liquidations.AsNoTracking().FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (item == null) return NotFound(new { message = "Liquidation not found" });
 
@@ -115,6 +143,7 @@ public class LiquidationsController : ControllerBase
             referenceNumber = item.ReferenceNumber ?? $"LIQ-{item.LiquidationId:D4}",
             submittedBy = item.SubmittedByName ?? $"Employee {item.SubmittedBy}",
             submittedByName = item.SubmittedByName ?? $"Employee {item.SubmittedBy}",
+            submittedByEmployeeId = item.SubmittedByEmployeeId,
             amount = item.TotalAmount,
             totalAmount = item.TotalAmount,
             leftoverCash = item.LeftoverCash ?? 0m,
@@ -141,10 +170,20 @@ public class LiquidationsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] LiquidationDto dto)
     {
+        var (isAuthenticated, role, username, empId) = GetCallerInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+
+        if (!FomsRoles.IsRole(role, FomsRoles.AssistantFinanceManager, FomsRoles.HeadAccountant))
+        {
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to create liquidation vouchers. Only Assistant of Finance Manager (EMP-004) or Head Accountant (EMP-002) may initiate liquidations." });
+        }
+
         var item = new Liquidation
         {
             ReferenceNumber = dto.ReferenceNumber ?? $"LIQ-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}",
-            SubmittedByName = dto.SubmittedByName ?? dto.SubmittedBy ?? "Employee",
+            SubmittedByName = dto.SubmittedByName ?? dto.SubmittedBy ?? (!string.IsNullOrWhiteSpace(username) ? username : "Employee"),
+            SubmittedByEmployeeId = !string.IsNullOrWhiteSpace(empId) ? empId : dto.SubmittedByEmployeeId,
             TotalAmount = dto.TotalAmount ?? dto.Amount ?? 0m,
             LeftoverCash = dto.LeftoverCash ?? 0m,
             ReimbursementAmount = dto.ReimbursementAmount ?? 0m,
@@ -161,9 +200,9 @@ public class LiquidationsController : ControllerBase
         {
             action = "CREATE_LIQUIDATION",
             module = "Liquidations",
-            role = "Assistant of Finance Manager",
+            role = role,
             affected_record_id = item.LiquidationId,
-            remarks = $"Submitted liquidation {item.ReferenceNumber} for {item.SubmittedByName}: ₱{item.TotalAmount:N2}",
+            remarks = $"Submitted liquidation {item.ReferenceNumber} for {item.SubmittedByName} (EmpId: {item.SubmittedByEmployeeId}): ₱{item.TotalAmount:N2}",
             created_at = DateTime.UtcNow
         });
         await _fomsDb.SaveChangesAsync();
@@ -174,8 +213,31 @@ public class LiquidationsController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(int id, [FromBody] LiquidationDto dto)
     {
+        var (isAuthenticated, role, _, empId) = GetCallerInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+
+        if (!FomsRoles.IsRole(role, FomsRoles.AssistantFinanceManager, FomsRoles.FinanceManager, FomsRoles.HeadAccountant))
+        {
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to update or validate liquidations." });
+        }
+
         var item = await _fomsDb.Liquidations.FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (item == null) return NotFound(new { message = "Liquidation not found" });
+
+        if (!string.IsNullOrEmpty(dto.Status) &&
+            (dto.Status.Equals("Validated", StringComparison.OrdinalIgnoreCase) ||
+             dto.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase) ||
+             dto.Status.Equals("Endorsed", StringComparison.OrdinalIgnoreCase)))
+        {
+            var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
+                ? item.SubmittedByEmployeeId
+                : item.SubmittedByName;
+            if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
+            {
+                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate or approve their own liquidation." });
+            }
+        }
 
         if (!string.IsNullOrEmpty(dto.Status))
             item.Status = dto.Status;
@@ -195,7 +257,7 @@ public class LiquidationsController : ControllerBase
         {
             action = "UPDATE_LIQUIDATION",
             module = "Liquidations",
-            role = "Assistant of Finance Manager",
+            role = role,
             affected_record_id = item.LiquidationId,
             remarks = $"Updated liquidation {item.ReferenceNumber} -> status: {item.Status}. Remarks: {dto.Notes ?? "Updated"}",
             created_at = DateTime.UtcNow
@@ -206,11 +268,31 @@ public class LiquidationsController : ControllerBase
     }
 
     [HttpPost("{id}/{actionName}")]
-    [AllowAnonymous]
     public async Task<IActionResult> Act(int id, string actionName, [FromBody] LiquidationDto? dto)
     {
+        var (isAuthenticated, role, _, empId) = GetCallerInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+
+        if (!FomsRoles.IsRole(role, FomsRoles.AssistantFinanceManager, FomsRoles.FinanceManager, FomsRoles.HeadAccountant))
+        {
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to perform liquidation action '{actionName}'." });
+        }
+
         var item = await _fomsDb.Liquidations.FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (item == null) return NotFound(new { message = "Liquidation not found" });
+
+        var normAction = actionName.ToLowerInvariant();
+        if (normAction is "approve" or "validate" or "endorse" or "reject")
+        {
+            var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
+                ? item.SubmittedByEmployeeId
+                : item.SubmittedByName;
+            if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
+            {
+                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate, endorse, or approve their own liquidation." });
+            }
+        }
 
         item.Status = actionName.ToLowerInvariant() switch
         {
@@ -283,7 +365,7 @@ public class LiquidationsController : ControllerBase
         {
             action = $"LIQUIDATION_{actionName.ToUpper()}",
             module = "Liquidations",
-            role = "Assistant of Finance Manager",
+            role = role,
             affected_record_id = item.LiquidationId,
             remarks = $"Liquidation {item.ReferenceNumber} action {actionName} -> {item.Status}. Leftover: ₱{item.LeftoverCash:N2}, Reimbursement: ₱{item.ReimbursementAmount:N2}. Remarks: {dto?.Notes ?? "Processed per FR-048-053"}",
             created_at = DateTime.UtcNow
@@ -296,6 +378,12 @@ public class LiquidationsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
+        var (isAuthenticated, role, _, _) = GetCallerInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+        if (!FomsRoles.IsRole(role, FomsRoles.AssistantFinanceManager, FomsRoles.FinanceManager, FomsRoles.HeadAccountant))
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to delete liquidations." });
+
         var item = await _fomsDb.Liquidations.FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (item == null) return NotFound(new { message = "Liquidation not found" });
 
@@ -307,7 +395,7 @@ public class LiquidationsController : ControllerBase
         {
             action = "DELETE_LIQUIDATION",
             module = "Liquidations",
-            role = "Assistant of Finance Manager",
+            role = role,
             affected_record_id = item.LiquidationId,
             remarks = $"Soft-deleted liquidation {item.ReferenceNumber}.",
             created_at = DateTime.UtcNow

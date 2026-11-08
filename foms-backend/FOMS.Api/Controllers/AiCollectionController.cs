@@ -9,7 +9,7 @@ using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
 
-[AllowAnonymous]
+[Authorize]
 [ApiController]
 public class AiCollectionController : ApiControllerBase
 {

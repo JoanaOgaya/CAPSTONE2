@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System.Linq;
 using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
@@ -10,13 +12,16 @@ public class DatabaseHealthController : ControllerBase
 {
     private readonly FomsDbContext _legacyDbContext;
     private readonly ApplicationDbContext _applicationDbContext;
+    private readonly ILogger<DatabaseHealthController> _logger;
 
     public DatabaseHealthController(
         FomsDbContext legacyDbContext,
-        ApplicationDbContext applicationDbContext)
+        ApplicationDbContext applicationDbContext,
+        ILogger<DatabaseHealthController>? logger = null)
     {
         _legacyDbContext = legacyDbContext;
         _applicationDbContext = applicationDbContext;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseHealthController>.Instance;
     }
 
     [HttpGet("database")]
@@ -60,11 +65,12 @@ public class DatabaseHealthController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new
+            _logger.LogError(ex, "Database health check failed.");
+            return StatusCode(503, new
             {
                 success = false,
-                status = "Connection Failed",
-                message = ex.Message
+                status = "Unhealthy",
+                message = "Database health check failed."
             });
         }
     }
@@ -93,10 +99,11 @@ public class DatabaseHealthController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Health check endpoint failed.");
             return StatusCode(500, new
             {
                 success = false,
-                message = ex.Message
+                message = "An error occurred while evaluating health."
             });
         }
     }
@@ -125,10 +132,11 @@ public class DatabaseHealthController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Health check endpoint failed.");
             return StatusCode(500, new
             {
                 success = false,
-                message = ex.Message
+                message = "An error occurred while evaluating health."
             });
         }
     }
@@ -156,10 +164,11 @@ public class DatabaseHealthController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Health check endpoint failed.");
             return StatusCode(500, new
             {
                 success = false,
-                message = ex.Message
+                message = "An error occurred while evaluating health."
             });
         }
     }
@@ -188,10 +197,11 @@ public class DatabaseHealthController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Health check endpoint failed.");
             return StatusCode(500, new
             {
                 success = false,
-                message = ex.Message
+                message = "An error occurred while evaluating health."
             });
         }
     }
@@ -238,7 +248,8 @@ public class DatabaseHealthController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { success = false, message = ex.Message });
+            _logger.LogError(ex, "Health check endpoint failed.");
+            return StatusCode(500, new { success = false, message = "An error occurred while evaluating health." });
         }
     }
 
@@ -269,7 +280,8 @@ public class DatabaseHealthController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { success = false, message = ex.Message });
+            _logger.LogError(ex, "Health check endpoint failed.");
+            return StatusCode(500, new { success = false, message = "An error occurred while evaluating health." });
         }
     }
 

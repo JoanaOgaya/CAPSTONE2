@@ -1,3 +1,4 @@
+import hmac
 import os
 import uuid
 import logging
@@ -27,13 +28,26 @@ from app.core.rate_limit import limiter
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing AI Service...")
-    logger.info("Creating database tables if they do not exist...")
-    logger.info(f"DEBUG DB URI: {settings.POSTGRES_URI}")
+    
+    # Security check: verify AI_SERVICE_API_KEY is configured
+    api_key = settings.AI_SERVICE_API_KEY.strip() if settings.AI_SERVICE_API_KEY else ""
+    forbidden_tokens = ["change-me", "change_me", "replace_with", "your_", "example", "placeholder"]
+    if not api_key or len(api_key) < 16 or any(tok in api_key.lower() for tok in forbidden_tokens):
+        if os.getenv("FOMS_ENV") != "testing" and os.getenv("PYTEST_CURRENT_TEST") is None:
+            raise RuntimeError(
+                "Fatal Startup Error: AI_SERVICE_API_KEY is missing, too short (<16 chars), "
+                "or set to a placeholder/default value. Set a secure service key in environment configuration."
+            )
+
+    # Database connectivity check (DDL migrations are managed externally via Alembic, not create_all at runtime)
     try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables ready.")
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        logger.info("Database connectivity check passed.")
     except Exception as e:
-        logger.warning(f"Could not connect to PostgreSQL database to create tables (Docker might be off). Bypassing DB initialization. Error: {e}")
+        logger.warning(f"Database connectivity check warning (tables managed via Alembic): {type(e).__name__}")
+
     yield
     logger.info("Shutting down AI Service...")
 
@@ -83,7 +97,6 @@ async def global_exception_handler(request: Request, exc: Exception):
             "success": False,
             "message": "An internal error occurred. Please contact support if this persists.",
             "traceId": trace_id,
-            "debug_error": str(exc)
         },
     )
 
@@ -101,19 +114,16 @@ async def verify_gateway_api_key(request: Request, call_next):
         if auth_header and auth_header.startswith("ApiKey "):
             api_key = auth_header.split(" ")[1]
 
-    if api_key != settings.AI_SERVICE_API_KEY:
-        host = request.client.host if request.client else "unknown"
-        if host in ["127.0.0.1", "localhost", "::1"] or host.startswith("172."):
-            pass  # Allow local dev / Docker bridge traffic regardless of key
-        else:
-            return JSONResponse(
-                status_code=status.HTTP_403_FORBIDDEN,
-                content={
-                    "success": False,
-                    "message": "Access Forbidden: Invalid Service API Key",
-                    "traceId": str(uuid.uuid4()),
-                },
-            )
+    expected_key = settings.AI_SERVICE_API_KEY.strip() if settings.AI_SERVICE_API_KEY else ""
+    if not expected_key or not api_key or not hmac.compare_digest(api_key.strip(), expected_key):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={
+                "success": False,
+                "message": "Access Forbidden: Invalid Service API Key",
+                "traceId": str(uuid.uuid4()),
+            },
+        )
 
     response = await call_next(request)
     return response

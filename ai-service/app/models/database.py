@@ -1,17 +1,28 @@
+import os
+import re
+from typing import Optional, List
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, DateTime, Date, ForeignKey, Text, Boolean, JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.pool import StaticPool
 from datetime import datetime
 from app.core.config import settings
 
 # Compatible with both PostgreSQL (native JSONB) and SQLite (native JSON)
 SafeJSON = JSONB().with_variant(JSON, "sqlite")
 
-try:
-    engine = create_engine(settings.POSTGRES_URI, pool_pre_ping=True)
-except Exception:
-    engine = create_engine("sqlite:///foms_ai_local.db")
+def _init_engine():
+    # Only use SQLite when explicitly configured for testing via FOMS_ENV=testing
+    if os.getenv("FOMS_ENV") == "testing":
+        return create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool
+        )
+    # Production / standard mode: fail fast if PostgreSQL is unreachable or misconfigured
+    return create_engine(settings.POSTGRES_URI, pool_pre_ping=True)
 
+engine = _init_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -212,5 +223,3 @@ class AIScanLog(Base):
     validation_status = Column(String(50))
     reason = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
-
-

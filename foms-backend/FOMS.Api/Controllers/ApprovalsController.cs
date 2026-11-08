@@ -1,3 +1,4 @@
+using FOMS.Domain.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -28,19 +29,11 @@ public class ApprovalsController : ControllerBase
 
     private (int userId, string username, string role, string employeeId) GetCurrentUserInfo()
     {
-        var role = User.FindFirst(ClaimTypes.Role)?.Value
-                ?? User.FindFirst("role")?.Value
-                ?? "Assistant of Finance Manager";
-
-        var username = User.FindFirst(ClaimTypes.Name)?.Value
-                    ?? User.FindFirst("name")?.Value
-                    ?? User.Identity?.Name
-                    ?? "Finance Officer";
-
-        var employeeId = User.FindFirst("employee_id")?.Value
-                      ?? User.FindFirst("employee_number")?.Value
-                      ?? User.FindFirst("sub")?.Value
-                      ?? username;
+        // Identity and role come ONLY from validated JWT claims. No default role / identity: a missing
+        // role claim yields an empty role, which matches no approver role (fail closed).
+        var role = FomsRoles.GetClaimRole(User);
+        var username = FomsRoles.GetClaimUsername(User);
+        var employeeId = FomsRoles.GetClaimEmployeeId(User);
 
         var userIdClaim = User.FindFirst("user_id")?.Value
                        ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -279,6 +272,13 @@ public class ApprovalsController : ControllerBase
             return Conflict(new { success = false, message = "This transaction has already been approved and posted." });
         }
 
+        // Separation of Duties: Submitter cannot approve their own cash outflow / cash advance request
+        if ((!string.IsNullOrWhiteSpace(req.SubmittedBy) && (req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase) || req.SubmittedBy.Equals(employeeId, StringComparison.OrdinalIgnoreCase))) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && (req.SubmittedById.Equals(employeeId, StringComparison.OrdinalIgnoreCase) || req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase))))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot approve their own request." });
+        }
+
         bool isFm = string.Equals(role, "Finance Manager", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(role, "Finance Manager", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(role, "System Admin", StringComparison.OrdinalIgnoreCase);
@@ -480,7 +480,20 @@ public class ApprovalsController : ControllerBase
 
         var oldStatus = req.Status;
         bool isFm = string.Equals(role, "Finance Manager", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(role, "Finance Manager", StringComparison.OrdinalIgnoreCase);
+                    string.Equals(role, "System Admin", StringComparison.OrdinalIgnoreCase);
+        bool isAssistantFm = string.Equals(role, "Assistant of Finance Manager", StringComparison.OrdinalIgnoreCase);
+
+        if (!isFm && !isAssistantFm)
+        {
+            return StatusCode(403, new { success = false, message = "Access denied. Insufficient permissions to reject approval requests." });
+        }
+
+        // Separation of Duties: Submitter cannot reject their own request
+        if ((!string.IsNullOrWhiteSpace(req.SubmittedBy) && (req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase) || req.SubmittedBy.Equals(employeeId, StringComparison.OrdinalIgnoreCase))) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && (req.SubmittedById.Equals(employeeId, StringComparison.OrdinalIgnoreCase) || req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase))))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot decide their own request." });
+        }
 
         req.Status = isFm ? "Rejected by Finance Manager" : "Rejected by Assistant";
         req.RejectionReason = reason.Trim();
@@ -763,7 +776,6 @@ public class ApprovalsController : ControllerBase
     /// Submit an entity (CashAdvance, Payment, Settlement, FinancialAdjustment) into the multi-level approval workflow
     /// </summary>
     [HttpPost("{entityType}/{id}/submit")]
-    [AllowAnonymous]
     public async Task<IActionResult> SubmitEntity(string entityType, string id)
     {
         var (userId, username, role, employeeId) = GetCurrentUserInfo();

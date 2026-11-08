@@ -122,7 +122,7 @@ public class FinanceManagerController : ControllerBase
         }).Where(x => x.amount > 0).OrderByDescending(x => x.amount).Take(5).ToList();
 
         var needsAttention = new List<object>();
-        var pendingInvoices = invoices.Where(i => i.InvoiceStatus == "Pending Validation" || i.InvoiceStatus == "For Review").ToList();
+        var pendingInvoices = invoices.Where(i => i.DocumentStatus == "Pending FM Approval" || i.DocumentStatus == "Pending HA Verification").ToList();
         foreach (var inv in pendingInvoices)
         {
             var c = clients.FirstOrDefault(cl => cl.ClientId == inv.ClientId);
@@ -338,113 +338,9 @@ public class FinanceManagerController : ControllerBase
     }
 
     [HttpPost("invoices/create")]
-    public async Task<IActionResult> CreateInvoice([FromBody] CreateInvoiceRequestDto dto)
+    public Task<IActionResult> CreateInvoice([FromBody] CreateInvoiceRequestDto dto)
     {
-        var client = await _fomsDb.Clients.FindAsync(dto.ClientId);
-        if (client == null)
-            return NotFound(new { success = false, message = "Client not found." });
-
-        var nextId = (await _fomsDb.Invoices.MaxAsync(i => (int?)i.InvoiceId) ?? 0) + 1;
-        var invNumber = $"INV-{DateTime.UtcNow.Year}-{nextId:D3}";
-
-        var waybills = await _fomsDb.Waybills
-            .Where(w => dto.WaybillIds.Contains(w.WaybillId) && w.ClientId == dto.ClientId)
-            .ToListAsync();
-
-        decimal totalAmount = dto.TotalAmount > 0
-            ? dto.TotalAmount
-            : waybills.Sum(w => (w.ActualWeight ?? 1m) * 150m);
-
-        if (totalAmount <= 0) totalAmount = 50000m;
-
-        var invoice = new Invoice
-        {
-            InvoiceNumber = invNumber,
-            ClientId = dto.ClientId,
-            BillingPeriod = dto.BillingPeriod ?? $"{DateTime.UtcNow:MMMM yyyy}",
-            DueDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)),
-            TotalAmount = totalAmount,
-            PaidAmount = 0m,
-            OutstandingBalance = totalAmount,
-            InvoiceStatus = "Pending Validation",
-            ValidationStatus = "Pending Validation",
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        _fomsDb.Invoices.Add(invoice);
-        await _fomsDb.SaveChangesAsync();
-
-        foreach (var wb in waybills)
-        {
-            wb.IsBilled = true;
-            wb.InvoiceId = invoice.InvoiceId;
-        }
-
-        _fomsDb.InvoiceLineItems.Add(new InvoiceLineItem
-        {
-            InvoiceId = invoice.InvoiceId,
-            Description = $"Logistics Services ({waybills.Count} waybills)",
-            Quantity = Math.Max(1, waybills.Count),
-            UnitPrice = Math.Round(totalAmount / Math.Max(1, waybills.Count), 2),
-            LineTotal = totalAmount,
-            CreatedAt = DateTime.UtcNow
-        });
-
-        _fomsDb.InvoiceComputations.Add(new InvoiceComputation
-        {
-            InvoiceId = invoice.InvoiceId,
-            Subtotal = Math.Round(totalAmount / 1.12m, 2),
-            VatAmount = Math.Round(totalAmount - (totalAmount / 1.12m), 2),
-            DiscountAmount = 0m,
-            TotalAmount = totalAmount,
-            ComputedAt = DateTime.UtcNow
-        });
-
-        _fomsDb.AccountsReceivable.Add(new AccountsReceivable
-        {
-            InvoiceId = invoice.InvoiceId,
-            ClientId = invoice.ClientId ?? 0,
-            InvoiceAmount = invoice.TotalAmount,
-            PaidAmount = 0m,
-            OutstandingBalance = invoice.TotalAmount,
-            OverpaymentAmount = 0m,
-            ArStatus = "Outstanding",
-            DueDate = invoice.DueDate,
-            AgingBucket = "0-30 days",
-            CollectionPriority = "Normal",
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        });
-
-        await LogAuditAsync("CREATE_INVOICE", "Invoices", invoice.InvoiceId.ToString(), $"Invoice {invoice.InvoiceNumber} created for {client.CompanyName}.");
-
-        _fomsDb.Notifications.Add(new Notification
-        {
-            RecipientRole = "Head Accountant",
-            Type = "Invoice Review",
-            Title = "New Invoice Awaiting Validation",
-            Message = $"Invoice {invoice.InvoiceNumber} for {client.CompanyName} was created and is pending validation.",
-            RelatedRecordType = "Invoice",
-            RelatedRecordId = invoice.InvoiceId,
-            IsRead = false,
-            CreatedAt = DateTime.UtcNow
-        });
-
-        await _fomsDb.SaveChangesAsync();
-
-        return Ok(new
-        {
-            success = true,
-            message = "Invoice created successfully.",
-            data = new
-            {
-                invoiceId = invoice.InvoiceId,
-                invoiceNumber = invoice.InvoiceNumber,
-                totalAmount = invoice.TotalAmount,
-                invoiceStatus = invoice.InvoiceStatus
-            }
-        });
+        return Task.FromResult<IActionResult>(StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Only Staff (EMP-003) can create invoices. Finance Manager is not authorized to create invoices." }));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -525,18 +421,19 @@ public class FinanceManagerController : ControllerBase
         var invoices = await _fomsDb.Invoices.AsNoTracking().ToListAsync();
         var clients = await _fomsDb.Clients.AsNoTracking().ToListAsync();
 
-        var pendingApproval = invoices.Count(i => i.InvoiceStatus == "Pending Validation" || i.InvoiceStatus == "For Review");
-        var approvedInvoices = invoices.Count(i => i.InvoiceStatus == "Approved" || i.InvoiceStatus == "Paid");
-        var totalInvoicedValue = invoices.Sum(i => i.TotalAmount);
+        var pendingApproval = invoices.Count(i => i.DocumentStatus == "Pending FM Approval" || i.DocumentStatus == "Pending HA Verification" || (i.DocumentStatus == "Draft" && (i.InvoiceStatus == "Pending Validation" || i.InvoiceStatus == "For Review")));
+        var approvedInvoices = invoices.Count(i => i.DocumentStatus == "Approved" || i.DocumentStatus == "Sent" || i.DocumentStatus == "Received" || (i.DocumentStatus == "Draft" && (i.InvoiceStatus == "Approved" || i.InvoiceStatus == "Paid")));
+        var totalInvoicedValue = invoices.Where(i => i.DocumentStatus != "Void" && i.InvoiceStatus != "Void").Sum(i => i.TotalAmount);
 
         var queue = invoices.Select(i =>
         {
             var c = clients.FirstOrDefault(cl => cl.ClientId == i.ClientId);
+            var displayStatus = (i.DocumentStatus != null && i.DocumentStatus != "Draft") ? i.DocumentStatus : (i.InvoiceStatus ?? i.DocumentStatus ?? "Draft");
             return new
             {
                 clientId = i.ClientId,
                 clientName = c?.CompanyName ?? $"Client {i.ClientId}",
-                status = i.InvoiceStatus ?? "Pending Validation",
+                status = displayStatus,
                 totalValue = i.TotalAmount
             };
         }).ToList();

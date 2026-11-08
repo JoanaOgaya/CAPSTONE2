@@ -283,6 +283,9 @@ public class Invoice
     [Column("DocumentStatus")]
     public string? DocumentStatus { get; set; } = "Draft";
 
+    [Column("PaymentStatus")]
+    public string? PaymentStatus { get; set; } = "Unpaid";
+
     [Column("SentDate")]
     public DateTime? SentDate { get; set; }
 
@@ -492,6 +495,12 @@ public class Payment
 
     [Column("remarks")]
     public string? Remarks { get; set; }
+
+    [Column("RecordedBy")]
+    public string? RecordedBy { get; set; }
+
+    [Column("RecordedByEmployeeId")]
+    public string? RecordedByEmployeeId { get; set; }
 }
 
 [Table("PaymentHistory")]
@@ -1040,6 +1049,9 @@ public class CashAdvance
     [Column("ReleasedBy")]
     public string? ReleasedBy { get; set; }
 
+    [Column("SubmittedByEmployeeId")]
+    public string? SubmittedByEmployeeId { get; set; }
+
     [Column("Status")]
     public string Status { get; set; } = "Pending Finance Review";
 
@@ -1175,6 +1187,9 @@ public class Liquidation
 
     [Column("submitted_by_name")]
     public string? SubmittedByName { get; set; }
+
+    [Column("submitted_by_employee_id")]
+    public string? SubmittedByEmployeeId { get; set; }
 
     [Column("total_amount")]
     public decimal TotalAmount { get; set; }
@@ -1642,6 +1657,9 @@ public class AIReviewHistory
 
     [Column("reviewer")]
     public string? Reviewer { get; set; }
+
+    [Column("submitted_by_employee_id")]
+    public string? SubmittedByEmployeeId { get; set; }
 
     [Column("decision_reason")]
     public string? DecisionReason { get; set; }

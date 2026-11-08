@@ -80,10 +80,23 @@ public class FinancePaymentsController : ControllerBase
             return StatusCode(403, new { message = "Only the Finance Manager (or configured, logged delegate) is authorized to validate payments." });
 
         var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
+        var empId = User.FindFirst("employeeNumber")?.Value
+            ?? User.FindFirst("EmployeeNumber")?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value
+            ?? user;
 
         var payment = await _context.Payments.FirstOrDefaultAsync(p => p.Id == paymentId);
         if (payment == null)
             return NotFound(new { message = $"Payment record '{paymentId}' not found." });
+
+        // Separation of Duties: Submitter cannot validate/approve their own payment
+        if (!string.IsNullOrWhiteSpace(payment.RecordedBy) &&
+            (payment.RecordedBy.Equals(user, StringComparison.OrdinalIgnoreCase) ||
+             payment.RecordedBy.Equals(empId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate or approve their own payment." });
+        }
 
         if (payment.PaymentStatus != "Pending Validation" && payment.PaymentStatus != "Pending Finance Validation")
             return BadRequest(new { message = "Only payments pending Finance Manager validation can be validated." });

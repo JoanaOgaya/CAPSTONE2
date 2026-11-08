@@ -35,11 +35,11 @@ def test_check_duplicates_waybill(db_session):
     assert scanned == len(waybills)
     assert alerts == 1
     
-    # Query database to check if alert exists
+    # Query database to check if alert exists with actual schema columns
     alert = db_session.query(AIDuplicateAlert).first()
     assert alert is not None
     assert alert.alert_type == "WAYBILL"
-    assert alert.similarity_score == 100.0
+    assert float(alert.confidence_score) == 100.0
     assert alert.source_record_id == "WB-1"
     assert alert.matched_record_id == "WB-2"
 
@@ -54,7 +54,7 @@ def test_check_duplicates_fuzzy_waybill(db_session):
     # RapidFuzz similarity check
     alert = db_session.query(AIDuplicateAlert).first()
     if alert:
-        assert alert.similarity_score >= 90
+        assert float(alert.confidence_score) >= 90
         assert alert.alert_type == "WAYBILL"
 
 def test_check_duplicates_invoice(db_session):
@@ -73,4 +73,4 @@ def test_check_duplicates_invoice(db_session):
     assert alerts == 1
     alert = db_session.query(AIDuplicateAlert).first()
     assert alert.alert_type == "INVOICE"
-    assert alert.matched_field == "invoiceNumber"
+    assert "invoiceNumber" in alert.matched_fields

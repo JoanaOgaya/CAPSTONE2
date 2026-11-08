@@ -72,12 +72,11 @@ public class StarsIntegrationService : IStarsIntegrationService
         // Dispatch to Operations via STARS only after Approved
         var isApproved = string.Equals(invoice.DocumentStatus, "Approved", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(invoice.DocumentStatus, "Sent", StringComparison.OrdinalIgnoreCase) ||
-                         string.Equals(invoice.DocumentStatus, "Received", StringComparison.OrdinalIgnoreCase) ||
-                         string.Equals(invoice.PaymentValidationStatus, "Approved", StringComparison.OrdinalIgnoreCase);
+                         string.Equals(invoice.DocumentStatus, "Received", StringComparison.OrdinalIgnoreCase);
 
         if (!isApproved)
         {
-            return (false, $"Dispatch to Operations via STARS is only allowed after invoice is Approved. Current status: '{invoice.DocumentStatus ?? invoice.PaymentValidationStatus ?? "Draft"}'.", null);
+            return (false, $"Dispatch to Operations via STARS is only allowed after invoice is Approved. Current status: '{invoice.DocumentStatus ?? "Draft"}'.", null);
         }
 
         var client = await _context.Clients
@@ -307,8 +306,6 @@ public class StarsIntegrationService : IStarsIntegrationService
                 if (sqlInvoice != null)
                 {
                     sqlInvoice.DueDate = DateOnly.FromDateTime(newDueDate);
-                    sqlInvoice.InvoiceStatus = "Approved";
-                    sqlInvoice.ValidationStatus = "Endorsed";
                     sqlInvoice.UpdatedAt = DateTime.UtcNow;
                     sqlInvoice.UpdatedBy = dto.CompletedBy ?? "STARS Endorsement Integration";
 

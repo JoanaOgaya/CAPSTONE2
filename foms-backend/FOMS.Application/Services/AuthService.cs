@@ -54,7 +54,12 @@ public class AuthService : IAuthService
         if (string.IsNullOrWhiteSpace(_jwtSettings.Secret))
         {
             _jwtSettings.Secret = configuration["JWT_SECRET"]
-                ?? "FOMS_Capstone_JWT_SecureKey_2026!!";
+                ?? configuration["JwtSettings:Secret"]
+                ?? string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(_jwtSettings.Secret) || _jwtSettings.Secret.Length < 32)
+        {
+            throw new InvalidOperationException("Fatal Auth Error: JWT Secret is missing or too short (minimum 32 characters required).");
         }
     }
 
@@ -297,7 +302,7 @@ public class AuthService : IAuthService
     // PRIVATE HELPERS
     // ─────────────────────────────────────────────────────────────────────────
 
-    private string GenerateJwtToken(Employee user)
+    public string GenerateJwtToken(Employee user)
     {
         var claims = new[]
         {
@@ -502,32 +507,12 @@ public class AuthService : IAuthService
             _logger.LogWarning(ex, "STARS authoritative /api/Auth/me check failed during SSO exchange");
         }
 
-        // 2. Fallback: Parse claims directly if STARS API was unreachable
+        // 2. Fail closed: the STARS token must be verified by STARS. The previous fallback read claims from an
+        //    UNSIGNED/unverified JWT, which let anyone forge an employee number and obtain a FOMS token.
         if (string.IsNullOrWhiteSpace(employeeId))
         {
-            try
-            {
-                var handler = new JwtSecurityTokenHandler();
-                if (handler.CanReadToken(starsToken))
-                {
-                    var jwt = handler.ReadJwtToken(starsToken);
-                    if (jwt.ValidTo >= DateTime.UtcNow.AddMinutes(-5))
-                    {
-                        employeeId = jwt.Claims.FirstOrDefault(c =>
-                            c.Type == "EmployeeNumber" ||
-                            c.Type == "employeeNumber" ||
-                            c.Type == "employee_number" ||
-                            c.Type == ClaimTypes.NameIdentifier)?.Value;
-                        fullName = jwt.Claims.FirstOrDefault(c => c.Type == "FullName" || c.Type == ClaimTypes.Name)?.Value;
-                        email = jwt.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Email || c.Type == "email")?.Value;
-                        starsRole = jwt.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Role || c.Type == "role")?.Value;
-                    }
-                }
-            }
-            catch
-            {
-                // ignore parse exception
-            }
+            _logger.LogWarning("SSO exchange rejected: STARS could not verify the supplied token.");
+            return null;
         }
 
         // Normalize employee ID to comply with SQL check constraint CK_Employees_Id_Pattern (EMP-[0-9][0-9][0-9])
@@ -550,34 +535,8 @@ public class AuthService : IAuthService
 
         if (user == null)
         {
-            // Auto-provision user into FOMS if authenticated via verified STARS SSO
-            var fomsRole = "Accountant";
-            var cleanStarsRole = (starsRole ?? string.Empty).ToLowerInvariant();
-            if (cleanStarsRole.Contains("manager") || cleanStarsRole.Contains("admin"))
-            {
-                fomsRole = "Head Accountant";
-            }
-
-            var roleEntity = await _context.Roles.FirstOrDefaultAsync(r => r.Name == fomsRole)
-                ?? await _context.Roles.FirstOrDefaultAsync();
-
-            user = new Employee
-            {
-                Id = fomsEmpId,
-                Username = employeeId,
-                Name = !string.IsNullOrWhiteSpace(fullName) ? fullName : employeeId,
-                Email = !string.IsNullOrWhiteSpace(email) ? email : $"{employeeId.ToLower()}@speedex.com",
-                Role = fomsRole,
-                RoleId = roleEntity?.Id,
-                IsActive = true,
-                Status = "Active",
-                SystemAccess = "Finance Operation Service",
-                PasswordHash = HashPassword("Password@123"),
-                CreatedAt = DateTime.UtcNow
-            };
-
-            await _context.Employees.AddAsync(user);
-            await _context.SaveChangesAsync(default);
+            _logger.LogWarning("SSO exchange rejected: Employee {EmployeeId} ({Email}) is not registered in FOMS.", employeeId, email);
+            throw new UnauthorizedAccessException($"Employee '{employeeId}' is not registered in FOMS. Access denied.");
         }
 
         if (!user.IsActive || user.Status == "Locked")

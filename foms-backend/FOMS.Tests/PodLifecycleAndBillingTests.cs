@@ -32,13 +32,15 @@ public class PodLifecycleAndBillingTests
         return new ApplicationDbContext(options);
     }
 
-    private ClaimsPrincipal CreateStaffPrincipal(string name = "Staff Accountant", string role = "Accountant")
+    private ClaimsPrincipal CreateStaffPrincipal(string name = "Staff Accountant", string role = "Accountant", string id = "EMP-003")
     {
         return new ClaimsPrincipal(new ClaimsIdentity(new[]
         {
+            new Claim(ClaimTypes.NameIdentifier, id),
             new Claim("name", name),
             new Claim(ClaimTypes.Name, name),
-            new Claim(ClaimTypes.Role, role)
+            new Claim(ClaimTypes.Role, role),
+            new Claim("role", role)
         }, "TestAuth"));
     }
 
@@ -182,7 +184,7 @@ public class PodLifecycleAndBillingTests
         var controller = new InvoicesController(appDb, mssqlDb);
         controller.ControllerContext = new ControllerContext
         {
-            HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal("Finance Manager", "Finance Manager") }
+            HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() }
         };
 
         var result = await controller.CreateInvoice(new InvoiceSubmissionDto
@@ -251,7 +253,7 @@ public class PodLifecycleAndBillingTests
         var controller = new InvoicesController(appDb, mssqlDb);
         controller.ControllerContext = new ControllerContext
         {
-            HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal("Finance Manager", "Finance Manager") }
+            HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() }
         };
 
         var result = await controller.CreateInvoice(new InvoiceSubmissionDto
@@ -323,7 +325,7 @@ public class PodLifecycleAndBillingTests
         var controller = new InvoicesController(appDb, mssqlDb);
         controller.ControllerContext = new ControllerContext
         {
-            HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal("Finance Manager", "Finance Manager") }
+            HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() }
         };
 
         // 1st billing run -> succeeds and locks

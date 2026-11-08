@@ -138,7 +138,7 @@ public class AuthController : ControllerBase
         }
         catch (UnauthorizedAccessException ex)
         {
-            return Unauthorized(new { success = false, message = ex.Message });
+            return StatusCode(403, new { success = false, message = ex.Message });
         }
         catch (Exception)
         {

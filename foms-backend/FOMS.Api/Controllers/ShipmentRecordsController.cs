@@ -89,7 +89,6 @@ public class ShipmentRecordsController : ApiControllerBase
     }
 
     [HttpGet]
-    [AllowAnonymous]
     public async Task<IActionResult> GetShipments([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
     {
         var waybills = await _fomsDb.Waybills.AsNoTracking().ToListAsync();
@@ -153,7 +152,6 @@ public class ShipmentRecordsController : ApiControllerBase
     }
 
     [HttpGet("{id}")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetById(int id)
     {
         var w = await _fomsDb.Waybills.FindAsync(id);

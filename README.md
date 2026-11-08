@@ -64,6 +64,12 @@ The FOMS backend engine enforces strict database persistence and enterprise secu
 
 ## 5. Environment Setup
 
+### Prerequisites
+- **.NET SDK:** 9.0+ (Backend and Gateway)
+- **Node.js:** 18+ (Frontend)
+- **Python:** 3.11.x (AI Service — Python 3.11 is pinned; pre-releases like 3.14 lack pre-built wheels for pydantic-core)
+
+### Configuration
 1. Copy `.env.example` to create your local `.env` file:
    ```bash
    cp .env.example .env

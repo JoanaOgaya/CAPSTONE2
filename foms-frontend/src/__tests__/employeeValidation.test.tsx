@@ -5,7 +5,7 @@ describe('Employee & Personnel 3-Layer Validation Rules', () => {
   const EMP_ID_REGEX = /^EMP-\d{3}$/i;
   const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const PHONE_REGEX = /^(\+63|0)9\d{9}$/;
-  const NAME_REGEX = /^[a-zA-Z\s\.\-]+$/;
+  const NAME_REGEX = /^[a-zA-Z\s.-]+$/;
 
   describe('Employee ID Pattern Check (CK_Employees_Id_Pattern: EMP-###)', () => {
     it('should accept valid EMP-### patterns (EMP-001 to EMP-005)', () => {

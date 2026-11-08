@@ -138,7 +138,7 @@ def duplicate_invoice_check(
     request: InvoiceDuplicateRequest, 
     db: Session = Depends(get_db),
     foms_client: FomsClient = Depends(get_foms_client),
-    payload: dict = Depends(require_roles(*DUPLICATE_REVIEW_ROLES))
+    payload: dict = Depends(require_roles(*DUPLICATE_CHECK_ROLES))
 ):
     """Allowed: Finance Manager, Head Accountant, Accountant."""
     alert = check_invoice_duplicate(db, request, foms_client)
@@ -153,7 +153,7 @@ def duplicate_receipt_check(
     request: OfficialReceiptDuplicateRequest, 
     db: Session = Depends(get_db),
     foms_client: FomsClient = Depends(get_foms_client),
-    payload: dict = Depends(require_roles(*DUPLICATE_REVIEW_ROLES))
+    payload: dict = Depends(require_roles(*DUPLICATE_CHECK_ROLES))
 ):
     """Allowed: Finance Manager, Head Accountant, Accountant."""
     alert = check_receipt_duplicate(db, request, foms_client)
@@ -173,11 +173,12 @@ def review_duplicate_alert(
     payload: dict = Depends(require_roles(*DUPLICATE_REVIEW_ROLES))
 ):
     """
-    Review a duplicate alert. Allowed: Finance Manager, Head Accountant, Accountant.
+    Review a duplicate alert. Allowed: Finance Manager, Head Accountant only.
     Uses JWT claims for reviewer identity — never trusts frontend headers.
+    Enforces Separation of Duties (submitter != approver).
     """
-    if body.decision not in ["CANCEL", "REVISE", "PROCEED"]:
-        raise HTTPException(status_code=400, detail="Invalid decision. Must be CANCEL, REVISE, or PROCEED.")
+    if body.decision not in ["CANCEL", "REVISE", "PROCEED", "APPROVE", "RETURN", "DUPLICATE", "UNIQUE"]:
+        raise HTTPException(status_code=400, detail="Invalid decision. Must be CANCEL, REVISE, PROCEED, APPROVE, RETURN, DUPLICATE, or UNIQUE.")
         
     if body.decision == "PROCEED" and not body.justification:
         raise HTTPException(status_code=400, detail="Justification is required for PROCEED decision.")
@@ -188,7 +189,38 @@ def review_duplicate_alert(
 
     # Use JWT claims for identity — §9 Resource-Level Auth
     reviewer_name = payload.get("name", payload.get("sub", "System"))
+    reviewer_sub = payload.get("sub", reviewer_name)
     reviewer_role = payload.get("role", "AI Service")
+
+    # Separation of Duties (submitter != approver)
+    matched_fields = alert.matched_fields if isinstance(alert.matched_fields, dict) else {}
+    submitted_by = (
+        matched_fields.get("submittedBy")
+        or matched_fields.get("submitted_by")
+        or matched_fields.get("decidedBy")
+        or matched_fields.get("createdBy")
+    )
+    if not submitted_by and getattr(alert, "matches", None):
+        for m in alert.matches:
+            src = m.source_details if isinstance(m.source_details, dict) else {}
+            submitted_by = (
+                src.get("submittedBy")
+                or src.get("submitted_by")
+                or src.get("decidedBy")
+                or src.get("createdBy")
+                or src.get("user_id")
+            )
+            if submitted_by:
+                break
+
+    if submitted_by and str(submitted_by).strip().lower() in {
+        str(reviewer_name).strip().lower(),
+        str(reviewer_sub).strip().lower(),
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Separation of duties violation: Submitter cannot review or approve their own duplicate alert."
+        )
 
     review = AIDuplicateReview(
         alert_id=alertId,
@@ -469,7 +501,9 @@ def save_unique_document(
         )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to save unique document: {str(e)}")
+        trace_id = str(uuid.uuid4())
+        logger.error(f"[{trace_id}] Failed to save unique document: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail={"success": False, "message": "Failed to save unique document.", "traceId": trace_id})
 
 # ── Review History Persistence Endpoints ─────────────────────────────────
 @router.get("/review-history")
@@ -518,8 +552,8 @@ def add_review_history_record(
         entry = AIReviewHistory(
             target_type=body.targetType or "DUPLICATE_ALERT",
             target_id=body.targetId,
-            reviewer_username=body.reviewerUsername or username,
-            reviewer_role=body.reviewerRole or role,
+            reviewer_username=username,
+            reviewer_role=role,
             decision=body.decision,
             remarks=body.remarks,
             recommended_action=body.recommendedAction,
@@ -536,4 +570,6 @@ def add_review_history_record(
         )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to record review history: {str(e)}")
+        trace_id = str(uuid.uuid4())
+        logger.error(f"[{trace_id}] Failed to record review history: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail={"success": False, "message": "Failed to record review history.", "traceId": trace_id})

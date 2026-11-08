@@ -1,9 +1,9 @@
 import pytest
+from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.models.database import Base, AICollectionPriority, AICollectionRecommendation
+from app.models.database import Base, AICollectionPriority, AIRecommendation
 from app.services.collection import calculate_collection_priorities
-from datetime import datetime, timedelta
 
 @pytest.fixture
 def db_session():
@@ -17,8 +17,9 @@ def db_session():
         db.close()
 
 def test_calculate_collection_priorities_urgent(db_session):
-    # Simulated current date: 2026-07-20
-    # Overdue > 30 days and balance >= 50,000 -> Urgent
+    # Injected simulated current date: 2026-07-20
+    # Overdue > 30 days and balance >= 50,000 -> URGENT
+    simulated_clock = date(2026, 7, 20)
     due_date = "2026-06-15" # 35 days overdue
     ar_data = [{
         "invoiceId": "INV-URG",
@@ -32,23 +33,26 @@ def test_calculate_collection_priorities_urgent(db_session):
         "agingBucket": "31-60 Days"
     }]
     
-    processed, updated = calculate_collection_priorities(db_session, ar_data, [])
+    processed, updated = calculate_collection_priorities(
+        db_session, ar_data, [], current_date=simulated_clock
+    )
     assert processed == 1
     
     priority = db_session.query(AICollectionPriority).first()
     assert priority is not None
-    assert priority.priority_level == "Urgent"
+    assert priority.priority == "URGENT"
     # Outstanding balance high and overdue > 30
-    assert any("Outstanding balance is high" in b for b in priority.explanation_basis)
-    assert any("overdue" in b for b in priority.explanation_basis)
+    assert "Outstanding balance is high" in priority.explanation
+    assert "overdue" in priority.explanation.lower()
 
-    rec = db_session.query(AICollectionRecommendation).first()
+    rec = db_session.query(AIRecommendation).first()
     assert rec is not None
-    assert rec.priority_id == priority.id
-    assert "escalate" in rec.recommended_action.lower()
+    assert rec.priority_result_id == priority.id
+    assert "escalate" in rec.recommendation_text.lower()
 
 def test_calculate_collection_priorities_high(db_session):
-    # Overdue but not large amount -> High
+    # Overdue but not large amount -> HIGH
+    simulated_clock = date(2026, 7, 20)
     due_date = "2026-06-25" # 25 days overdue
     ar_data = [{
         "invoiceId": "INV-HIGH",
@@ -62,13 +66,16 @@ def test_calculate_collection_priorities_high(db_session):
         "agingBucket": "1-30 Days"
     }]
     
-    processed, updated = calculate_collection_priorities(db_session, ar_data, [])
+    processed, updated = calculate_collection_priorities(
+        db_session, ar_data, [], current_date=simulated_clock
+    )
     priority = db_session.query(AICollectionPriority).first()
     assert priority is not None
-    assert priority.priority_level == "High"
+    assert priority.priority == "HIGH"
 
 def test_calculate_collection_priorities_due_soon(db_session):
-    # Due in 5 days (<= 7 days) and small balance -> Medium
+    # Due in 5 days (<= 7 days) and small balance -> MEDIUM
+    simulated_clock = date(2026, 7, 20)
     due_date = "2026-07-25" 
     ar_data = [{
         "invoiceId": "INV-MED",
@@ -82,7 +89,9 @@ def test_calculate_collection_priorities_due_soon(db_session):
         "agingBucket": "Current"
     }]
     
-    processed, updated = calculate_collection_priorities(db_session, ar_data, [])
+    processed, updated = calculate_collection_priorities(
+        db_session, ar_data, [], current_date=simulated_clock
+    )
     priority = db_session.query(AICollectionPriority).first()
-    assert priority.priority_level == "Medium"
-    assert any("due soon" in b for b in priority.explanation_basis)
+    assert priority.priority == "MEDIUM"
+    assert "due soon" in priority.explanation.lower()

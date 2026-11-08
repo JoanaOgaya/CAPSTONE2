@@ -529,8 +529,21 @@ public class AssistantFinanceManagerController : ControllerBase
     [HttpPost("liquidations/{id}/endorse")]
     public async Task<IActionResult> EndorseLiquidation(int id)
     {
+        var role = CurrentRole();
+        if (!role.Contains("Assistant", StringComparison.OrdinalIgnoreCase) && !role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = $"Forbidden: Role '{role}' is not authorized to endorse liquidations." });
+        }
+
         var liq = await _fomsDb.Liquidations.FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (liq == null) return NotFound(new { success = false, message = "Liquidation not found." });
+
+        // Separation of Duties: Submitter cannot endorse their own liquidation
+        var currentUsername = CurrentUsername();
+        if (!string.IsNullOrWhiteSpace(liq.SubmittedByName) && liq.SubmittedByName.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse their own liquidation." });
+        }
 
         var prev = liq.Status;
         liq.Status = "Endorsed";
@@ -576,6 +589,12 @@ public class AssistantFinanceManagerController : ControllerBase
     [HttpPost("ai/duplicate-scan")]
     public async Task<IActionResult> DuplicateScan(IFormFile? file)
     {
+        var role = CurrentRole();
+        if (role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) || role.Equals("Head Accountant", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Role '{role}' does not upload or scan documents." });
+        }
+
         if (file == null || file.Length == 0)
             return BadRequest(new { success = false, message = "File is required." });
 
@@ -751,6 +770,12 @@ public class AssistantFinanceManagerController : ControllerBase
     [HttpPost("ai/document-extraction")]
     public async Task<IActionResult> DocumentExtraction(IFormFile? file)
     {
+        var role = CurrentRole();
+        if (role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) || role.Equals("Head Accountant", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Role '{role}' does not have permission to run document extraction." });
+        }
+
         if (file == null || file.Length == 0)
             return BadRequest(new { success = false, message = "File is required." });
 

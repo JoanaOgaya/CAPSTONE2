@@ -30,7 +30,7 @@ public class ReceivablesController : ControllerBase
     [HttpGet("records")]
     public async Task<IActionResult> GetArRecords()
     {
-        var invoices = await _context.Invoices.Where(i => !i.Archived || i.Balance > 0m).ToListAsync();
+        var invoices = await _context.Invoices.Where(i => (!i.Archived || i.Balance > 0m) && i.DocumentStatus != "Void").ToListAsync();
         foreach (var inv in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(inv);
@@ -56,6 +56,7 @@ public class ReceivablesController : ControllerBase
                                i.DaysOverdue <= 60 ? "31-60 days" :
                                i.DaysOverdue <= 90 ? "61-90 days" : "90+ days",
                 agingDays = i.DaysOverdue,
+                documentStatus = i.DocumentStatus,
                 status = i.Balance <= 0 ? "Current" :
                          i.DaysOverdue > 0 ? "Overdue" :
                          isDueSoon ? "Due Soon" : "Outstanding"
@@ -68,7 +69,7 @@ public class ReceivablesController : ControllerBase
     [HttpGet("aging")]
     public async Task<IActionResult> GetArAging()
     {
-        var invoices = await _context.Invoices.Where(i => i.Balance > 0).ToListAsync();
+        var invoices = await _context.Invoices.Where(i => i.Balance > 0 && i.DocumentStatus != "Void").ToListAsync();
         foreach (var inv in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(inv);
@@ -133,7 +134,7 @@ public class ReceivablesController : ControllerBase
     public async Task<IActionResult> GetOutstandingBalances()
     {
         var invoices = await _context.Invoices
-            .Where(i => !i.Archived || i.Balance > 0m)
+            .Where(i => (!i.Archived || i.Balance > 0m) && i.DocumentStatus != "Void")
             .ToListAsync();
 
         // Dynamically refresh aging, overdue status, and balance on every GET
@@ -159,7 +160,7 @@ public class ReceivablesController : ControllerBase
     public async Task<IActionResult> GetOutstandingSummary()
     {
         var invoices = await _context.Invoices
-            .Where(i => !i.Archived || i.Balance > 0m)
+            .Where(i => (!i.Archived || i.Balance > 0m) && i.DocumentStatus != "Void")
             .ToListAsync();
 
         foreach (var invoice in invoices)
@@ -197,7 +198,7 @@ public class ReceivablesController : ControllerBase
     public async Task<IActionResult> GetAgingAccounts()
     {
         var invoices = await _context.Invoices
-            .Where(i => i.Balance > 0)
+            .Where(i => i.Balance > 0 && i.DocumentStatus != "Void")
             .ToListAsync();
 
         // Refresh aging dynamically â€” AgingAccounts DB table may be stale
@@ -232,7 +233,7 @@ public class ReceivablesController : ControllerBase
     public async Task<IActionResult> GetOverdueAccounts()
     {
         var invoices = await _context.Invoices
-            .Where(i => i.Balance > 0)
+            .Where(i => i.Balance > 0 && i.DocumentStatus != "Void")
             .ToListAsync();
 
         foreach (var invoice in invoices)
@@ -274,7 +275,7 @@ public class ReceivablesController : ControllerBase
                 : clientId;
 
         var invoices = await _context.Invoices
-            .Where(i => (i.ClientId == clientId || i.ClientId == altClientId) && i.Balance > 0)
+            .Where(i => (i.ClientId == clientId || i.ClientId == altClientId) && i.Balance > 0 && i.DocumentStatus != "Void")
             .ToListAsync();
 
         foreach (var invoice in invoices)

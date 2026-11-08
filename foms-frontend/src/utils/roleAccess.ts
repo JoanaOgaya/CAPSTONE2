@@ -51,23 +51,23 @@ export const MODULES: readonly ModuleDef[] = [
 
   // Create Invoice is strictly Accountant-only
   { key: 'invoiceCreate', label: 'Create Invoice', group: 'Invoicing', icon: 'ti ti-file-plus', path: '/invoice-create', nav: true, roles: { [ACC]: ['view', 'create'] } },
-  { key: 'invoicingDesk', label: 'Invoice List', group: 'Invoicing', icon: 'ti ti-file-invoice', path: '/invoicing-desk', detailPath: '/invoicing-desk/:id', nav: true, roles: { [ACC]: ['view', 'edit', 'submit'], [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
+  { key: 'invoicingDesk', label: 'Invoice List', group: 'Invoicing', icon: 'ti ti-file-invoice', path: '/invoicing-desk', detailPath: '/invoicing-desk/:id', nav: true, roles: { [ACC]: ['view', 'edit', 'submit'], [HA]: ['view', 'verify', 'return'], [FM]: ['view', 'approve', 'return'] } },
   { key: 'billingValidation', label: 'Billing Validation', group: 'Invoicing', icon: 'ti ti-file-check', path: '/billing-validation', nav: true, roles: { [ACC]: ['view'], [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
-  { key: 'dmsIntake', label: 'DMS Billing & Holds', group: 'Invoicing', icon: 'ti ti-truck-loading', path: '/dms-billing-intake', nav: true, roles: { [ACC]: ['view', 'create'], [HA]: ['view', 'verify'], [AFM]: ['view'] } },
-  { key: 'invoiceReview', label: 'Invoice Review', group: 'Invoicing', icon: 'ti ti-file-search', path: '/invoice-review', detailPath: '/invoice-review/:id', nav: false, roles: { [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
+  { key: 'dmsIntake', label: 'DMS Billing & Holds', group: 'Invoicing', icon: 'ti ti-truck-loading', path: '/dms-billing-intake', nav: true, roles: { [ACC]: ['view', 'create'], [HA]: ['view', 'verify'] } },
+  { key: 'invoiceReview', label: 'Invoice Review', group: 'Invoicing', icon: 'ti ti-file-search', path: '/invoice-review', detailPath: '/invoice-review/:id', nav: false, roles: { [HA]: ['view', 'verify', 'return'], [FM]: ['view', 'approve', 'return'] } },
 
   { key: 'accountsReceivable', label: 'Accounts Receivable', group: 'Receivables & Payments', icon: 'ti ti-report-money', path: '/accounts-receivable', detailPath: '/accounts-receivable/:id', nav: true, roles: { [ACC]: ['view', 'create'], [HA]: ['view'], [FM]: ['view'] } },
-  { key: 'starsCollection', label: 'STARS Collection', group: 'Receivables & Payments', icon: 'ti ti-chart-dots', path: '/stars-collection', nav: true, roles: { [ACC]: ['view', 'create', 'edit', 'submit'], [HA]: ['view'], [AFM]: ['view', 'edit'], [FM]: ['view'] } },
-  { key: 'payments', label: 'Payments', labelByRole: { [HA]: 'Payment Validation' }, group: 'Receivables & Payments', icon: 'ti ti-cash', path: '/payments', detailPath: '/payments/:id', nav: true, roles: { [ACC]: ['view', 'create', 'edit', 'submit'], [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
+  { key: 'starsCollection', label: 'STARS Collection', group: 'Receivables & Payments', icon: 'ti ti-chart-dots', path: '/stars-collection', nav: true, roles: { [ACC]: ['view'], [HA]: ['view', 'create', 'edit', 'submit', 'verify', 'approve'], [FM]: ['view', 'create', 'edit', 'submit', 'approve'] } },
+  { key: 'payments', label: 'Payments', labelByRole: { [HA]: 'Payment Validation' }, group: 'Receivables & Payments', icon: 'ti ti-cash', path: '/payments', detailPath: '/payments/:id', nav: true, roles: { [ACC]: ['view', 'create', 'edit', 'submit'], [HA]: ['view', 'verify', 'return'], [FM]: ['view', 'approve'] } },
   { key: 'receipts', label: 'Official Receipts', group: 'Receivables & Payments', icon: 'ti ti-receipt', path: '/receipts', detailPath: '/receipts/:id', nav: true, roles: { [ACC]: ['view', 'create'], [FM]: ['view'] } },
   { key: 'settlements', label: 'Settlements', labelByRole: { [FM]: 'Settlement Validation' }, group: 'Receivables & Payments', icon: 'ti ti-calculator', path: '/settlements', nav: true, roles: { [ACC]: ['view', 'create'], [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
   { key: 'recordSettlement', label: 'Record Settlement', group: 'Receivables & Payments', icon: 'ti ti-receipt-2', path: '/record-settlement', nav: false, roles: { [ACC]: ['view', 'create', 'submit'], [HA]: ['view'] } },
-  { key: 'adjustments', label: 'Financial Adjustments', labelByRole: { [HA]: 'Adjustment Validation', [FM]: 'Adjustment Approval' }, group: 'Receivables & Payments', icon: 'ti ti-adjustments-alt', path: '/adjustments', nav: true, roles: { [ACC]: ['view', 'create', 'edit', 'submit'], [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
+  { key: 'adjustments', label: 'Financial Adjustments', labelByRole: { [HA]: 'Adjustment Validation', [FM]: 'Adjustment Approval' }, group: 'Receivables & Payments', icon: 'ti ti-adjustments-alt', path: '/adjustments', nav: true, roles: { [ACC]: ['view', 'create', 'edit', 'submit'], [HA]: ['view', 'verify', 'return'], [FM]: ['view', 'approve'] } },
 
   { key: 'myCashAdvances', label: 'My Cash Advances', group: 'Liquidation', icon: 'ti ti-wallet', path: '/my-cash-advances', nav: true, roles: { [ACC]: ['view', 'create'] } },
   // Cash Advance Approvals is consolidated into the Approvals queue (/approvals) for Asst. FM
   { key: 'cashAdvancePortal', label: 'Cash Advance Approvals', group: 'Liquidation', icon: 'ti ti-wallet', path: '/cash-advance-portal', nav: false, roles: {} },
-  { key: 'liquidations', label: 'Liquidation Reports', group: 'Liquidation', icon: 'ti ti-cash-banknote', path: '/liquidations', detailPath: '/liquidations/:id', nav: true, roles: { [AFM]: ['view', 'verify', 'return'], [FM]: ['view'] } },
+  { key: 'liquidations', label: 'Liquidation Reports', group: 'Liquidation', icon: 'ti ti-cash-banknote', path: '/liquidations', detailPath: '/liquidations/:id', nav: true, roles: { [AFM]: ['view', 'create', 'verify', 'return'], [FM]: ['view', 'approve'] } },
   { key: 'cashFlow', label: 'Cash Flow', group: 'Treasury', icon: 'ti ti-chart-arrows', path: '/cash-flow', nav: true, roles: { [FM]: ['view'] } },
 
   // ── Duplicate Detection (role table — see DUPLICATE_SECTION below) ──
@@ -75,12 +75,12 @@ export const MODULES: readonly ModuleDef[] = [
   //   Finance Manager: Manual Review Queue, Flagged Duplicates, Unique Documents, Review History, Audit Trail
   { key: 'duplicateScan', label: 'Duplicate Scan', group: 'Duplicate Detection', icon: 'ti ti-scan', path: '/duplicate-scan', nav: true, roles: { [ACC]: ['view', 'scan'], [AFM]: ['view', 'scan'] } },
   { key: 'mySubmissions', label: 'My Submissions', group: 'Duplicate Detection', icon: 'ti ti-file-upload', path: '/my-submissions', nav: false, roles: { [ACC]: ['view'], [AFM]: ['view'] } },
-  { key: 'manualReviewQueue', label: 'Manual Review Queue', group: 'Duplicate Detection', icon: 'ti ti-clock-check', path: '/manual-review-queue', nav: true, roles: { [FM]: ['view'], [HA]: ['view', 'approve', 'return'] } },
+  { key: 'manualReviewQueue', label: 'Manual Review Queue', group: 'Duplicate Detection', icon: 'ti ti-clock-check', path: '/manual-review-queue', nav: false, roles: { [FM]: ['view', 'approve', 'return'], [HA]: ['view', 'approve', 'return'] } },
   { key: 'uniqueDocuments', label: 'Unique Documents', group: 'Duplicate Detection', icon: 'ti ti-file-check', path: '/unique-documents', nav: true, roles: { [FM]: ['view'], [HA]: ['view'], [ACC]: ['view'], [AFM]: ['view'] } },
-  { key: 'flaggedDuplicates', label: 'Flagged Duplicates', labelByRole: { [HA]: 'For Review', [ACC]: 'Flagged' }, group: 'Duplicate Detection', icon: 'ti ti-alert-triangle', path: '/flagged-duplicates', nav: true, roles: { [FM]: ['view'], [HA]: ['view', 'approve', 'return'], [ACC]: ['view'], [AFM]: ['view', 'submit'] } },
+  { key: 'flaggedDuplicates', label: 'Flagged Duplicates', labelByRole: { [HA]: 'For Review', [ACC]: 'Flagged' }, group: 'Duplicate Detection', icon: 'ti ti-alert-triangle', path: '/flagged-duplicates', nav: true, roles: { [FM]: ['view', 'approve', 'return'], [HA]: ['view', 'approve', 'return'], [ACC]: ['view', 'submit'], [AFM]: ['view', 'submit'] } },
   { key: 'reviewHistory', label: 'Review History', group: 'Duplicate Detection', icon: 'ti ti-history', path: '/review-history', nav: true, roles: { [FM]: ['view', 'export'], [HA]: ['view', 'export'], [ACC]: ['view', 'export'], [AFM]: ['view', 'export'] } },
-  { key: 'documentExtraction', label: 'Document Extraction', group: 'Document Intelligence', icon: 'ti ti-file-analytics', path: '/document-extraction', nav: false, roles: { [ACC]: ['view', 'create', 'edit'], [AFM]: ['view', 'create', 'verify'] } },
-  { key: 'forReview', label: 'For Review', group: 'Duplicate Detection', icon: 'ti ti-eye-check', path: '/for-review', nav: false, roles: { [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
+  { key: 'documentExtraction', label: 'Document Extraction', group: 'Document Intelligence', icon: 'ti ti-file-analytics', path: '/document-extraction', nav: true, roles: { [ACC]: ['view', 'create', 'edit'], [AFM]: ['view', 'create', 'verify'] } },
+  { key: 'forReview', label: 'For Review', group: 'Duplicate Detection', icon: 'ti ti-eye-check', path: '/for-review', nav: false, roles: { [HA]: ['view', 'verify', 'approve', 'return'], [FM]: ['view', 'approve', 'return'] } },
 
   { key: 'reports', label: 'Reports', group: 'Analytics & Control', icon: 'ti ti-chart-bar', path: '/reports', detailPath: '/reports/:id', nav: true, roles: { [ACC]: ['view', 'export'], [HA]: ['view', 'export'], [FM]: ['view', 'export'], [AFM]: ['view', 'export'] } },
   { key: 'periodClose', label: 'Period Close', group: 'Analytics & Control', icon: 'ti ti-lock-check', path: '/finance/period-close', nav: true, roles: { [HA]: ['view'], [FM]: ['view', 'create'] } },
@@ -162,7 +162,7 @@ export function canRequestCashAdvance(role: Role | undefined | null): boolean {
 }
 
 export function canDispatchFollowUp(role: Role | undefined | null): boolean {
-  return role === ROLES.ACCOUNTANT;
+  return role === ROLES.FINANCE_MANAGER || role === ROLES.HEAD_ACCOUNTANT;
 }
 
 export function canIntakeDelivery(role: Role | undefined | null): boolean {
@@ -170,7 +170,7 @@ export function canIntakeDelivery(role: Role | undefined | null): boolean {
 }
 
 export function canReassignFollowUp(role: Role | undefined | null): boolean {
-  return role === ROLES.ASSISTANT_FM;
+  return role === ROLES.FINANCE_MANAGER || role === ROLES.HEAD_ACCOUNTANT;
 }
 
 /** Sidebar structure for a role: only allowed, nav-visible modules, grouped in declaration order with key deduplication. */

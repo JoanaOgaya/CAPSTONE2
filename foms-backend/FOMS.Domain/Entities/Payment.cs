@@ -19,6 +19,7 @@ public class Payment
     public string? ProofImageUrl { get; set; }
     public string? Remarks { get; set; }
     public string RecordedBy { get; set; } = string.Empty;
+    public string? RecordedByEmployeeId { get; set; }
     public string DateRecorded { get; set; } = string.Empty;
 
     // Retained for historical payment records; current payments use staff validation only.

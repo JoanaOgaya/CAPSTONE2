@@ -187,8 +187,49 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         }
 
         modelBuilder.Entity<Invoice>()
+            .Property(i => i.VatRate)
+            .HasPrecision(5, 4);
+
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.DiscountRate)
+            .HasPrecision(5, 4);
+
+        modelBuilder.Entity<Invoice>()
             .Property(i => i.FuelSurchargeRate)
-            .HasPrecision(9, 6);
+            .HasPrecision(5, 4);
+
+        modelBuilder.Entity<Invoice>(entity =>
+        {
+            entity.Property(i => i.DocumentStatus)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(i => i.PaymentStatus)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(i => i.RowVersion)
+                .IsRowVersion();
+
+            entity.HasIndex(i => i.AccrualJournalEntryId)
+                .IsUnique()
+                .HasFilter("[AccrualJournalEntryId] IS NOT NULL");
+        });
+
+        modelBuilder.Entity<JournalEntry>(entity =>
+        {
+            entity.Property(j => j.EntryNumber)
+                .HasMaxLength(100)
+                .IsRequired();
+            entity.Property(j => j.InvoiceId)
+                .HasMaxLength(450);
+            entity.HasIndex(j => j.EntryNumber)
+                .IsUnique();
+            entity.HasIndex(j => j.InvoiceId)
+                .HasDatabaseName("IX_JournalEntries_InvoiceId_UniquePosting")
+                .IsUnique()
+                .HasFilter("[InvoiceId] IS NOT NULL AND [Posted] = 1");
+        });
 
         modelBuilder.Entity<AccountingPeriodClose>()
             .HasIndex(p => new { p.PeriodType, p.PeriodStart, p.PeriodEnd })

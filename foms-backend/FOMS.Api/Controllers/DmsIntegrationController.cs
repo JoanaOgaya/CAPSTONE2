@@ -1,3 +1,4 @@
+using FOMS.Domain.Constants;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -323,30 +324,44 @@ public class DmsIntegrationController : ControllerBase
 
     private IActionResult? RejectUnlessAuthorised()
     {
-        // 1. Allow authenticated user JWT from web frontend
-        if (User.Identity?.IsAuthenticated == true)
-            return null;
-
-        // 2. Machine-to-machine key authorization
+        // 1. Machine-to-machine key authorization (checked first if X-Api-Key header is supplied)
+        var headerValue = Request.Headers["X-Api-Key"].FirstOrDefault();
         var expectedKey = _options.InboundApiKey;
+        if (!string.IsNullOrWhiteSpace(headerValue) && !string.IsNullOrWhiteSpace(expectedKey) && ConstantTimeEquals(headerValue.Trim(), expectedKey.Trim()))
+        {
+            return null;
+        }
+
+        // 2. Allow authenticated user JWT from web frontend, except EMP-004 (Assistant of Finance Manager)
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            // Role comes ONLY from the validated JWT claim (never request headers). Fail closed.
+            var role = FomsRoles.GetClaimRole(User);
+            if (string.IsNullOrWhiteSpace(role))
+            {
+                return StatusCode(403, new { isSuccess = false, message = "Forbidden: missing or unknown role claim." });
+            }
+
+            if (FomsRoles.IsAssistantFinanceManager(role))
+            {
+                return StatusCode(403, new { isSuccess = false, message = "Forbidden: Assistant of Finance Manager (EMP-004) is barred from DMS integration endpoints." });
+            }
+            return null;
+        }
+
         if (string.IsNullOrWhiteSpace(expectedKey))
         {
             _logger.LogWarning("DMS integration InboundApiKey is not configured in environment variables.");
             return StatusCode(503, new { isSuccess = false, message = "DMS integration is not configured on this server." });
         }
 
-        var headerValue = Request.Headers["X-Api-Key"].FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(headerValue) || !ConstantTimeEquals(headerValue.Trim(), expectedKey.Trim()))
-        {
-            _logger.LogWarning("Unauthorized DMS call: missing or invalid X-Api-Key.");
-            return Unauthorized(new { isSuccess = false, message = "Invalid or missing X-Api-Key header." });
-        }
-
-        return null;
+        _logger.LogWarning("Unauthorized DMS call: missing or invalid X-Api-Key.");
+        return Unauthorized(new { isSuccess = false, message = "Invalid or missing X-Api-Key header." });
     }
 
     private static bool ConstantTimeEquals(string a, string b)
     {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b)) return false;
         if (a.Length != b.Length) return false;
         int diff = 0;
         for (int i = 0; i < a.Length; i++)
@@ -406,9 +421,11 @@ public class DmsIntegrationController : ControllerBase
     /// </summary>
     [HttpPost("waybill-created")]
     [HttpPost("waybill-intake")]
-    [AllowAnonymous]
     public async Task<IActionResult> WaybillCreated([FromBody] DmsWaybillCreatedDto dto)
     {
+        var denied = RejectUnlessAuthorised();
+        if (denied != null) return denied;
+
         if (string.IsNullOrWhiteSpace(dto.WaybillNumber))
             return BadRequest(new { isSuccess = false, message = "WaybillNumber is required" });
 
@@ -509,7 +526,6 @@ public class DmsIntegrationController : ControllerBase
     /// generates BillingDocument (FR-015), creates invoice (FR-015–020), and records Accounts Receivable (FR-023).
     /// </summary>
     [HttpPost("delivery-completed")]
-    [AllowAnonymous]
     public async Task<IActionResult> DeliveryCompleted([FromBody] DmsDeliveryCompletedRequest req)
     {
         var denied = RejectUnlessAuthorised();
@@ -531,7 +547,6 @@ public class DmsIntegrationController : ControllerBase
     /// Prevents invoice computation and bundling until resolved.
     /// </summary>
     [HttpPost("delivery-failed")]
-    [AllowAnonymous]
     public async Task<IActionResult> DeliveryFailed([FromBody] DmsDeliveryFailedRequest req)
     {
         var denied = RejectUnlessAuthorised();
@@ -553,7 +568,6 @@ public class DmsIntegrationController : ControllerBase
     /// </summary>
     [HttpPost("redelivery-completed")]
     [HttpPost("delivery-redelivered")]
-    [AllowAnonymous]
     public async Task<IActionResult> RedeliveryCompleted([FromBody] DmsRedeliveryCompletedRequest req)
     {
         var denied = RejectUnlessAuthorised();
@@ -575,7 +589,6 @@ public class DmsIntegrationController : ControllerBase
     /// </summary>
     [HttpPost("cash-advance")]
     [HttpPost("cash-advance-request")]
-    [AllowAnonymous]
     public async Task<IActionResult> CreateCashAdvance([FromBody] DmsCashAdvanceRequest req)
     {
         var denied = RejectUnlessAuthorised();
@@ -595,7 +608,6 @@ public class DmsIntegrationController : ControllerBase
     /// </summary>
     [HttpPost("liquidation")]
     [HttpPost("liquidation-submission")]
-    [AllowAnonymous]
     public async Task<IActionResult> SubmitLiquidation([FromBody] DmsLiquidationRequest req)
     {
         var denied = RejectUnlessAuthorised();
@@ -613,7 +625,6 @@ public class DmsIntegrationController : ControllerBase
     /// Look up waybill status, POD, and billing details.
     /// </summary>
     [HttpGet("waybills/{waybillNo}")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetWaybillStatus(string waybillNo)
     {
         var denied = RejectUnlessAuthorised();

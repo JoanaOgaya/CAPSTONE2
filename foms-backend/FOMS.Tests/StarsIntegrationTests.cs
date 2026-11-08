@@ -1,3 +1,8 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+using FOMS.Api.Controllers;
+using FOMS.Application.Interfaces;
 using System;
 using System.Net;
 using System.Net.Http;
@@ -237,7 +242,7 @@ public class StarsIntegrationTests : IDisposable
             Balance = 80000m,
             DaysOverdue = 45,
             AgingBucket = "31-60",
-            PaymentStatus = "Overdue"
+            PaymentStatus = "Unpaid"
         };
         _context.Invoices.Add(invoice);
         await _context.SaveChangesAsync(default);
@@ -245,5 +250,86 @@ public class StarsIntegrationTests : IDisposable
         var (isSuccess, message) = await service.SendOverdueAlertAsync("INV-OVERDUE-999");
         Assert.True(isSuccess);
         Assert.Contains("successfully", message);
+    }
+
+    [Fact]
+    public async Task IntegrationController_Rejects_MissingApiKeyHeader_OnM2MEndpoint()
+    {
+        var service = CreateService();
+        var mockUserService = new Mock<IUserService>();
+        var fomsDbOptions = new DbContextOptionsBuilder<FomsDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        using var fomsDb = new FomsDbContext(fomsDbOptions);
+
+        var controller = new IntegrationController(
+            service,
+            mockUserService.Object,
+            _context,
+            fomsDb,
+            Options.Create(_options));
+
+        var httpContext = new DefaultHttpContext();
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var response = await controller.ReceiveEndorsementCompletion(new StarsEndorsementCompletionDto());
+        Assert.IsType<UnauthorizedObjectResult>(response);
+    }
+
+    [Fact]
+    public async Task IntegrationController_FailsClosed_WhenInboundApiKey_NotConfigured()
+    {
+        _options.InboundApiKey = "";
+        var service = CreateService();
+        var mockUserService = new Mock<IUserService>();
+        var fomsDbOptions = new DbContextOptionsBuilder<FomsDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        using var fomsDb = new FomsDbContext(fomsDbOptions);
+
+        var controller = new IntegrationController(
+            service,
+            mockUserService.Object,
+            _context,
+            fomsDb,
+            Options.Create(_options));
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers["X-Api-Key"] = "any-key";
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var response = await controller.ReceiveEndorsementCompletion(new StarsEndorsementCompletionDto());
+        var objResult = Assert.IsType<ObjectResult>(response);
+        Assert.Equal(503, objResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task IntegrationController_AllowsAuthenticatedJwtUser_WithoutApiKey()
+    {
+        var service = CreateService();
+        var mockUserService = new Mock<IUserService>();
+        var fomsDbOptions = new DbContextOptionsBuilder<FomsDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        using var fomsDb = new FomsDbContext(fomsDbOptions);
+
+        var controller = new IntegrationController(
+            service,
+            mockUserService.Object,
+            _context,
+            fomsDb,
+            Options.Create(_options));
+
+        var httpContext = new DefaultHttpContext();
+        var identity = new ClaimsIdentity(new[]
+        {
+            new Claim(ClaimTypes.Name, "EMP-001"),
+            new Claim(ClaimTypes.Role, "Finance Manager")
+        }, "TestAuth");
+        httpContext.User = new ClaimsPrincipal(identity);
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var response = await controller.GetStarsArSummary();
+        Assert.IsType<OkObjectResult>(response);
     }
 }

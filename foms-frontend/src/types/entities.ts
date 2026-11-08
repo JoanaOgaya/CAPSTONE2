@@ -156,8 +156,23 @@ export interface Invoice {
   balance?: number;
   billingSchedule: 'Monthly' | 'Semi-monthly' | 'Weekly';
   billingPeriod: string;
-  status: 'Draft' | 'Pending Approval' | 'Needs Revision' | 'Approved' | 'Sent' | 'Paid' | 'Overdue' | 'Outstanding';
-  paymentStatus?: 'Unpaid' | 'Due Soon' | 'Overdue' | 'Outstanding' | 'Paid';
+  status:
+    | 'Draft'
+    | 'Pending HA Verification'
+    | 'Pending FM Approval'
+    | 'Returned to HA'
+    | 'Returned to Creator'
+    | 'Approved'
+    | 'Sent'
+    | 'Received'
+    | 'Disputed'
+    | 'Void'
+    | 'Pending Approval'
+    | 'Needs Revision'
+    | 'Paid'
+    | 'Overdue'
+    | 'Outstanding';
+  paymentStatus?: 'Unpaid' | 'Partially Paid' | 'Paid' | 'Due Soon' | 'Overdue' | 'Outstanding';
   createdBy: string;
   createdAt: string;
   dueDate: string;
@@ -177,7 +192,18 @@ export interface Invoice {
   suspectReason?: string;
   voidReason?: string;
   waybillBreakdown?: any[];
-  documentStatus?: 'Draft' | 'For Review' | 'Approved' | 'Sent' | 'Received' | 'Disputed' | 'Void' | string;
+  documentStatus?:
+    | 'Draft'
+    | 'Pending HA Verification'
+    | 'Pending FM Approval'
+    | 'Returned to HA'
+    | 'Returned to Creator'
+    | 'Approved'
+    | 'Sent'
+    | 'Received'
+    | 'Disputed'
+    | 'Void'
+    | string;
   sentDate?: string;
   receivedDate?: string;
   reviewRejectionReason?: string;

@@ -33,11 +33,24 @@ public class BillingAndRatingTests
         return new FomsDbContext(options);
     }
 
-    private static ClaimsPrincipal CreateStaffPrincipal(string role = "Finance Manager", string name = "Finance Manager Test User")
+    private static ClaimsPrincipal CreateStaffPrincipal(string role = "Accountant", string name = "Billing Staff User", string id = "EMP-003")
     {
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, "EMP-001"),
+            new(ClaimTypes.NameIdentifier, id),
+            new(ClaimTypes.Name, name),
+            new(ClaimTypes.Role, role),
+            new("role", role),
+            new("name", name)
+        };
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
+    }
+
+    private static ClaimsPrincipal CreatePrincipal(string role = "Head Accountant", string name = "Head Accountant User", string id = "EMP-002")
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, id),
             new(ClaimTypes.Name, name),
             new(ClaimTypes.Role, role),
             new("role", role),
@@ -442,7 +455,7 @@ public class BillingAndRatingTests
 
         var controller = new InvoicesController(appDb, mssqlDb)
         {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() } }
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreatePrincipal("Head Accountant", "Head Accountant User", "EMP-002") } }
         };
 
         // 1. Attempt void with empty reason
@@ -456,8 +469,8 @@ public class BillingAndRatingTests
             VoidReason = "Client requested billing cancellation due to duplicate purchase order"
         });
         var okResult = Assert.IsType<OkObjectResult>(successVoid);
-        var status = GetValueProp(okResult.Value, "status")?.ToString();
-        Assert.Equal("Voided", status);
+        var status = GetValueProp(okResult.Value, "status")?.ToString() ?? GetValueProp(okResult.Value, "documentStatus")?.ToString();
+        Assert.Equal("Void", status);
 
         // 3. Verify waybill was unlocked
         var updatedWb = await mssqlDb.Waybills.FindAsync(1);

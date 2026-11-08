@@ -438,7 +438,7 @@ describe('Duplicate Detection — Four-Role Access, Routing & Workflow', () => {
       expect(allKeys).toContain('uniqueDocuments');
       expect(allKeys).toContain('flaggedDuplicates');
       expect(allKeys).toContain('reviewHistory');
-      expect(allKeys).not.toContain('documentExtraction');
+      expect(allKeys).toContain('documentExtraction');
 
       expect(getDuplicateScope(ROLES.ASSISTANT_FM)).toBe('liquidation');
       expect(canDo(ROLES.ASSISTANT_FM, 'duplicateScan', 'scan')).toBe(true);

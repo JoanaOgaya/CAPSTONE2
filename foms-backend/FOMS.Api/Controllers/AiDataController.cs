@@ -14,7 +14,7 @@ namespace FOMS.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/ai-data")]
-[AllowAnonymous]
+[FOMS.Api.Filters.RequireAiServiceApiKey]
 public class AiDataController : ApiControllerBase
 {
     private readonly IApplicationDbContext _context;

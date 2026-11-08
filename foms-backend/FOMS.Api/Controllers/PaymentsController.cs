@@ -481,7 +481,20 @@ public class PaymentsController : ApiControllerBase
             return StatusCode(403, new { message = "Only the Finance Manager (or configured, logged delegate) is authorized to perform payment actions." });
 
         var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
+        var empId = User.FindFirst("employeeNumber")?.Value
+            ?? User.FindFirst("EmployeeNumber")?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value
+            ?? user;
         var normAction = actionName.ToLowerInvariant();
+
+        // Separation of Duties: Submitter cannot validate/approve/reject their own payment
+        if (!string.IsNullOrWhiteSpace(payment.RecordedBy) &&
+            (payment.RecordedBy.Equals(user, StringComparison.OrdinalIgnoreCase) ||
+             payment.RecordedBy.Equals(empId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate or approve their own payment." });
+        }
 
         if (normAction is "approve" or "verify" or "validate")
         {

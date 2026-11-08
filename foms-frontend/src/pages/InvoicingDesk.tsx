@@ -22,7 +22,7 @@ import { formatCurrency, formatDate, formatBillingPeriod } from '../utils/format
 
 /** Derive payment status from invoice */
 function derivePaymentStatus(inv: Invoice): 'Unpaid' | 'Due Soon' | 'Overdue' | 'Paid' {
-  if (inv.status === 'Paid') return 'Paid';
+  if (inv.paymentStatus === 'Paid' || (inv as any).payment_status === 'Paid') return 'Paid';
   const now = Date.now();
   const due = new Date(inv.dueDate).getTime();
   const daysUntilDue = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
@@ -33,14 +33,18 @@ function derivePaymentStatus(inv: Invoice): 'Unpaid' | 'Due Soon' | 'Overdue' | 
 
 /** Single status-to-actions map defining allowed actions per invoice status */
 const STATUS_ACTIONS_MAP: Record<string, string[]> = {
-  'Draft': ['View', 'Edit Draft', 'Submit for Approval'],
+  'Draft': ['View', 'Edit Draft', 'Submit for Verification'],
+  'Pending HA Verification': ['View'],
+  'Pending FM Approval': ['View'],
+  'Returned to Creator': ['View', 'Edit', 'Resubmit'],
+  'Returned to HA': ['View'],
+  'Approved': ['View', 'Print', 'Dispatch'],
+  'Sent': ['View', 'Print', 'Mark Received'],
+  'Received': ['View', 'Print'],
+  'Disputed': ['View', 'Print'],
+  'Void': ['View'],
   'Pending Approval': ['View'],
   'Needs Revision': ['View', 'Edit', 'Resubmit'],
-  'Approved': ['View', 'Print'],
-  'Sent': ['View', 'Print'],
-  'Endorsed': ['View', 'Print'],
-  'Validated': ['View', 'Print'],
-  'Paid': ['View', 'Print'],
 };
 
 export const InvoicingDesk: React.FC = () => {
@@ -99,10 +103,11 @@ export const InvoicingDesk: React.FC = () => {
   const tabCounts = useMemo(() => {
     return {
       all: invoices.length,
-      pending: invoices.filter(i => (i.status as string) === 'Pending Approval' || (i.status as string) === 'Pending').length,
-      listed: invoices.filter(i => (i.status as string) === 'Draft' || (i.status as string) === 'Listed').length,
-      approved: invoices.filter(i => ['Approved', 'Sent', 'Paid', 'Endorsed', 'Validated'].includes(i.status as string)).length,
-      needsRevision: invoices.filter(i => (i.status as string) === 'Needs Revision' || (i.status as string) === 'Returned for revision').length,
+      pending: invoices.filter(i => ['Pending HA Verification', 'Pending FM Approval', 'Pending Approval', 'Pending'].includes(i.status as string)).length,
+      listed: invoices.filter(i => ['Draft', 'Listed'].includes(i.status as string)).length,
+      approved: invoices.filter(i => ['Approved', 'Sent', 'Received', 'Endorsed', 'Validated'].includes(i.status as string)).length,
+      needsRevision: invoices.filter(i => ['Returned to Creator', 'Returned to HA', 'Needs Revision', 'Returned for revision'].includes(i.status as string)).length,
+      voided: invoices.filter(i => (i.status as string) === 'Void').length,
     };
   }, [invoices]);
 
@@ -113,7 +118,7 @@ export const InvoicingDesk: React.FC = () => {
       : invoices;
 
     const activeInvoices = base.filter((inv: Invoice) => {
-      if (!['Draft', 'Needs Revision', 'Pending Approval', 'Approved', 'Sent', 'Paid', 'Endorsed', 'Validated'].includes(inv.status)) return false;
+      if (!['Draft', 'Needs Revision', 'Pending Approval', 'Approved', 'Sent', 'Received', 'Endorsed', 'Validated'].includes(inv.status)) return false;
       if (filterDateFrom || filterDateTo) {
         const itemDate = new Date(inv.createdAt);
         itemDate.setHours(0, 0, 0, 0);
@@ -160,13 +165,13 @@ export const InvoicingDesk: React.FC = () => {
       // Explicit Tab Lifecycle Filtering
       const invStatus = inv.status as string;
       if (activeTab === 'Pending') {
-        if (invStatus !== 'Pending Approval' && invStatus !== 'Pending') return false;
+        if (!['Pending HA Verification', 'Pending FM Approval', 'Pending Approval', 'Pending'].includes(invStatus)) return false;
       } else if (activeTab === 'Listed') {
         if (invStatus !== 'Draft' && invStatus !== 'Listed') return false;
       } else if (activeTab === 'Approved') {
-        if (!['Approved', 'Sent', 'Paid', 'Endorsed', 'Validated'].includes(invStatus)) return false;
+        if (!['Approved', 'Sent', 'Received', 'Endorsed', 'Validated'].includes(invStatus)) return false;
       } else if (activeTab === 'Needs Revision') {
-        if (invStatus !== 'Needs Revision' && invStatus !== 'Returned for revision') return false;
+        if (!['Returned to Creator', 'Returned to HA', 'Needs Revision', 'Returned for revision'].includes(invStatus)) return false;
       } else if (selectedStatus !== 'All' && inv.status !== selectedStatus) {
         return false;
       }
@@ -246,21 +251,32 @@ export const InvoicingDesk: React.FC = () => {
     { key: 'status', label: 'Invoice Status', render: (row: any) => <StatusBadge status={row.status} /> },
   ];
 
-  // Single status-to-actions map defining allowed actions per invoice status
-  const STATUS_ACTIONS_MAP: Record<string, string[]> = {
-    'Draft': ['View', 'Edit Draft', 'Submit for Approval'],
-    'Pending Approval': ['View', 'Approve', 'Return for Revision'],
-    'Returned for revision': ['View', 'Edit', 'Resubmit'],
-    'Needs Revision': ['View', 'Edit', 'Resubmit'],
-    'Approved': ['View', 'Print', 'Download PDF', 'Send to STARS for Integration'],
-    'Sent': ['View', 'Print', 'Download PDF', 'Send to STARS for Integration'],
-    'Endorsed': ['View', 'Print', 'Download PDF'],
-    'Validated': ['View', 'Print', 'Download PDF'],
-    'Paid': ['View', 'Print', 'Download PDF'],
-  };
-
   // Action configurations mapping action names to handlers and icons
   const ACTION_CONFIGS: Record<string, { label: string; icon: string; onClick: (row: any) => void }> = {
+    'Submit for Verification': {
+      label: 'Submit for Verification',
+      icon: 'ti-send',
+      onClick: (row: any) => handleTransition(row.id, 'Pending HA Verification' as any, `Invoice ${row.invoiceNumber} submitted for verification`),
+    },
+    'Print': {
+      label: 'Print',
+      icon: 'ti-printer',
+      onClick: (row: any) => {
+        setModalInvoice(row);
+        setModalInvoiceId(row.id);
+        setIsAutoPrint(true);
+      },
+    },
+    'Dispatch': {
+      label: 'Dispatch',
+      icon: 'ti-truck-delivery',
+      onClick: (row: any) => handleTransition(row.id, 'Sent' as any, `Invoice ${row.invoiceNumber} dispatched`),
+    },
+    'Mark Received': {
+      label: 'Mark Received',
+      icon: 'ti-check-double',
+      onClick: (row: any) => handleTransition(row.id, 'Received' as any, `Invoice ${row.invoiceNumber} marked as received`),
+    },
     'View': {
       label: 'View',
       icon: 'ti-eye',

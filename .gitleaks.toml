@@ -1,0 +1,8 @@
+[allowlist]
+description = "Test fixtures and placeholder rejection lists"
+paths = [
+  '''ai-service/tests/''',
+  '''ai-gateway\.Tests/''',
+  '''foms-backend/FOMS\.Tests/''',
+  '''RequireAiServiceApiKeyAttribute\.cs'''
+]

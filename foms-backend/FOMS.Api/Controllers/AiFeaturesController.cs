@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using FOMS.Domain.Constants;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
@@ -16,7 +17,7 @@ namespace FOMS.Api.Controllers;
 
 [ApiController]
 [Route("api/ai")]
-[AllowAnonymous]
+[Authorize]
 public class AiFeaturesController : ApiControllerBase
 {
     private readonly FomsDbContext _fomsDb;
@@ -99,10 +100,19 @@ public class AiFeaturesController : ApiControllerBase
             streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "image/jpeg");
             formContent.Add(streamContent, "file", file.FileName);
 
+
+            var callerRole = FomsRoles.GetClaimRole(User);
+            var callerUsername = FomsRoles.GetClaimUsername(User);
+            var apiKey = _configuration["AI_SERVICE_API_KEY"];
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return (false, "CONFIG_ERROR", 0.0, "AI service API key is not configured.", "CONFIG_ERROR");
+            }
+
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{aiServiceUrl}/api/ai/documents/scan");
-            req.Headers.Add("X-API-Key", _configuration["AI_SERVICE_API_KEY"] ?? "foms-secret-key-2026");
-            req.Headers.Add("X-User-Role", "Accountant");
-            req.Headers.Add("X-User-Username", "SYSTEM");
+            req.Headers.Add("X-API-Key", apiKey);
+            req.Headers.Add("X-User-Role", callerRole);
+            req.Headers.Add("X-User-Username", callerUsername);
             req.Content = formContent;
 
             var resp = await client.SendAsync(req);
@@ -137,6 +147,17 @@ public class AiFeaturesController : ApiControllerBase
     [HttpPost("documents/upload")]
     public async Task<IActionResult> UploadDocument(IFormFile? file, [FromForm] string? documentType)
     {
+        // Role comes ONLY from the validated JWT claim; never from request headers. Fail closed.
+        if (User.Identity?.IsAuthenticated != true)
+            return Unauthorized(new { success = false, message = "Authentication required." });
+        var callerRole = FomsRoles.GetClaimRole(User);
+        if (string.IsNullOrWhiteSpace(callerRole))
+            return StatusCode(403, new { success = false, message = "Permission Denied: missing or unknown role claim." });
+        if (FomsRoles.IsFinanceManager(callerRole) || FomsRoles.IsHeadAccountant(callerRole))
+        {
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Role '{callerRole}' does not upload or scan documents in this module." });
+        }
+
         IFormFile? targetFile = file;
         if (targetFile == null && Request.HasFormContentType && Request.Form.Files.Count > 0)
         {

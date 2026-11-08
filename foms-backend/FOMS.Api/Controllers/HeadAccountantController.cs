@@ -68,7 +68,7 @@ public class HeadAccountantController : ControllerBase
         var adjustments = await _fomsDb.FinancialAdjustments.AsNoTracking().ToListAsync();
         var recentLogs = await _fomsDb.AuditLogs.AsNoTracking().OrderByDescending(a => a.created_at).Take(10).ToListAsync();
 
-        var pendingInvoices = invoices.Count(i => i.InvoiceStatus == "Pending Approval" || i.InvoiceStatus == "For Review" || i.ValidationStatus == "Pending Validation");
+        var pendingInvoices = invoices.Count(i => i.DocumentStatus == "Pending HA Verification" || i.DocumentStatus == "Returned to HA" || i.DocumentStatus == "Pending FM Approval");
         var pendingPayments = payments.Count(p => p.PaymentStatus == "Pending Validation" || p.PaymentStatus == "Pending");
         var pendingAdjustments = adjustments.Count(a => a.Status == "Pending Approval");
         var totalBalance = arRecords.Sum(r => r.OutstandingBalance ?? 0m);
@@ -83,7 +83,7 @@ public class HeadAccountantController : ControllerBase
                 pendingPayments,
                 pendingAdjustments,
                 accountsReceivableTotal = totalBalance,
-                overdueInvoices = invoices.Count(i => i.InvoiceStatus == "Overdue"),
+                overdueInvoices = invoices.Count(i => i.PaymentStatus != "Paid" && i.DocumentStatus != "Void" && i.DueDate.HasValue && i.DueDate.Value < DateOnly.FromDateTime(DateTime.UtcNow)),
                 recentActivities = recentLogs.Select(l => new
                 {
                     id = l.audit_id,
@@ -213,7 +213,8 @@ public class HeadAccountantController : ControllerBase
     public async Task<IActionResult> GetInvoiceReview()
     {
         var invoices = await _fomsDb.Invoices.AsNoTracking()
-            .Where(i => i.InvoiceStatus == "Pending Approval" || i.InvoiceStatus == "For Review" || i.InvoiceStatus == "Needs Revision" || i.ValidationStatus == "Pending Validation")
+            .Where(i => i.DocumentStatus == FOMS.Domain.Entities.InvoiceDocumentStatus.PendingHaVerification
+                     || i.DocumentStatus == FOMS.Domain.Entities.InvoiceDocumentStatus.ReturnedToHa)
             .ToListAsync();
         var clients = await _fomsDb.Clients.AsNoTracking().ToListAsync();
 
@@ -239,51 +240,68 @@ public class HeadAccountantController : ControllerBase
     }
 
     [HttpPost("invoice-review/{invoiceId}/approve")]
-    public async Task<IActionResult> ApproveInvoice(int invoiceId)
+    public async Task<IActionResult> ApproveInvoice(int invoiceId, [FromServices] ApplicationDbContext appDb)
     {
         var invoice = await _fomsDb.Invoices.FindAsync(invoiceId);
         if (invoice == null) return NotFound(new { success = false, message = "Invoice not found." });
 
-        var prev = invoice.InvoiceStatus;
-        invoice.InvoiceStatus = "Approved";
-        invoice.ValidationStatus = "Validated";
+        var userId = CurrentUser();
+        var role = CurrentRole();
+
+        var appInv = await appDb.Invoices.FirstOrDefaultAsync(i => i.InvoiceNo == invoice.InvoiceNumber || i.Id == invoice.InvoiceNumber);
+        if (appInv != null)
+        {
+            appInv.Verify(userId, role);
+            await appDb.SaveChangesAsync();
+            invoice.DocumentStatus = appInv.DocumentStatus;
+        }
+        else
+        {
+            invoice.DocumentStatus = FOMS.Domain.Entities.InvoiceDocumentStatus.PendingFmApproval;
+        }
+
         invoice.UpdatedAt = DateTime.UtcNow;
         await _fomsDb.SaveChangesAsync();
 
-        await LogAuditAsync("APPROVE_INVOICE", "Invoice Review", "Invoice", invoiceId, prev, "Approved", "Head Accountant approved invoice.");
-        return Ok(new { success = true, message = "Invoice approved successfully." });
+        await LogAuditAsync("VERIFY_INVOICE", "Invoice Review", "Invoice", invoiceId, "Pending HA Verification", "Pending FM Approval", "Head Accountant verified invoice.");
+        return Ok(new { success = true, message = "Invoice verified and forwarded to Finance Manager for approval." });
     }
 
     [HttpPost("invoice-review/{invoiceId}/reject")]
-    public async Task<IActionResult> RejectInvoice(int invoiceId)
+    public async Task<IActionResult> RejectInvoice(int invoiceId, [FromQuery] string? reason, [FromServices] ApplicationDbContext appDb)
     {
-        var invoice = await _fomsDb.Invoices.FindAsync(invoiceId);
-        if (invoice == null) return NotFound(new { success = false, message = "Invoice not found." });
-
-        var prev = invoice.InvoiceStatus;
-        invoice.InvoiceStatus = "Rejected";
-        invoice.ValidationStatus = "Rejected";
-        invoice.UpdatedAt = DateTime.UtcNow;
-        await _fomsDb.SaveChangesAsync();
-
-        await LogAuditAsync("REJECT_INVOICE", "Invoice Review", "Invoice", invoiceId, prev, "Rejected", "Head Accountant rejected invoice.");
-        return Ok(new { success = true, message = "Invoice rejected successfully." });
+        return await ReturnInvoice(invoiceId, reason, appDb);
     }
 
     [HttpPost("invoice-review/{invoiceId}/return")]
-    public async Task<IActionResult> ReturnInvoice(int invoiceId)
+    public async Task<IActionResult> ReturnInvoice(int invoiceId, [FromQuery] string? reason, [FromServices] ApplicationDbContext appDb)
     {
         var invoice = await _fomsDb.Invoices.FindAsync(invoiceId);
         if (invoice == null) return NotFound(new { success = false, message = "Invoice not found." });
 
-        var prev = invoice.InvoiceStatus;
-        invoice.InvoiceStatus = "Needs Revision";
-        invoice.ValidationStatus = "Returned";
+        var returnReason = !string.IsNullOrWhiteSpace(reason) ? reason : "Returned for revision by Head Accountant.";
+        var userId = CurrentUser();
+        var role = CurrentRole();
+
+        var appInv = await appDb.Invoices.FirstOrDefaultAsync(i => i.InvoiceNo == invoice.InvoiceNumber || i.Id == invoice.InvoiceNumber);
+        if (appInv != null)
+        {
+            appInv.ReturnToCreator(userId, role, returnReason);
+            await appDb.SaveChangesAsync();
+            invoice.DocumentStatus = appInv.DocumentStatus;
+            invoice.ReviewRejectionReason = appInv.ReviewRejectionReason;
+        }
+        else
+        {
+            invoice.DocumentStatus = FOMS.Domain.Entities.InvoiceDocumentStatus.ReturnedToCreator;
+            invoice.ReviewRejectionReason = returnReason;
+        }
+
         invoice.UpdatedAt = DateTime.UtcNow;
         await _fomsDb.SaveChangesAsync();
 
-        await LogAuditAsync("RETURN_INVOICE", "Invoice Review", "Invoice", invoiceId, prev, "Needs Revision", "Head Accountant returned invoice for revision.");
-        return Ok(new { success = true, message = "Invoice returned for revision." });
+        await LogAuditAsync("RETURN_INVOICE", "Invoice Review", "Invoice", invoiceId, "Pending HA Verification", "Returned to Creator", $"Head Accountant returned invoice for revision. Reason: {returnReason}");
+        return Ok(new { success = true, message = "Invoice returned to creator for revision." });
     }
 
     // 5. Accounts Receivable
@@ -344,8 +362,21 @@ public class HeadAccountantController : ControllerBase
     [HttpPost("payments/{paymentId}/validate")]
     public async Task<IActionResult> ValidatePayment(int paymentId)
     {
-        var payment = await _fomsDb.Payments.FindAsync(paymentId);
+        var role = CurrentRole();
+        if (!role.Equals("Head Accountant", StringComparison.OrdinalIgnoreCase) && !role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = $"Forbidden: Role '{role}' cannot validate payments." });
+        }
+
+        var payment = await _fomsDb.Payments.FirstOrDefaultAsync(p => p.PaymentId == paymentId);
         if (payment == null) return NotFound(new { success = false, message = "Payment not found." });
+
+        // Separation of Duties: Submitter cannot validate their own payment
+        var currentUser = CurrentUser();
+        if (!string.IsNullOrWhiteSpace(payment.Remarks) && payment.Remarks.Contains($"RecordedBy:{currentUser}", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot validate their own payment." });
+        }
 
         payment.PaymentStatus = "Validated";
         payment.ValidatedAt = DateTime.UtcNow;
@@ -604,8 +635,22 @@ public class HeadAccountantController : ControllerBase
     [HttpPost("for-review/{reviewId}/approve")]
     public async Task<IActionResult> ApproveForReview(int reviewId)
     {
+        var role = CurrentRole();
+        if (!role.Equals("Head Accountant", StringComparison.OrdinalIgnoreCase) && !role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = $"Forbidden: Role '{role}' cannot approve duplicate review records." });
+        }
+
         var rev = await _fomsDb.AIReviewHistories.FindAsync(reviewId);
         if (rev == null) return NotFound(new { success = false, message = "Review record not found." });
+
+        // Separation of Duties: Submitter cannot approve their own duplicate flag
+        var currentUser = CurrentUser();
+        if (!string.IsNullOrWhiteSpace(rev.Reviewer) && rev.Reviewer.Equals(currentUser, StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot approve their own duplicate review record." });
+        }
+
         rev.FinalDecision = "Verified Unique";
         await _fomsDb.SaveChangesAsync();
         await LogAuditAsync("APPROVE_AI_FLAG", "AI Duplicate Review", "AIReviewHistory", reviewId, "Flagged", "Verified Unique", "Head Accountant endorsed unique document.");
@@ -615,8 +660,22 @@ public class HeadAccountantController : ControllerBase
     [HttpPost("for-review/{reviewId}/reject")]
     public async Task<IActionResult> RejectForReview(int reviewId)
     {
+        var role = CurrentRole();
+        if (!role.Equals("Head Accountant", StringComparison.OrdinalIgnoreCase) && !role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = $"Forbidden: Role '{role}' cannot confirm/reject duplicate review records." });
+        }
+
         var rev = await _fomsDb.AIReviewHistories.FindAsync(reviewId);
         if (rev == null) return NotFound(new { success = false, message = "Review record not found." });
+
+        // Separation of Duties: Submitter cannot decide their own duplicate flag
+        var currentUser = CurrentUser();
+        if (!string.IsNullOrWhiteSpace(rev.Reviewer) && rev.Reviewer.Equals(currentUser, StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot decide their own duplicate review record." });
+        }
+
         rev.FinalDecision = "Confirmed Duplicate";
         await _fomsDb.SaveChangesAsync();
         await LogAuditAsync("CONFIRM_AI_DUPLICATE", "AI Duplicate Review", "AIReviewHistory", reviewId, "Flagged", "Confirmed Duplicate", "Head Accountant confirmed duplicate.");

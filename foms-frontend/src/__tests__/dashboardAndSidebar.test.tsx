@@ -145,12 +145,12 @@ describe('Job B & Job A: Sidebar and Dashboard Verification Suite', () => {
       expect(allLabels).toContain('Unique Documents');
       expect(allLabels).toContain('Flagged');
       expect(allLabels).toContain('Review History');
-      expect(allLabels).not.toContain('Document Extraction');
+      expect(allLabels).toContain('Document Extraction');
       expect(allLabels).toContain('Reports');
       expect(allLabels).toContain('AI Output History');
 
-      // Total nav items for Accountant is 17 (including Create Invoice)
-      expect(allLabels).toHaveLength(17);
+      // Total nav items for Accountant is 20 (including Create Invoice)
+      expect(allLabels).toHaveLength(20);
 
       // Render actual Sidebar component
       render(
@@ -368,18 +368,59 @@ describe('Job B & Job A: Sidebar and Dashboard Verification Suite', () => {
   // ──────────────────────────────────────────────────────────────────────────
   describe('Sidebar Badge Removal: All 4 Roles render 0 badges and all menu items intact', () => {
     const rolesToTest = [
-      { role: ROLES.ACCOUNTANT, name: 'Accountant', expectedItemCount: 17 },
-      { role: ROLES.HEAD_ACCOUNTANT, name: 'Head Accountant', expectedItemCount: 15 },
-      { role: ROLES.ASSISTANT_FM, name: 'Assistant FM', expectedItemCount: 8 },
-      { role: ROLES.FINANCE_MANAGER, name: 'Finance Manager', expectedItemCount: 19 },
+      {
+        role: ROLES.ACCOUNTANT,
+        name: 'Accountant',
+        expectedItemCount: 20,
+        expectedKeys: [
+          'dashboard', 'clients', 'invoiceCreate', 'invoicingDesk', 'billingValidation',
+          'dmsIntake', 'accountsReceivable', 'starsCollection', 'payments', 'receipts',
+          'settlements', 'adjustments', 'myCashAdvances', 'duplicateScan', 'uniqueDocuments',
+          'flaggedDuplicates', 'reviewHistory', 'documentExtraction', 'reports', 'aiHistory',
+        ],
+      },
+      {
+        role: ROLES.HEAD_ACCOUNTANT,
+        name: 'Head Accountant',
+        expectedItemCount: 16,
+        expectedKeys: [
+          'dashboard', 'invoicingDesk', 'billingValidation', 'dmsIntake',
+          'accountsReceivable', 'starsCollection', 'payments', 'settlements',
+          'adjustments', 'uniqueDocuments', 'flaggedDuplicates', 'reviewHistory',
+          'reports', 'periodClose', 'auditLogs', 'aiHistory',
+        ],
+      },
+      {
+        role: ROLES.ASSISTANT_FM,
+        name: 'Assistant FM',
+        expectedItemCount: 10,
+        expectedKeys: [
+          'dashboard', 'approvals', 'liquidations', 'duplicateScan',
+          'uniqueDocuments', 'flaggedDuplicates', 'reviewHistory',
+          'documentExtraction', 'reports', 'aiHistory',
+        ],
+      },
+      {
+        role: ROLES.FINANCE_MANAGER,
+        name: 'Finance Manager',
+        expectedItemCount: 20,
+        expectedKeys: [
+          'dashboard', 'escalatedApprovals', 'clients', 'invoicingDesk',
+          'billingValidation', 'accountsReceivable', 'starsCollection', 'payments',
+          'receipts', 'settlements', 'adjustments', 'liquidations', 'cashFlow',
+          'uniqueDocuments', 'flaggedDuplicates', 'reviewHistory', 'reports',
+          'periodClose', 'auditLogs', 'aiHistory',
+        ],
+      },
     ];
 
-    rolesToTest.forEach(({ role, name, expectedItemCount }) => {
+    rolesToTest.forEach(({ role, name, expectedItemCount, expectedKeys }) => {
       it(`renders sidebar for ${name} with all ${expectedItemCount} items intact and ZERO badge bubbles`, () => {
         mockAuthUser({ role, fullName: `${name} User` });
 
         const groups = getNavGroups(role);
         const allItems = groups.flatMap((g) => g.items);
+        expect(allItems.map((i) => i.key)).toEqual(expectedKeys);
         expect(allItems).toHaveLength(expectedItemCount);
 
         const { container } = render(

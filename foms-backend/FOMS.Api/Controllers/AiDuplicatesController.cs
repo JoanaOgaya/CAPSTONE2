@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using FOMS.Application.Interfaces;
+using FOMS.Domain.Constants;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
@@ -79,7 +80,7 @@ public class ConfirmUniqueDto
 [Route("api/duplicates")]
 [Route("ai/duplicates")]
 [Route("duplicates")]
-[AllowAnonymous]
+[Authorize]
 public class AiDuplicatesController : ApiControllerBase
 {
     private readonly IApplicationDbContext _context;
@@ -831,10 +832,18 @@ public class AiDuplicatesController : ApiControllerBase
             streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "image/jpeg");
             formContent.Add(streamContent, "file", file.FileName);
 
+            var (callerRole, callerUsername, _) = GetCallerContext();
+
+            var apiKey = _configuration["AI_SERVICE_API_KEY"];
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return (false, "CONFIG_ERROR", 0.0, "AI service API key is not configured.", "CONFIG_ERROR", null, null);
+            }
+
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{aiServiceUrl}/api/ai/documents/scan");
-            req.Headers.Add("X-API-Key", _configuration["AI_SERVICE_API_KEY"] ?? "foms-secret-key-2026");
-            req.Headers.Add("X-User-Role", "Accountant");
-            req.Headers.Add("X-User-Username", "SYSTEM");
+            req.Headers.Add("X-API-Key", apiKey);
+            req.Headers.Add("X-User-Role", callerRole);
+            req.Headers.Add("X-User-Username", callerUsername);
             req.Content = formContent;
 
             var resp = await client.SendAsync(req);
@@ -890,6 +899,13 @@ public class AiDuplicatesController : ApiControllerBase
     [HttpPost("/ai/documents/validate")]
     public async Task<IActionResult> ValidateDocument(IFormFile? file, IFormFile? document)
     {
+        var (role, _, _) = GetCallerContext();
+        if (DenyUnknownCaller(role) is { } denied) return denied;
+        if (IsSupervisorRoleBlockedFromScan(role))
+        {
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Role '{role}' does not have permission to upload or scan documents." });
+        }
+
         IFormFile? targetFile = file ?? document;
         if (targetFile == null && Request.HasFormContentType && Request.Form.Files.Count > 0)
         {
@@ -951,6 +967,13 @@ public class AiDuplicatesController : ApiControllerBase
     [HttpPost("/api/ai/documents/scan")]
     public async Task<IActionResult> ScanDocument(IFormFile? file, IFormFile? document, [FromQuery] string? scope)
     {
+        var (role, _, _) = GetCallerContext();
+        if (DenyUnknownCaller(role) is { } denied) return denied;
+        if (IsSupervisorRoleBlockedFromScan(role))
+        {
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Role '{role}' does not have permission to upload or scan documents." });
+        }
+
         IFormFile? targetFile = file ?? document;
         if (targetFile == null && Request.HasFormContentType && Request.Form.Files.Count > 0)
         {
@@ -1222,6 +1245,13 @@ public class AiDuplicatesController : ApiControllerBase
     [HttpPost("{id}/decide")]
     public async Task<IActionResult> Decide(string id, [FromBody] DecideDto? dto)
     {
+        var (callerRole, callerUsername, callerUserId) = GetCallerContext();
+        if (DenyUnknownCaller(callerRole) is { } denied) return denied;
+        if (IsSupervisorRoleBlockedFromScan(callerRole))
+        {
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Role '{callerRole}' may only review, return, or approve flags at Level 2." });
+        }
+
         dto ??= new DecideDto();
         AIReviewHistory? record = null;
         if (int.TryParse(id, out var reviewId))
@@ -1233,7 +1263,7 @@ public class AiDuplicatesController : ApiControllerBase
             record = await _fomsDb.AIReviewHistories.FirstOrDefaultAsync(r => r.DocumentNumber == id && r.IsDeleted != true);
         }
 
-        var reviewer = !string.IsNullOrWhiteSpace(dto.Reviewer) ? dto.Reviewer : (User.Identity?.Name ?? "Accountant");
+        var reviewer = !string.IsNullOrWhiteSpace(dto.Reviewer) ? dto.Reviewer : (!string.IsNullOrWhiteSpace(callerUsername) ? callerUsername : (User.Identity?.Name ?? "Accountant"));
         var decision = dto.Decision == "NOT_DUPLICATE" ? "NOT_DUPLICATE" : "DUPLICATE";
         var remarks = !string.IsNullOrWhiteSpace(dto.Remarks) ? dto.Remarks : $"Level 1 decision: {decision}";
 
@@ -1253,6 +1283,15 @@ public class AiDuplicatesController : ApiControllerBase
         }
         else
         {
+            var currentState = (record.FinalDecision ?? "FLAGGED").Trim();
+            if (!currentState.Equals("FLAGGED", StringComparison.OrdinalIgnoreCase) &&
+                !currentState.Equals("RETURNED", StringComparison.OrdinalIgnoreCase) &&
+                !currentState.Contains("Flagged", StringComparison.OrdinalIgnoreCase) &&
+                !currentState.Contains("Return", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { success = false, message = $"Illegal duplicate alert transition: cannot apply Level 1 decision from state '{record.FinalDecision}'. Allowed from FLAGGED or RETURNED only." });
+            }
+
             record.FinalDecision = "PENDING_REVIEW";
             record.Reviewer = reviewer;
             record.DecisionReason = $"[{decision}] {remarks}";
@@ -1265,7 +1304,7 @@ public class AiDuplicatesController : ApiControllerBase
         {
             action = "LEVEL1_DUPLICATE_DECISION",
             module = "AI Duplicate Detection",
-            role = "Accountant",
+            role = callerRole,
             affected_record_id = record.ReviewId,
             remarks = $"Marked flag {record.ReviewId} ({record.DocumentNumber}) as {decision}. Remarks: {remarks}",
             created_at = DateTime.UtcNow
@@ -1290,6 +1329,13 @@ public class AiDuplicatesController : ApiControllerBase
     [HttpPost("{id}/review")]
     public async Task<IActionResult> Review(string id, [FromBody] ReviewDto? dto)
     {
+        var (callerRole, callerUsername, callerUserId) = GetCallerContext();
+        if (DenyUnknownCaller(callerRole) is { } denied) return denied;
+        if (!IsSupervisorRoleBlockedFromScan(callerRole))
+        {
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Only Finance Manager (EMP-001) or Head Accountant (EMP-002) may review, return, or approve duplicate flags." });
+        }
+
         dto ??= new ReviewDto();
         AIReviewHistory? record = null;
         if (int.TryParse(id, out var reviewId))
@@ -1306,7 +1352,26 @@ public class AiDuplicatesController : ApiControllerBase
             return NotFound(new { message = $"Review flag '{id}' not found in database." });
         }
 
-        var reviewer = !string.IsNullOrWhiteSpace(dto.Reviewer) ? dto.Reviewer : (User.Identity?.Name ?? "Head Accountant");
+        var currentReviewState = (record.FinalDecision ?? "").Trim();
+        if (!currentReviewState.Equals("PENDING_REVIEW", StringComparison.OrdinalIgnoreCase) &&
+            !currentReviewState.Equals("Pending Review", StringComparison.OrdinalIgnoreCase) &&
+            !currentReviewState.Equals("Pending Approval", StringComparison.OrdinalIgnoreCase) &&
+            !currentReviewState.Equals("For Review", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { success = false, message = $"Illegal duplicate alert transition: cannot apply Level 2 review from state '{record.FinalDecision}'. Alert must be in PENDING_REVIEW state." });
+        }
+
+        var reviewer = !string.IsNullOrWhiteSpace(dto.Reviewer) ? dto.Reviewer : (!string.IsNullOrWhiteSpace(callerUsername) ? callerUsername : (User.Identity?.Name ?? "Head Accountant"));
+
+        // Separation of Duties: Submitter / Level 1 actor cannot review/approve their own flag
+        if (!string.IsNullOrWhiteSpace(record.Reviewer) &&
+            (record.Reviewer.Equals(reviewer, StringComparison.OrdinalIgnoreCase) ||
+             record.Reviewer.Equals(callerUsername, StringComparison.OrdinalIgnoreCase) ||
+             record.Reviewer.Equals(callerUserId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(403, new { success = false, message = "Violation of Separation of Duties: The submitter cannot review or approve their own duplicate flag." });
+        }
+
         var isApproved = dto.Action == "APPROVE";
         var isDuplicate = dto.Decision == "DUPLICATE";
         var remarks = !string.IsNullOrWhiteSpace(dto.Remarks) ? dto.Remarks : (isApproved ? "Approved decision." : "Returned to Level 1.");
@@ -1453,23 +1518,35 @@ public class AiDuplicatesController : ApiControllerBase
         return NotFound(new { success = false, message = "Record not found or already deleted." });
     }
 
-    private (string Role, string Username, string UserId) GetCallerContext()
+    private static bool IsSupervisorRoleBlockedFromScan(string? role)
     {
-        var role = Request.Headers["X-User-Role"].FirstOrDefault() ?? User.Claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.Role)?.Value ?? "Accountant";
-        var isAfm = role.Contains("Assistant", StringComparison.OrdinalIgnoreCase) || role.Contains("Coordinator", StringComparison.OrdinalIgnoreCase);
-        var username = Request.Headers["X-User-Username"].FirstOrDefault() ?? User.Identity?.Name ?? (isAfm ? "Joana Marie Ogaya" : "Maria Mariel Jane Anonuevo");
-        var userId = Request.Headers["X-User-Id"].FirstOrDefault() ?? (isAfm ? "EMP-004" : "EMP-003");
-        return (role, username, userId);
+        return FomsRoles.IsFinanceManager(role) || FomsRoles.IsHeadAccountant(role);
     }
 
+    // Identity, role and employee ID come ONLY from validated JWT claims. Never from request headers.
+    private (string Role, string Username, string UserId) GetCallerContext()
+    {
+        return (FomsRoles.GetClaimRole(User), FomsRoles.GetClaimUsername(User), FomsRoles.GetClaimEmployeeId(User));
+    }
+
+    // Fail closed: unauthenticated => 401, authenticated but unknown/missing role => 403.
+    private IActionResult? DenyUnknownCaller(string role)
+    {
+        if (User.Identity?.IsAuthenticated != true)
+            return Unauthorized(new { success = false, message = "Authentication required." });
+        if (string.IsNullOrWhiteSpace(role))
+            return StatusCode(403, new { success = false, message = "Permission Denied: missing or unknown role claim." });
+        return null;
+    }
     [HttpPost("/api/ai/duplicate-scan")]
     [HttpPost("/ai/duplicate-scan")]
     public async Task<IActionResult> DuplicateScanEndpoint(IFormFile? file, IFormFile? document)
     {
         var (role, username, userId) = GetCallerContext();
-        if (role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) || role.Equals("FM", StringComparison.OrdinalIgnoreCase))
+        if (DenyUnknownCaller(role) is { } denied) return denied;
+        if (IsSupervisorRoleBlockedFromScan(role))
         {
-            return StatusCode(403, new { success = false, message = "Permission Denied: Finance Managers do not upload documents in this module." });
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Role '{role}' does not upload or scan documents in this module." });
         }
 
         IFormFile? targetFile = file ?? document;
@@ -1502,9 +1579,10 @@ public class AiDuplicatesController : ApiControllerBase
     public async Task<IActionResult> SubmitAlertForReview(string id, [FromBody] AlertSubmitDto? dto)
     {
         var (role, username, userId) = GetCallerContext();
-        if (role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) || role.Equals("FM", StringComparison.OrdinalIgnoreCase))
+        if (DenyUnknownCaller(role) is { } denied) return denied;
+        if (IsSupervisorRoleBlockedFromScan(role))
         {
-            return StatusCode(403, new { success = false, message = "Permission Denied: Only Accountants can submit duplicate alerts for review." });
+            return StatusCode(403, new { success = false, message = "Permission Denied: Only Accountants or Assistant FM can submit duplicate alerts for review." });
         }
 
         var submitter = dto?.SubmitterName ?? username;
@@ -1571,6 +1649,7 @@ public class AiDuplicatesController : ApiControllerBase
     public async Task<IActionResult> SubmitAlertDecision(string id, [FromBody] AlertDecisionDto dto)
     {
         var (role, username, userId) = GetCallerContext();
+        if (DenyUnknownCaller(role) is { } denied) return denied;
         if (!role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) && !role.Equals("FM", StringComparison.OrdinalIgnoreCase) && !role.Equals("Head Accountant", StringComparison.OrdinalIgnoreCase))
         {
             return StatusCode(403, new { success = false, message = "Permission Denied: Only Finance Managers can record final duplicate decisions." });
@@ -1668,6 +1747,12 @@ public class AiDuplicatesController : ApiControllerBase
     public async Task<IActionResult> ConfirmUniqueDocumentEndpoint([FromBody] ConfirmUniqueDto dto)
     {
         var (role, username, userId) = GetCallerContext();
+        if (DenyUnknownCaller(role) is { } denied) return denied;
+        if (IsSupervisorRoleBlockedFromScan(role))
+        {
+            return StatusCode(403, new { success = false, message = $"Permission Denied: Role '{role}' cannot confirm scanned uploads as unique." });
+        }
+
         var docNo = dto.DocumentNo ?? $"DOC-UNI-{DateTime.UtcNow.Ticks % 100000:D5}";
 
         var review = new AIReviewHistory
