@@ -1,0 +1,448 @@
+/* ================================================================
+   Speedex OneUI — Period Close & Ledger Reconciliation
+   ================================================================ */
+
+.pc-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  font-family: var(--fb, 'Inter', -apple-system, sans-serif);
+}
+
+/* ── Top Header Banner ── */
+.pc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: #FFFFFF;
+  padding: 22px 28px;
+  border-radius: 16px;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.pc-header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.pc-header-title {
+  font-family: var(--fh, 'Montserrat', sans-serif);
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: #0F172A;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.pc-header-desc {
+  color: #64748B;
+  font-size: 0.88rem;
+  margin: 0;
+  max-width: 720px;
+  line-height: 1.5;
+}
+
+/* ── Metric Summary Grid ── */
+.pc-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+}
+
+.pc-stat-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pc-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.pc-stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.pc-stat-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.pc-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #64748B;
+  margin-bottom: 2px;
+}
+
+.pc-stat-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0F172A;
+  font-family: var(--fh, 'Montserrat', sans-serif);
+}
+
+.pc-stat-sub {
+  font-size: 11.5px;
+  color: #059669;
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+/* ── OneUI Main Card ── */
+.pc-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 16px;
+  padding: 26px 28px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.pc-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-bottom: 18px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid #F1F5F9;
+}
+
+.pc-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.pc-card-header-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(0, 169, 157, 0.1);
+  color: #00A99D;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.pc-card-title {
+  margin: 0;
+  font-family: var(--fh, 'Montserrat', sans-serif);
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0F172A;
+}
+
+.pc-card-subtitle {
+  margin: 3px 0 0;
+  font-size: 0.84rem;
+  color: #64748B;
+}
+
+/* ── Form Inputs Grid ── */
+.pc-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.pc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pc-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pc-label-req {
+  color: #DC2626;
+  margin-left: 3px;
+}
+
+.pc-input-wrapper {
+  display: flex;
+  align-items: stretch;
+  background: #FFFFFF;
+  border: 1.5px solid #DDE2EB;
+  border-radius: 9px;
+  overflow: hidden;
+  height: 42px;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pc-input-wrapper:hover {
+  border-color: #CBD5E1;
+}
+
+.pc-input-wrapper:focus-within {
+  border-color: #00A99D;
+  box-shadow: 0 0 0 3px rgba(0, 169, 157, 0.15);
+}
+
+.pc-input-prefix {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 13px;
+  background: #F8FAFC;
+  border-right: 1.5px solid #DDE2EB;
+  color: #64748B;
+  font-size: 13.5px;
+  font-weight: 700;
+  user-select: none;
+}
+
+.pc-input-icon {
+  font-size: 16px;
+  color: #94A3B8;
+}
+
+.pc-input {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  padding: 0 14px;
+  font-family: var(--fb, 'Inter', sans-serif);
+  font-size: 0.88rem;
+  color: #0F172A;
+  background: transparent;
+}
+
+.pc-input::placeholder {
+  color: #94A3B8;
+  font-size: 0.85rem;
+}
+
+.pc-select {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  padding: 0 14px;
+  font-family: var(--fb, 'Inter', sans-serif);
+  font-size: 0.88rem;
+  color: #0F172A;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Remove default number input spinner arrows */
+.pc-input::-webkit-outer-spin-button,
+.pc-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.pc-input[type=number] {
+  -moz-appearance: textfield;
+}
+
+/* ── Variance Live Bar ── */
+.pc-variance-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 18px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  margin-bottom: 22px;
+}
+
+.pc-variance-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ── Exceptions Section ── */
+.pc-section-container {
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+
+.pc-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.pc-section-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0F172A;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Policy Banner ── */
+.pc-policy-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #F0F9FF;
+  border: 1px solid #BAE6FD;
+  border-radius: 10px;
+  margin-bottom: 22px;
+  font-size: 0.84rem;
+  color: #0369A1;
+  line-height: 1.5;
+}
+
+/* ── Actions Row ── */
+.pc-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid #F1F5F9;
+}
+
+/* ── Period Archive Items ── */
+.pc-period-list {
+  display: grid;
+  gap: 12px;
+}
+
+.pc-period-card {
+  text-align: left;
+  background: #FFFFFF;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pc-period-card:hover {
+  border-color: #94A3B8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(15, 23, 42, 0.05);
+}
+
+.pc-period-card.is-selected {
+  background: #F0FDFA;
+  border-color: #00A99D;
+  box-shadow: 0 0 0 2px rgba(0, 169, 157, 0.2);
+}
+
+.pc-period-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pc-period-range {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0F172A;
+  font-family: var(--fh, 'Montserrat', sans-serif);
+}
+
+.pc-period-details {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.pc-period-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ── Empty State ── */
+.pc-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 44px 20px;
+  text-align: center;
+}
+
+.pc-empty-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: #F1F5F9;
+  color: #94A3B8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  margin-bottom: 12px;
+}
+
+.pc-empty-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1E293B;
+  margin: 0 0 4px;
+}
+
+.pc-empty-desc {
+  font-size: 0.83rem;
+  color: #64748B;
+  max-width: 440px;
+  margin: 0;
+  line-height: 1.5;
+}

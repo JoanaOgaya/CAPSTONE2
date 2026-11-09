@@ -95,45 +95,51 @@ def test_recommendation_decision_role_enforcement():
         assert exc.value.status_code == 403
 
 
-def test_service_api_key_middleware_missing_key(monkeypatch):
+@pytest.mark.anyio
+async def test_service_api_key_middleware_missing_key(monkeypatch):
     """Requests to protected AI routes without X-API-Key must return 403 Forbidden."""
-    from fastapi.testclient import TestClient
+    import httpx
     from app.main import app
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "AI_SERVICE_API_KEY", "valid-test-key-32characters-long")
-    client = TestClient(app)
-    response = client.get("/api/ai/recommendations")
-    assert response.status_code == 403
-    assert "Invalid Service API Key" in response.json().get("message", "")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/ai/recommendations")
+        assert response.status_code == 403
+        assert "Invalid Service API Key" in response.json().get("message", "")
 
 
-def test_service_api_key_middleware_wrong_key(monkeypatch):
+@pytest.mark.anyio
+async def test_service_api_key_middleware_wrong_key(monkeypatch):
     """Requests with an invalid X-API-Key must return 403 Forbidden."""
-    from fastapi.testclient import TestClient
+    import httpx
     from app.main import app
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "AI_SERVICE_API_KEY", "valid-test-key-32characters-long")
-    client = TestClient(app)
-    response = client.get("/api/ai/recommendations", headers={"X-API-Key": "completely-invalid-key-xyz"})
-    assert response.status_code == 403
-    assert "Invalid Service API Key" in response.json().get("message", "")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/api/ai/recommendations", headers={"X-API-Key": "completely-invalid-key-xyz"})
+        assert response.status_code == 403
+        assert "Invalid Service API Key" in response.json().get("message", "")
 
 
-def test_service_api_key_middleware_correct_key(monkeypatch):
+@pytest.mark.anyio
+async def test_service_api_key_middleware_correct_key(monkeypatch):
     """Requests with the configured AI_SERVICE_API_KEY pass the service auth middleware."""
-    from fastapi.testclient import TestClient
+    import httpx
     from app.main import app
     from app.core.config import settings
 
     test_key = "valid-test-key-32characters-long"
     monkeypatch.setattr(settings, "AI_SERVICE_API_KEY", test_key)
-    client = TestClient(app)
-    # Passing valid service key allows request past middleware to route auth (returns 401 missing user JWT, not 403 service key error)
-    response = client.get("/api/ai/recommendations", headers={"X-API-Key": test_key})
-    assert response.status_code == 401
-    assert "Invalid Service API Key" not in response.text
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # Passing valid service key allows request past middleware to route auth (returns 401 missing user JWT, not 403 service key error)
+        response = await client.get("/api/ai/recommendations", headers={"X-API-Key": test_key})
+        assert response.status_code == 401
+        assert "Invalid Service API Key" not in response.text
 
 
 def test_phase5_ocr_and_duplicate_scan_403_for_fm_and_ha():

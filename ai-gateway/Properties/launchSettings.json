@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5000",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "JWT_SECRET": "4b2a8f9c1d3e7058a62f4b8c9d1e3f5a7092837465ab1c2d3e4f5a6b7c8d9e0f",
+        "AI_SERVICE_API_KEY": "foms_secure_ai_service_api_key_2026",
+        "AI_SERVICE_URL": "http://localhost:8000"
+      }
+    }
+  }
+}

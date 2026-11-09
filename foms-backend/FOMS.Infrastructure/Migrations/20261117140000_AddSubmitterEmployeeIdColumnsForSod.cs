@@ -121,6 +121,7 @@ public partial class AddSubmitterEmployeeIdColumnsForSod : Migration
                AND COL_LENGTH(N'dbo.Payments', N'RecordedBy') IS NOT NULL
             BEGIN
                 EXEC sp_executesql N'
+                    SET QUOTED_IDENTIFIER ON;
                     UPDATE p
                     SET p.RecordedByEmployeeId = CASE
                         WHEN p.RecordedBy LIKE N''EMP-%'' THEN LTRIM(RTRIM(p.RecordedBy))
@@ -141,6 +142,7 @@ public partial class AddSubmitterEmployeeIdColumnsForSod : Migration
                AND COL_LENGTH(N'dbo.CashAdvances', N'ReleasedBy') IS NOT NULL
             BEGIN
                 EXEC sp_executesql N'
+                    SET QUOTED_IDENTIFIER ON;
                     UPDATE ca
                     SET ca.SubmittedByEmployeeId = CASE
                         WHEN ca.ReleasedBy LIKE N''EMP-%'' THEN LTRIM(RTRIM(ca.ReleasedBy))
@@ -161,6 +163,7 @@ public partial class AddSubmitterEmployeeIdColumnsForSod : Migration
                AND COL_LENGTH(N'dbo.Liquidations', N'submitted_by_name') IS NOT NULL
             BEGIN
                 EXEC sp_executesql N'
+                    SET QUOTED_IDENTIFIER ON;
                     UPDATE l
                     SET l.submitted_by_employee_id = CASE
                         WHEN l.submitted_by_name LIKE N''EMP-%'' THEN LTRIM(RTRIM(l.submitted_by_name))
@@ -181,6 +184,7 @@ public partial class AddSubmitterEmployeeIdColumnsForSod : Migration
                AND COL_LENGTH(N'dbo.AIReviewHistory', N'reviewer') IS NOT NULL
             BEGIN
                 EXEC sp_executesql N'
+                    SET QUOTED_IDENTIFIER ON;
                     UPDATE r
                     SET r.submitted_by_employee_id = CASE
                         WHEN r.reviewer LIKE N''EMP-%'' THEN LTRIM(RTRIM(r.reviewer))

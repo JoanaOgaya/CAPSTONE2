@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using FOMS.Domain.Constants;
+using FOMS.Application.Services;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
@@ -122,15 +124,9 @@ public class CashOutflowsController : ControllerBase
             return Conflict(new { success = false, message = $"A cash outflow with reference number '{refNo}' already exists." });
         }
 
-        // Active threshold check
-        var threshold = await _fomsDb.ApprovalThresholdSettings
-            .AsNoTracking()
-            .Where(t => t.IsActive && (t.TransactionType == "CashOutflow" || t.TransactionType == "All"))
-            .OrderByDescending(t => t.UpdatedAt)
-            .FirstOrDefaultAsync();
-
-        decimal maxLimit = threshold?.MaximumAmount ?? 10000.00m;
-        bool exceedsThreshold = dto.Amount > maxLimit;
+        // Active threshold check from single configuration source
+        decimal maxLimit = await ThresholdConfigHelper.GetAssistantFmThresholdAsync(_fomsDb.ApprovalThresholdSettings, "CashOutflow");
+        bool exceedsThreshold = ThresholdConstants.ExceedsThreshold(dto.Amount, maxLimit);
 
         var outflowId = $"CO-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
         var txDate = dto.TransactionDate ?? DateTime.UtcNow;

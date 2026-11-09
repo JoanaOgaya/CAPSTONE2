@@ -50,12 +50,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
 
     private async Task<decimal> GetCsh09ThresholdAsync()
     {
-        var thresholdSetting = await _context.ApprovalThresholdSettings
-            .Where(t => t.TransactionType == "CashOutflow" && t.IsActive)
-            .OrderByDescending(t => t.MaximumAmount)
-            .FirstOrDefaultAsync();
-
-        return thresholdSetting?.MaximumAmount ?? 10000.00m;
+        return await ThresholdConfigHelper.GetAssistantFmThresholdAsync(_context, "CashOutflow");
     }
 
     private async Task<MonthlyBudgetLine?> GetBudgetLineAsync(int fiscalYear, string departmentCode, string category, int month)
