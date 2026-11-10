@@ -76,10 +76,40 @@ public class CashFlowController : ApiControllerBase
     {
         var inflow = await _fomsDb.CashInflows.SumAsync(t => (decimal?)t.Amount) ?? 0m;
         var outflow = await _fomsDb.CashOutflows
-            .Where(o => o.Status == "Approved" || o.Status == "Approved by Assistant" || o.Status == "Approved by Finance Manager" || o.Status == "Completed")
+            .Where(o => o.Status == "Approved" || o.Status == "Approved by Assistant" || o.Status == "Approved by Finance Manager" || o.Status == "Completed" || o.Status == "Released")
             .SumAsync(t => (decimal?)t.Amount) ?? 0m;
 
         return Ok(new { Inflow = inflow, Outflow = outflow });
+    }
+
+    [HttpGet("net-cash")]
+    public async Task<IActionResult> GetNetCash([FromServices] IFinancialStatementService statementService)
+    {
+        var now = DateTime.UtcNow;
+        var cf = await statementService.GenerateCashFlowStatementAsync(now.Year, "Month", now.Month);
+        return Ok(new
+        {
+            beginningBalance = cf.BeginningCash,
+            validatedInflows = new
+            {
+                clientPayments = cf.InflowsFromClientPayments,
+                returnedAdvances = cf.InflowsFromReturnedAdvances,
+                total = cf.TotalOperatingInflows
+            },
+            validatedOutflows = new
+            {
+                cashAdvanceReleases = cf.OutflowsCashAdvancesReleased,
+                directDisbursements = cf.OutflowsDirectDisbursements,
+                paidReimbursements = cf.OutflowsPaidReimbursements,
+                total = cf.TotalOperatingOutflows
+            },
+            netCash = cf.EndingNetCash,
+            cashAccounts = new[]
+            {
+                new { accountCode = "1010", accountName = "Cash on Hand", accountType = "Asset" },
+                new { accountCode = "1020", accountName = "Cash in Bank", accountType = "Asset" }
+            }
+        });
     }
 
     [HttpGet("balances")]
