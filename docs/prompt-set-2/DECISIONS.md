@@ -35,14 +35,14 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
    - **Item 3**: Credit memo on a Paid invoice is recorded when approved and held as a client credit balance applied to next invoice. Pending Finance confirmation.
    - **Item 4**: Head Accountant approves adjusting entries created by the Finance Manager (FIN-23).
 
-5. **R5.11 Items 1 to 7**:
-   - **Item 1 (Maker-Checker)**: Head Accountant confirms the recording of transfers and carry-overs requested by the Finance Manager. (Confirmation is not budget approval).
-   - **Item 2 (CSH-09 Setting)**: CSH-09 is a setting changeable only by FM, logged with date, evaluated against the threshold in force on the request date.
-   - **Item 3 (Attachment Optional)**: Attachments are optional on items 1, 6, and 8; show "No attachment" flag in record and Excel export.
-   - **Item 4 (Non-Finance Positions)**: Copied from what DMS already stores; do not invent positions.
-   - **Item 5 (Department Changes & Locks)**: FM may change department before approval with a logged reason (re-checking budget). Locked after approval; fixes via logged correction entries.
-   - **Item 6 (Company-wide Budget Line)**: 5th budget line "Company-wide (Overhead)" selectable by the Finance Manager only.
-   - **Item 7 (DMS Client Option)**: Open / deferred to external DMS.
+5. **R5.11 Items 1 to 7 (Decisions Proposed to Confirm with Finance)**:
+   - **Item 1 (Maker-Checker)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. Head Accountant confirms the recording of transfers and carry-overs requested by the Finance Manager. (Confirmation is not budget approval).
+   - **Item 2 (CSH-09 Setting)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. CSH-09 is a setting changeable only by FM, logged with date, evaluated against the threshold in force on the request creation date.
+   - **Item 3 (Attachment Optional)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. Attachments are optional on items 1, 6, and 8; show "No attachment" flag in record and Excel export.
+   - **Item 4 (Non-Finance Positions)**: PROPOSED (per Rev 5) - ASSUMED / PROPOSED, pending external DMS schema confirmation. Operational positions (Courier, Dispatcher, Driver, Hub Supervisor, Sorter) labeled ASSUMED.
+   - **Item 5 (Department Changes & Locks)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. FM may change department before approval with a logged reason in FIN-26 (re-checking budget). Locked after approval; fixes via logged correction entries.
+   - **Item 6 (Company-wide Budget Line)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. 5th budget line "Company-wide (Overhead)" selectable by the Finance Manager only.
+   - **Item 7 (DMS Client Option)**: PROPOSED - NOT IMPLEMENTED. Open / deferred to external DMS.
 
 6. **AR Aging Bucket Names**:
    - Exact bucket labels: `Not Yet Due`, `Due Soon (configurable)`, `1-30`, `31-60`, `61-90`, `90+`. Derived dynamically from due date; never stored.
@@ -486,7 +486,7 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
   4. `BudgetOverride`: Blocks override approval & Committed reservation. Attachment: **Prohibited**.
   5. `Reimbursement`: Blocks reimbursement approval & Committed reservation above CSH-09 threshold. Attachment: **Prohibited**.
   6. `CashOutflow`: Blocks release/payment above CSH-09 threshold (covers cash advance release, direct disbursement release, and reimbursement payment). Attachment: **Optional**.
-  7. `InvoiceDiscount`: Blocks invoice dispatch. Attachment: **Prohibited**.
+  7. `InvoiceDiscount`: Blocks discount deduction from invoice total (BIL-07). Attachment: **Prohibited**.
   8. `AnnualFinancialStatement`: Blocks sign-off/closing. Attachment: **Optional** (reverted from Mandatory per user directive; logged under open question R5.11 q3).
 
 ### 4. Repeatable Migration for EMP-005
@@ -504,8 +504,9 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
 - **Reason Mandatory**: A non-empty reason is strictly required upon creation.
 - **Posting Lifecycle**: Created in `Pending` status. Financial impact (balance reduction, credit memo amount, GL posting) is blocked until the adjustment is approved before posting.
 - **Status Lifecycle Deviation**: Spec R4.4 specifies adjusting entry statuses as `Draft`, `Approved`, `Posted`, `Rejected`. Current FOMS implementation uses `Pending`, `Approved`, `Rejected` (where `Pending` represents unapproved draft/review state, and `Approved` immediately posts journal entries to General Ledger and applies invoice balance deductions). Logged as an active deviation.
-- **Maker-Checker & Approver Gap**: `ApproveAdjustmentCommandHandler` currently does not enforce role verification or block self-approval by the creator (`AdjustedBy == ApprovedBy`).
-- **Open Question `R4.11 q4`**: Who approves adjusting entries when the Finance Manager is the creator? (Logged as open question pending PO determination).
+- **Approver Role**: PROPOSED (R5.11 item 1 applied to R4.11 q4), pending Finance confirmation: Head Accountant approves adjusting entries created by the Finance Manager, and creator self-approval is strictly forbidden (Separation of Duties).
+- **Closed Period Lock**: Creation and approval of adjusting entries are strictly blocked if transaction date falls within a closed accounting period (`FIN-23 / R4.2`).
+- **Open Question `R4.11 q4`**: Who approves adjusting entries when the Finance Manager is the creator? PROPOSED: Head Accountant (per R5.11 item 1), pending Finance confirmation.
 
 ### 7. Unset CSH-09 Threshold Fail-Safe & Go-Live Setup (`PO Decision E`)
 - **Go-Live Setup Step**: During initial deployment / go-live configuration, the Finance Manager must navigate to System Settings and set the official `CSH-09_CEO_THRESHOLD` amount in `dbo.CeoApprovalThresholdSettings`.
