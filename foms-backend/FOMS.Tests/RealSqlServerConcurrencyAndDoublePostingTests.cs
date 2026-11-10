@@ -133,7 +133,7 @@ public class RealSqlServerConcurrencyAndDoublePostingTests
                         DueDate = DateTime.UtcNow.AddDays(30).ToString("yyyy-MM-dd"),
                         Description = "Unprotected concurrency test invoice",
                         WaybillIds = "WB-CONC-001",
-                        DocumentStatus = InvoiceDocumentStatus.PendingFmApproval,
+                        DocumentStatus = InvoiceDocumentStatus.Approved,
                         PaymentStatus = InvoicePaymentStatus.Unpaid,
                         TotalAmount = 1000m,
                         Subtotal = 892.86m,
@@ -154,7 +154,7 @@ public class RealSqlServerConcurrencyAndDoublePostingTests
                         DueDate = DateTime.UtcNow.AddDays(30).ToString("yyyy-MM-dd"),
                         Description = "Protected concurrency test invoice",
                         WaybillIds = "WB-CONC-002",
-                        DocumentStatus = InvoiceDocumentStatus.PendingFmApproval,
+                        DocumentStatus = InvoiceDocumentStatus.Approved,
                         PaymentStatus = InvoicePaymentStatus.Unpaid,
                         TotalAmount = 1000m,
                         Subtotal = 892.86m,
@@ -194,8 +194,8 @@ public class RealSqlServerConcurrencyAndDoublePostingTests
                 // Deterministic race: BOTH contexts load the invoice in PendingFmApproval before either saves
                 var loadedUnprotA = await unprotContextA.Invoices.FirstAsync(i => i.Id == unprotectedInvId);
                 var loadedUnprotB = await unprotContextB.Invoices.FirstAsync(i => i.Id == unprotectedInvId);
-                Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, loadedUnprotA.DocumentStatus);
-                Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, loadedUnprotB.DocumentStatus);
+                Assert.Equal(InvoiceDocumentStatus.Approved, loadedUnprotA.DocumentStatus);
+                Assert.Equal(InvoiceDocumentStatus.Approved, loadedUnprotB.DocumentStatus);
 
                 var unprotCtrlA = new InvoicesController(unprotContextA, unprotMssqlA)
                 {
@@ -206,8 +206,8 @@ public class RealSqlServerConcurrencyAndDoublePostingTests
                     ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = FmPrincipal() } }
                 };
 
-                var unprotResA = await unprotCtrlA.TransitionInvoice(unprotectedInvId, "approve", new InvoiceTransitionRequest());
-                var unprotResB = await unprotCtrlB.TransitionInvoice(unprotectedInvId, "approve", new InvoiceTransitionRequest());
+                var unprotResA = await unprotCtrlA.TransitionInvoice(unprotectedInvId, "send", new InvoiceTransitionRequest());
+                var unprotResB = await unprotCtrlB.TransitionInvoice(unprotectedInvId, "send", new InvoiceTransitionRequest());
 
                 // Without RowVersion and without unique index, BOTH approvals succeed (200 OK)
                 Assert.IsType<OkObjectResult>(unprotResA);
@@ -256,8 +256,8 @@ public class RealSqlServerConcurrencyAndDoublePostingTests
 
             Assert.NotNull(invA.RowVersion);
             Assert.NotNull(invB.RowVersion);
-            Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, invA.DocumentStatus);
-            Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, invB.DocumentStatus);
+            Assert.Equal(InvoiceDocumentStatus.Approved, invA.DocumentStatus);
+            Assert.Equal(InvoiceDocumentStatus.Approved, invB.DocumentStatus);
 
             var controllerA = new InvoicesController(contextA, mssqlA)
             {
@@ -269,18 +269,18 @@ public class RealSqlServerConcurrencyAndDoublePostingTests
             };
 
             // Context A saves first -> 200 OK
-            var resultA = await controllerA.TransitionInvoice(protectedInvId, "approve", new InvoiceTransitionRequest());
+            var resultA = await controllerA.TransitionInvoice(protectedInvId, "send", new InvoiceTransitionRequest());
             Assert.IsType<OkObjectResult>(resultA);
 
             // Context B had already loaded invB in PendingFmApproval before A saved, and now attempts to save -> 409 Conflict
-            var resultB = await controllerB.TransitionInvoice(protectedInvId, "approve", new InvoiceTransitionRequest());
+            var resultB = await controllerB.TransitionInvoice(protectedInvId, "send", new InvoiceTransitionRequest());
             var conflict = Assert.IsType<ObjectResult>(resultB);
             Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
 
             // Verify AR posted ONCE for protected invoice
             using var verifyContext = CreateRealSqlServerContext(disposableConnString);
             var finalInv = await verifyContext.Invoices.FirstAsync(i => i.Id == protectedInvId);
-            Assert.Equal(InvoiceDocumentStatus.Approved, finalInv.DocumentStatus);
+            Assert.Equal(InvoiceDocumentStatus.Sent, finalInv.DocumentStatus);
             Assert.True(finalInv.AccrualRevenueRecognized);
             Assert.NotNull(finalInv.AccrualJournalEntryId);
 

@@ -109,23 +109,17 @@ public class InvoiceDocumentLifecycleAndAgingTests
 
         var controller = new InvoicesController(appDb, mssqlDb);
 
-        // 1. Submit for verification -> Pending HA Verification (Staff: EMP-003)
+        // 1. Submit for verification -> For Review (Staff: EMP-003)
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() } };
         var submitRes = await controller.TransitionInvoice("INV-LC-001", "submit", new InvoiceTransitionRequest());
         var submitOk = Assert.IsType<OkObjectResult>(submitRes);
-        Assert.Equal(InvoiceDocumentStatus.PendingHaVerification, GetValueProp(submitOk.Value, "documentStatus")?.ToString());
+        Assert.Equal(InvoiceDocumentStatus.ForReview, GetValueProp(submitOk.Value, "documentStatus")?.ToString());
 
-        // 2. Verify -> Pending FM Approval (Head Accountant: EMP-002)
+        // 2. Verify -> Approved (Head Accountant: EMP-002 verifies directly to Approved per Revision 3)
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreatePrincipal() } };
         var verifyRes = await controller.TransitionInvoice("INV-LC-001", "verify", new InvoiceTransitionRequest());
         var verifyOk = Assert.IsType<OkObjectResult>(verifyRes);
-        Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, GetValueProp(verifyOk.Value, "documentStatus")?.ToString());
-
-        // 3. Approve -> Approved (Finance Manager: EMP-001)
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateFmPrincipal() } };
-        var approveRes = await controller.TransitionInvoice("INV-LC-001", "approve", new InvoiceTransitionRequest());
-        var approveOk = Assert.IsType<OkObjectResult>(approveRes);
-        Assert.Equal(InvoiceDocumentStatus.Approved, GetValueProp(approveOk.Value, "documentStatus")?.ToString());
+        Assert.Equal(InvoiceDocumentStatus.Approved, GetValueProp(verifyOk.Value, "documentStatus")?.ToString());
 
         // 4. Sent -> Sent (Staff: EMP-003)
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() } };
@@ -154,7 +148,7 @@ public class InvoiceDocumentLifecycleAndAgingTests
             InvoiceNo = "INV-2026-0102",
             ClientId = "CL-001",
             ClientName = "Acme Corp",
-            DocumentStatus = InvoiceDocumentStatus.PendingHaVerification,
+            DocumentStatus = InvoiceDocumentStatus.ForReview,
             PaymentStatus = InvoicePaymentStatus.Unpaid,
             TotalAmount = 1000m,
             Balance = 1000m,
@@ -173,13 +167,13 @@ public class InvoiceDocumentLifecycleAndAgingTests
         var badRequest = Assert.IsType<BadRequestObjectResult>(rejectFail);
         Assert.Contains("reason is required", badRequest.Value?.ToString() ?? "", StringComparison.OrdinalIgnoreCase);
 
-        // Reject with reason succeeds and returns to Returned to Creator
+        // Reject with reason succeeds and returns to Draft (Revision 3)
         var rejectOk = await controller.TransitionInvoice("INV-REV-001", "reject", new InvoiceTransitionRequest
         {
             ReviewRejectionReason = "Declared valuation discrepancy on waybill WB-9988"
         });
         var okResult = Assert.IsType<OkObjectResult>(rejectOk);
-        Assert.Equal(InvoiceDocumentStatus.ReturnedToCreator, GetValueProp(okResult.Value, "documentStatus")?.ToString());
+        Assert.Equal(InvoiceDocumentStatus.Draft, GetValueProp(okResult.Value, "documentStatus")?.ToString());
         Assert.Equal("Declared valuation discrepancy on waybill WB-9988", GetValueProp(okResult.Value, "reviewRejectionReason")?.ToString());
     }
 
@@ -284,7 +278,7 @@ public class InvoiceDocumentLifecycleAndAgingTests
             InvoiceNo = "INV-2026-0301",
             ClientId = "CL-001",
             ClientName = "Acme Corp",
-            DocumentStatus = InvoiceDocumentStatus.PendingFmApproval,
+            DocumentStatus = InvoiceDocumentStatus.ForReview,
             TotalAmount = 1120m,
             Subtotal = 1000m,
             VatAmount = 120m,
