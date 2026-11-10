@@ -36,7 +36,7 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
    - **Item 4**: Head Accountant approves adjusting entries created by the Finance Manager (FIN-23).
 
 5. **R5.11 Items 1 to 7 (Decisions Proposed to Confirm with Finance)**:
-   - **Item 1 (Maker-Checker)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. Head Accountant confirms the recording of transfers and carry-overs requested by the Finance Manager. (Confirmation is not budget approval).
+   - **Item 1 (Maker-Checker)**: PROPOSED - NOT IMPLEMENTED. Head Accountant confirms recording of transfers and carry-overs requested by Finance Manager (not wired to frontend UI; pending Finance confirmation).
    - **Item 2 (CSH-09 Setting)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. CSH-09 is a setting changeable only by FM, logged with date, evaluated against the threshold in force on the request creation date.
    - **Item 3 (Attachment Optional)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. Attachments are optional on items 1, 6, and 8; show "No attachment" flag in record and Excel export.
    - **Item 4 (Non-Finance Positions)**: PROPOSED (per Rev 5) - ASSUMED / PROPOSED, pending external DMS schema confirmation. Operational positions (Courier, Dispatcher, Driver, Hub Supervisor, Sorter) labeled ASSUMED.
