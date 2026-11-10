@@ -1,25 +1,17 @@
 # Prompt Set 2: Open Questions Waiting for User Decision
 
-Status updated: 2026-11-10
+Status updated: 2026-11-10 (Phase 15 In Progress)
 
 ---
 
 ## Active Questions Awaiting Confirmation
 
-### Question 1: Temporary Password Expiry Duration
-- **Proposal**: 72 hours (3 days) from creation time. If not used within 72 hours, the account remains locked until an administrator resets it.
-- **Alternative**: 24 hours or 7 days.
-- *Recommendation*: **72 hours**. Please confirm or specify preferred duration.
+### Question 1: CSH-09 Setting (B) Monetary Threshold (Pending Finance Confirmation)
+- **Status**: OPEN / PENDING FINANCE CONFIRMATION.
+- **Current Behavior**: Setting (B) is unconfigured (`ThresholdAmount = NULL`). The fail-safe rule is actively enforced: any cash outflow, reimbursement, or budget override exceeding **Limit (A)** (`₱10,000.00`) strictly mandates the in-person CEO/President approval record.
+- **Action Needed**: Finance confirmation on the final monetary threshold value above which CEO/President approval is required.
 
-### Question 2: CSH-09 CEO/President Approval Limit Value (for Phase 14)
-- **Context**: 
-  - `dbo.ApprovalThresholdSettings` has `maximum_amount = 10,000.00` for Assistant of Finance Manager.
-  - Revision 3 CSH-09 specifies that above a certain limit, CEO/President sign-off (in-person approval record) is required.
-  - Phase 7 previously removed `50,000.00m` fallback literals in `ApprovalsController`.
-- *Question*: What is the monetary threshold above which the CEO/President approval record is required? (e.g., transactions > ₱50,000.00, or all transactions > ₱10,000.00 that exceed Asst FM authorization).
-- *Recommendation*: Keep Assistant FM limit = `₱10,000.00`. If CEO/President approval record applies to all transactions escalated above Asst FM, CEO threshold is `₱10,000.00`; if a three-tier model is intended (Asst FM $\le$ 10k, FM 10k–50k, CEO > 50k), confirm `₱50,000.00`. (User noted: "Do not change thresholds. I will answer.")
-
-### Question 3: R5.11 Item 7: DMS Client Option
+### Question 2: R5.11 Item 7: DMS Client Option
 - Retained as open per user instruction. DMS handoff documentation produced in [`docs/prompt-set-2/dms-handoff.md`](file:///c:/Users/Joana/Downloads/another%20one/CAPSTONE2/docs/prompt-set-2/dms-handoff.md).
 
 ---
@@ -38,3 +30,11 @@ Status updated: 2026-11-10
 10. **Phase 13 EF Migration**: Additive and reversible with `Up` and `Down`. Backup taken before applying.
 11. **Position Dry Run**: Only finance roles filled; others NULL.
 12. **CEO Deprecation**: Deprecate with `TODO(Phase 14)`, remove from UI dropdowns, block account creation.
+13. **Temporary Password Expiry**: 72 hours, server-enforced via `MustChangePasswordFilter`.
+14. **Phase 14 Setting (B) Threshold Architecture**: Dedicated setting with no seeded default (`NULL`), fail-safe to Limit (A) (`₱10,000.00`), immutable trigger-protected tables, insert-only maker-checker confirmations.
+15. **Phase 15 Departments & Budget Governance**:
+    - Canonical codes: `DEP-FIN`, `DEP-CCS`, `DEP-DSP`, `DEP-FWD`, `DEP-OVH` (Overhead, FM-only).
+    - `DEP-OPS` legacy only, not selectable for new requests; 4 existing rows in `CashAdvances` preserved.
+    - Option A suggestion chip (requester's own last department, no pre-select, no server default, Overhead hidden from non-FM).
+    - `dbo.DepartmentChangeLogs` insert-only table with immutability trigger; reason required; FM-only change pre-approval triggers budget re-check; locked post-approval.
+    - Overhead budget line exists per category per month, allocated by FM; no seeded amounts.

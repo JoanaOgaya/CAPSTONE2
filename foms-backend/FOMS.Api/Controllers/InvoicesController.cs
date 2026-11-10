@@ -1,3 +1,4 @@
+using FOMS.Application.DTOs;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -97,11 +98,13 @@ public class InvoicesController : ApiControllerBase
 {
     private readonly IApplicationDbContext _context;
     private readonly FomsDbContext _fomsDb;
+    private readonly ICeoApprovalGateService? _gateService;
 
-    public InvoicesController(IApplicationDbContext context, FomsDbContext fomsDb)
+    public InvoicesController(IApplicationDbContext context, FomsDbContext fomsDb, ICeoApprovalGateService? gateService = null)
     {
         _context = context;
         _fomsDb = fomsDb;
+        _gateService = gateService;
     }
 
     private bool CanViewInvoice(Invoice invoice) =>
@@ -715,6 +718,16 @@ public class InvoicesController : ApiControllerBase
             if (!isDiscountValid)
             {
                 return BadRequest(new { message = discountError });
+            }
+
+            if (_gateService != null)
+            {
+                string discountItemId = submission.InvoiceNo ?? submission.ClientId ?? "NEW_INVOICE";
+                var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, discountItemId, discountAmount);
+                if (!gateCheck.IsSatisfied)
+                {
+                    return BadRequest(new { message = $"Invoice discount strictly requires an in-person CEO/President approval record for item '{discountItemId}'. Record CEO approval before applying discount." });
+                }
             }
 
             if (discountRate > 0m && discountAmount == 0m)

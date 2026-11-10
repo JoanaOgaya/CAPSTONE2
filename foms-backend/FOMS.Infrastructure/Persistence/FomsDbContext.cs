@@ -67,6 +67,7 @@ public class FomsDbContext : DbContext
     public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog> CeoApprovalThresholdChangeLogs { get; set; } = null!;
     public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord> CeoApprovalRecords { get; set; } = null!;
     public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation> CeoApprovalConfirmations { get; set; } = null!;
+    public DbSet<FOMS.Domain.Entities.SqlServer.DepartmentChangeLog> DepartmentChangeLogs { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

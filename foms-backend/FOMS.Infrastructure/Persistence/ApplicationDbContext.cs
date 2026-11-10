@@ -75,6 +75,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog> CeoApprovalThresholdChangeLogs => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog>();
     public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord> CeoApprovalRecords => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord>();
     public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation> CeoApprovalConfirmations => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.DepartmentChangeLog> DepartmentChangeLogs => Set<FOMS.Domain.Entities.SqlServer.DepartmentChangeLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
