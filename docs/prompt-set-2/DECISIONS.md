@@ -290,3 +290,11 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
    - **Direct Disbursement**: Recognized as `Actual` at release.
    - **CSH-09 Setting**: Must be a configurable database setting (`dbo.CeoApprovalThresholdSettings`), failing safe to Limit (A) (`₱10,000.00`) while unset.
 
+2. **Implementation & Verification Status**:
+   - **Cash Advance & CEO Gate**: Release enforces CEO/President approval record (`CeoApprovalItemTypes.CashOutflow`) when amount exceeds CSH-09 threshold setting. Requesters cannot approve own advance.
+   - **Liquidation**: Validated by Assistant of Finance Manager (or FM). Leftover cash return records an independent `CashInflow`. Late status is a dynamic boolean flag `isLate`. Fixed dropdown reasons supported (`wrong receipt date or amount`, `manual fuel receipt`, `late submission`, `other with remarks`). Returns status `"For Correction"` without posting GL entries.
+   - **Reimbursement**: Validated by Assistant FM, approved by FM (`Committed`), paid by cashier/FM (`Actual`). Enforces CEO gate above threshold.
+   - **Direct Disbursement (CSH-12)**: Moves directly from `Committed` to `Actual` at release with zero liquidation required.
+   - **Net Cash Endpoint**: `GET /api/CashFlow/net-cash` computes beginning balance (GoLive balances) + validated inflows - outflows.
+   - **All 4 Test Suites Green**: Backend (400 passed), Gateway (40 passed), Frontend (16 test files, 164 passed), AI-service (31 passed). Full details in `phase-18-report.md`.
+
