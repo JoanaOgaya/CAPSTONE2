@@ -271,3 +271,22 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
    - `Due Soon` default threshold is **7 days** before due date, configurable in settings.
    - Follow-up reminders: 7 days after billing if unacknowledged, then due soon, then overdue.
 
+5. **Phase 17 Post-Review Corrections & Clarifications (Confirmed 2026-11-10)**:
+   - **IAM-06**: Clients have no login, no credentials, and no role in FOMS. Replaced test client token with assertions verifying `FomsRoles.AllCanonicalRoles` excludes "Client", `AuthService.LoginAsync` rejects client logins with `UnauthorizedAccessException`, and invoice querying and detail viewing strictly isolate client amounts.
+   - **ARC-04**: The aging report export endpoint `/api/invoices/aging-report/export` produces genuine `.xlsx` files (`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`) using ClosedXML, with formatted headers and summary metrics, while preserving optional `?format=csv`.
+   - **Frontend Test File Count Reconciliation**: Confirmed exactly **16 test files** (164 tests). The Phase 11 baseline was 15 files (159 tests); Phase 13 added `employeeFormPositionAndRole.test.tsx` (+5 tests). The number "18" refers to individual test counts within two test suites (`aiIntelligenceLayer.test.tsx` has 18 tests and `canonicalInvoiceQueuesAndBadges.test.tsx` has 18 tests), not the count of test files. No test files were deleted.
+   - **R4.5 Credit Memo Accounting on Paid Invoices**: Approving a credit memo on an already Paid invoice posts `Dr Cargo Claims (Sales Allowances) [4200] / Cr Unapplied Client Credits [2160]` via `PostCreditMemoJournalEntryAsync`. Verified zero cash outflow and client `AvailableCredit` balance update.
+
+---
+
+## Phase 18 Approvals & Directives (Confirmed 2026-11-10)
+
+1. **Routing & Authority**:
+   - **Liquidation Validation**: Assistant of Finance Manager validates liquidations alone at or below the CSH-09 threshold. Above the threshold, the Finance Manager also signs off, and the CEO/President approval record applies where Phase 14 requires it.
+   - **Reimbursement Workflow**: Validated by Assistant of Finance Manager, always approved by the Finance Manager (`Committed`), then marked `Paid` (`Actual`).
+   - **CEO/President Tick (`R5.3` items 4, 5, 6)**: Applies only above the CSH-09 threshold, and only the Finance Manager can record it.
+   - **Leftover Cash Returned**: Classified strictly as a cash inflow, never a negative disbursement.
+   - **Late Liquidation**: "Late" is a flag (`isLate`), never a status. Statuses follow canonical lifecycle.
+   - **Direct Disbursement**: Recognized as `Actual` at release.
+   - **CSH-09 Setting**: Must be a configurable database setting (`dbo.CeoApprovalThresholdSettings`), failing safe to Limit (A) (`₱10,000.00`) while unset.
+
