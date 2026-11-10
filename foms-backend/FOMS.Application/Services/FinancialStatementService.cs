@@ -319,58 +319,135 @@ public class FinancialStatementService : IFinancialStatementService
         // Net cash = beginning + validated inflows (client payments, returned advances)
         //          - validated outflows (releases, disbursements, paid reimbursements)
 
-        // Beginning cash from opening balance or default
+        // 1. Base opening cash from GoLiveOpeningBalances:
+        // Accounts 1010 (Cash on Hand) and 1020 (Cash in Bank).
+        // Account 1030 (Petty Cash) is not in draft chart (R4.6), so mapped into 1010.
         var openingBalances = await _context.GoLiveOpeningBalances.AsNoTracking().ToListAsync();
-        decimal beginningCash = openingBalances
-            .Where(b => b.AccountCode.StartsWith("10") || b.AccountName.ToLower().Contains("cash"))
+        decimal baseOpeningCash = openingBalances
+            .Where(b => b.AccountCode == "1010" || b.AccountCode == "1020" || b.AccountCode == "1030" ||
+                        (b.AccountCode.StartsWith("10") && b.AccountName.ToLower().Contains("cash")))
             .Sum(b => b.Debit - b.Credit);
 
-        if (beginningCash <= 0m)
+        if (baseOpeningCash <= 0m && !openingBalances.Any(b => b.AccountCode.StartsWith("10")))
         {
-            beginningCash = 50000.00m; // standard baseline cash book balance
+            baseOpeningCash = 50000.00m; // standard baseline cash book balance
         }
 
-        // Inflow 1: Validated client payments
+        // 2. Fetch all raw data
+        // Inflow 1: Validated client payments ONLY (per user instruction)
         var payments = await _context.Payments.AsNoTracking().ToListAsync();
-        decimal clientPayments = payments
-            .Where(p => p.PaymentStatus == "Validated" || p.PaymentStatus == "Completed" || p.PaymentStatus == "Paid" || p.ValidatedAt != null)
-            .Sum(p => p.Amount);
+        var validatedPayments = payments
+            .Where(p => string.Equals(p.PaymentStatus, "Validated", StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
-        // Inflow 2: Returned advances (leftover cash)
+        // Inflow 2: Returned advances (leftover cash return)
         var inflows = await _context.CashInflows.AsNoTracking().ToListAsync();
-        decimal returnedAdvances = inflows
+        var returnedAdvanceInflows = inflows
             .Where(i => i.Status == "Completed" || (i.Source != null && i.Source.Contains("Cash Return")))
-            .Sum(i => i.Amount);
+            .ToList();
 
         // Outflow 1: Releases (Cash advances released)
         var advances = await _context.CashAdvances.AsNoTracking().ToListAsync();
-        decimal releasedAdvances = advances
+        var releasedAdvances = advances
             .Where(a => a.Status == "Released" || a.Status == "Liquidated")
-            .Sum(a => a.AmountGiven);
+            .ToList();
 
         // Outflow 2: Direct disbursements released
         var disbursements = await _context.DirectDisbursements.AsNoTracking().ToListAsync();
-        decimal releasedDisb = disbursements
+        var releasedDisbursements = disbursements
             .Where(d => d.Status == "Released")
-            .Sum(d => d.Amount);
+            .ToList();
 
         // Outflow 3: Paid reimbursements
         var reimbursements = await _context.Reimbursements.AsNoTracking().ToListAsync();
-        decimal paidReim = reimbursements
+        var paidReimbursements = reimbursements
             .Where(r => r.Status == "Paid")
-            .Sum(r => r.Amount);
+            .ToList();
+
+        // 3. Determine period date boundaries
+        string normPeriodType = (periodType ?? "Year").Trim();
+        DateTime periodStart;
+        DateTime periodEnd;
+        bool isMultiPeriod;
+
+        if (string.Equals(normPeriodType, "Month", StringComparison.OrdinalIgnoreCase))
+        {
+            int m = periodNumber >= 1 && periodNumber <= 12 ? periodNumber : 1;
+            periodStart = new DateTime(fiscalYear, m, 1);
+            periodEnd = periodStart.AddMonths(1);
+            isMultiPeriod = periodNumber > 1;
+        }
+        else if (string.Equals(normPeriodType, "Quarter", StringComparison.OrdinalIgnoreCase))
+        {
+            int q = periodNumber >= 1 && periodNumber <= 4 ? periodNumber : 1;
+            periodStart = new DateTime(fiscalYear, (q - 1) * 3 + 1, 1);
+            periodEnd = periodStart.AddMonths(3);
+            isMultiPeriod = periodNumber > 1;
+        }
+        else
+        {
+            periodStart = new DateTime(fiscalYear, 1, 1);
+            periodEnd = periodStart.AddYears(1);
+            isMultiPeriod = fiscalYear > 2026;
+        }
+
+        static DateTime GetPaymentDt(FOMS.Domain.Entities.Payment p) => p.ValidatedAt ?? (DateTime.TryParse(p.PaymentDate, out var dt) ? dt : p.SubmittedAt);
+        static DateTime GetInflowDt(CashInflow i) => i.TransactionDate ?? i.CreatedAt ?? DateTime.UtcNow;
+        static DateTime GetAdvanceDt(CashAdvance a) => a.ReleaseDate ?? a.CreatedAt ?? DateTime.UtcNow;
+        static DateTime GetDisbDt(DirectDisbursement d) => d.ReleasedAt ?? d.CreatedAt;
+        static DateTime GetReimDt(Reimbursement r) => r.PaidAt ?? r.SubmittedAt;
+
+        // Beginning cash calculation:
+        // For later periods: Previous period's ending cash = baseOpeningCash + prior inflows - prior outflows
+        decimal beginningCash = baseOpeningCash;
+        if (isMultiPeriod)
+        {
+            decimal priorInflows = validatedPayments.Where(p => GetPaymentDt(p) < periodStart).Sum(p => p.Amount) +
+                                   returnedAdvanceInflows.Where(i => GetInflowDt(i) < periodStart).Sum(i => i.Amount);
+
+            decimal priorOutflows = releasedAdvances.Where(a => GetAdvanceDt(a) < periodStart).Sum(a => a.AmountGiven) +
+                                    releasedDisbursements.Where(d => GetDisbDt(d) < periodStart).Sum(d => d.Amount) +
+                                    paidReimbursements.Where(r => GetReimDt(r) < periodStart).Sum(r => r.Amount);
+
+            beginningCash = baseOpeningCash + priorInflows - priorOutflows;
+        }
+
+        // Current period inflows and outflows:
+        decimal clientPaymentsSum;
+        decimal returnedAdvancesSum;
+        decimal releasedAdvancesSum;
+        decimal releasedDisbSum;
+        decimal paidReimSum;
+
+        if (string.Equals(normPeriodType, "Year", StringComparison.OrdinalIgnoreCase))
+        {
+            clientPaymentsSum = validatedPayments.Where(p => GetPaymentDt(p).Year == fiscalYear).Sum(p => p.Amount);
+            returnedAdvancesSum = returnedAdvanceInflows.Where(i => GetInflowDt(i).Year == fiscalYear).Sum(i => i.Amount);
+            releasedAdvancesSum = releasedAdvances.Where(a => a.FiscalYear == fiscalYear || GetAdvanceDt(a).Year == fiscalYear).Sum(a => a.AmountGiven);
+            releasedDisbSum = releasedDisbursements.Where(d => d.FiscalYear == fiscalYear || GetDisbDt(d).Year == fiscalYear).Sum(d => d.Amount);
+            paidReimSum = paidReimbursements.Where(r => r.FiscalYear == fiscalYear || GetReimDt(r).Year == fiscalYear).Sum(r => r.Amount);
+        }
+        else
+        {
+            clientPaymentsSum = validatedPayments.Where(p => GetPaymentDt(p) >= periodStart && GetPaymentDt(p) < periodEnd).Sum(p => p.Amount);
+            returnedAdvancesSum = returnedAdvanceInflows.Where(i => GetInflowDt(i) >= periodStart && GetInflowDt(i) < periodEnd).Sum(i => i.Amount);
+            releasedAdvancesSum = releasedAdvances.Where(a => (a.Month == periodNumber && a.FiscalYear == fiscalYear) || (GetAdvanceDt(a) >= periodStart && GetAdvanceDt(a) < periodEnd)).Sum(a => a.AmountGiven);
+            releasedDisbSum = releasedDisbursements.Where(d => (d.Month == periodNumber && d.FiscalYear == fiscalYear) || (GetDisbDt(d) >= periodStart && GetDisbDt(d) < periodEnd)).Sum(d => d.Amount);
+            paidReimSum = paidReimbursements.Where(r => (r.Month == periodNumber && r.FiscalYear == fiscalYear) || (GetReimDt(r) >= periodStart && GetReimDt(r) < periodEnd)).Sum(r => r.Amount);
+        }
+
 
         return new CashFlowStatementDto
         {
             FiscalYear = fiscalYear,
-            PeriodType = periodType ?? "Year",
+            PeriodType = normPeriodType,
             PeriodNumber = periodNumber,
             BeginningCash = beginningCash,
-            InflowsFromClientPayments = clientPayments,
-            InflowsFromReturnedAdvances = returnedAdvances,
-            OutflowsCashAdvancesReleased = releasedAdvances,
-            OutflowsDirectDisbursements = releasedDisb,
-            OutflowsPaidReimbursements = paidReim
+            InflowsFromClientPayments = clientPaymentsSum,
+            InflowsFromReturnedAdvances = returnedAdvancesSum,
+            OutflowsCashAdvancesReleased = releasedAdvancesSum,
+            OutflowsDirectDisbursements = releasedDisbSum,
+            OutflowsPaidReimbursements = paidReimSum
         };
     }
 
