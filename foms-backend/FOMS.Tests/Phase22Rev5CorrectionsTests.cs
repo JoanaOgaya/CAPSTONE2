@@ -697,9 +697,9 @@ public class Phase22Rev5CorrectionsTests
         Assert.Equal(initialBalance, invoiceBeforeApprove.Balance);
         Assert.Equal(0m, invoiceBeforeApprove.CreditMemoAmount);
 
-        // Approve adjustment -> balance is applied and posted
+        // Approve adjustment -> balance is applied and posted by Head Accountant (EMP-002)
         var approveHandler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(context);
-        var approved = await approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand(created.Id, "EMP-001"), default);
+        var approved = await approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand(created.Id, "EMP-002", "Head Accountant"), default);
         Assert.NotNull(approved);
         Assert.Equal("Approved", approved.Status);
 
@@ -852,5 +852,426 @@ public class Phase22Rev5CorrectionsTests
         Assert.Contains("Go-Live setup", result.Message);
         Assert.Contains("PO Decision E", result.Message);
         Assert.Contains("every cash outflow requires an in-person CEO/President approval record", result.Message);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 9. Block Tests for Items 2, 3, 4, 5, 7 (R5.3 Evidence)
+    // ─────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task Item2_BudgetTransfer_BlockedWithoutApproval_SucceedsWithApprovalAndConfirmation()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        // 1. Without record: gate is unsatisfied
+        var unrecorded = await gateService.CheckGateAsync(CeoApprovalItemTypes.BudgetTransfer, "1");
+        Assert.False(unrecorded.IsSatisfied);
+
+        // 2. Recorded by FM, but before HA confirmation: unsatisfied
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetTransfer,
+            ItemId = "1",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        var preConfirm = await gateService.CheckGateAsync(CeoApprovalItemTypes.BudgetTransfer, "1");
+        Assert.False(preConfirm.IsSatisfied);
+        Assert.Contains("requires Head Accountant maker-checker recording confirmation", preConfirm.Message);
+
+        // 3. Confirmed by HA: satisfied
+        await gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant");
+        var postConfirm = await gateService.CheckGateAsync(CeoApprovalItemTypes.BudgetTransfer, "1");
+        Assert.True(postConfirm.IsSatisfied);
+    }
+
+    [Fact]
+    public async Task Item3_BudgetCarryOver_BlockedWithoutApproval_SucceedsWithApprovalAndConfirmation()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        // 1. Without record: gate is unsatisfied
+        var unrecorded = await gateService.CheckGateAsync(CeoApprovalItemTypes.BudgetCarryOver, "CO-2026-01");
+        Assert.False(unrecorded.IsSatisfied);
+
+        // 2. Recorded by FM, before HA confirmation: unsatisfied
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetCarryOver,
+            ItemId = "CO-2026-01",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        var preConfirm = await gateService.CheckGateAsync(CeoApprovalItemTypes.BudgetCarryOver, "CO-2026-01");
+        Assert.False(preConfirm.IsSatisfied);
+
+        // 3. Confirmed by HA: satisfied
+        await gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant");
+        var postConfirm = await gateService.CheckGateAsync(CeoApprovalItemTypes.BudgetCarryOver, "CO-2026-01");
+        Assert.True(postConfirm.IsSatisfied);
+    }
+
+    [Fact]
+    public async Task Item4_BudgetOverride_BlockedWithoutApproval_SucceedsWithApproval()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        // 1. Without record: gate is unsatisfied
+        var unrecorded = await gateService.CheckGateAsync(CeoApprovalItemTypes.BudgetOverride, "1", amount: 25000m);
+        Assert.False(unrecorded.IsSatisfied);
+
+        // 2. With record: gate is satisfied
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetOverride,
+            ItemId = "1",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        var recorded = await gateService.CheckGateAsync(CeoApprovalItemTypes.BudgetOverride, "1", amount: 25000m);
+        Assert.True(recorded.IsSatisfied);
+    }
+
+    [Fact]
+    public async Task Item5_Reimbursement_AboveThreshold_BlockedWithoutApproval_SucceedsWithApproval()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        // 1. Above threshold without record: gate is unsatisfied
+        var unrecorded = await gateService.CheckGateAsync(CeoApprovalItemTypes.Reimbursement, "1", amount: 25000m);
+        Assert.False(unrecorded.IsSatisfied);
+
+        // 2. With record: gate is satisfied
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.Reimbursement,
+            ItemId = "1",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        var recorded = await gateService.CheckGateAsync(CeoApprovalItemTypes.Reimbursement, "1", amount: 25000m);
+        Assert.True(recorded.IsSatisfied);
+    }
+
+    [Fact]
+    public async Task Item7_InvoiceDiscount_BlockedWithoutApproval_SucceedsWithApproval()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        // 1. Without record: gate is unsatisfied
+        var unrecorded = await gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, "INV-2026-DISC", amount: 5000m);
+        Assert.False(unrecorded.IsSatisfied);
+
+        // 2. With record: gate is satisfied
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.InvoiceDiscount,
+            ItemId = "INV-2026-DISC",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        var recorded = await gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, "INV-2026-DISC", amount: 5000m);
+        Assert.True(recorded.IsSatisfied);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 10. FIN-23 Adjusting Entries: Closed Period, Delete Block, Approver Role
+    // ─────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task Fin23_ClosedPeriod_BlocksCreateAndApprove()
+    {
+        using var context = CreateInMemoryDbContext();
+        var today = DateTime.UtcNow.Date;
+
+        var invoice = new DomainInvoice
+        {
+            Id = "INV-PERIOD-01",
+            InvoiceNo = "INV-PERIOD-01",
+            ClientId = "CLI-001",
+            FreightCharges = 20000m
+        };
+        BillingComputationService.RecalculateInvoice(invoice);
+        context.Invoices.Add(invoice);
+
+        // Add closed accounting period covering today
+        context.AccountingPeriodCloses.Add(new FOMS.Domain.Entities.AccountingPeriodClose
+        {
+            PeriodType = "Monthly",
+            PeriodStart = today.AddDays(-15),
+            PeriodEnd = today.AddDays(15),
+            ClosedBy = "EMP-001"
+        });
+        await context.SaveChangesAsync();
+
+        var createHandler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(context);
+        var createCmd = new AdjustmentFeatures.CreateAdjustmentCommand(
+            InvoiceNo: "INV-PERIOD-01",
+            AdjustmentType: "Credit",
+            Amount: 1000m,
+            Reason: "Correction in closed period",
+            AdjustedBy: "EMP-001",
+            Role: "Finance Manager"
+        );
+
+        // Creation is blocked in closed period
+        var exCreate = await Assert.ThrowsAsync<InvalidOperationException>(() => createHandler.Handle(createCmd, default));
+        Assert.Contains("closed accounting period", exCreate.Message);
+    }
+
+    [Fact]
+    public async Task Fin23_ClosedPeriod_BlocksApprove_WhenClosedAfterCreation()
+    {
+        using var context = CreateInMemoryDbContext();
+        var today = DateTime.UtcNow.Date;
+
+        var invoice = new DomainInvoice
+        {
+            Id = "INV-PERIOD-02",
+            InvoiceNo = "INV-PERIOD-02",
+            ClientId = "CLI-001",
+            FreightCharges = 20000m
+        };
+        BillingComputationService.RecalculateInvoice(invoice);
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+
+        // 1. Create adjustment in open period
+        var createHandler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(context);
+        var created = await createHandler.Handle(new AdjustmentFeatures.CreateAdjustmentCommand(
+            InvoiceNo: "INV-PERIOD-02",
+            AdjustmentType: "Credit",
+            Amount: 1000m,
+            Reason: "Valid reason in open period",
+            AdjustedBy: "EMP-001",
+            Role: "Finance Manager"
+        ), default);
+        Assert.NotNull(created);
+
+        // 2. Period gets closed
+        context.AccountingPeriodCloses.Add(new FOMS.Domain.Entities.AccountingPeriodClose
+        {
+            PeriodType = "Monthly",
+            PeriodStart = today.AddDays(-10),
+            PeriodEnd = today.AddDays(10),
+            ClosedBy = "EMP-001"
+        });
+        await context.SaveChangesAsync();
+
+        // 3. Approval is now blocked
+        var approveHandler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(context);
+        var exApprove = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand(created.Id, "EMP-002", "Head Accountant"), default));
+        Assert.Contains("closed accounting period", exApprove.Message);
+    }
+
+    [Fact]
+    public async Task Fin23_ApprovedAdjustment_CannotBeDeleted()
+    {
+        using var context = CreateInMemoryDbContext();
+
+        var invoice = new DomainInvoice
+        {
+            Id = "INV-DEL-01",
+            InvoiceNo = "INV-DEL-01",
+            ClientId = "CLI-001",
+            FreightCharges = 10000m
+        };
+        BillingComputationService.RecalculateInvoice(invoice);
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+
+        var createHandler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(context);
+        var created = await createHandler.Handle(new AdjustmentFeatures.CreateAdjustmentCommand(
+            InvoiceNo: "INV-DEL-01",
+            AdjustmentType: "Credit",
+            Amount: 1000m,
+            Reason: "Delete guard test",
+            AdjustedBy: "EMP-001",
+            Role: "Finance Manager"
+        ), default);
+        Assert.NotNull(created);
+
+        // Approve adjustment -> status is Approved
+        var approveHandler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(context);
+        await approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand(created.Id, "EMP-002", "Head Accountant"), default);
+
+        // Attempt deletion of Approved adjustment -> rejected
+        var deleteHandler = new AdjustmentFeatures.DeleteAdjustmentCommandHandler(context);
+        var deleted = await deleteHandler.Handle(new AdjustmentFeatures.DeleteAdjustmentCommand(created.Id, "EMP-001"), default);
+        Assert.False(deleted);
+
+        // Verify still exists in DB
+        var exists = await context.PaymentAdjustments.AnyAsync(a => a.Id == created.Id);
+        Assert.True(exists);
+    }
+
+    [Fact]
+    public async Task Fin23_ApproverRole_HeadAccountantOnly_AndCreatorCannotApprove()
+    {
+        using var context = CreateInMemoryDbContext();
+
+        var invoice = new DomainInvoice
+        {
+            Id = "INV-SOD-01",
+            InvoiceNo = "INV-SOD-01",
+            ClientId = "CLI-001",
+            FreightCharges = 10000m
+        };
+        BillingComputationService.RecalculateInvoice(invoice);
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+
+        var createHandler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(context);
+        var created = await createHandler.Handle(new AdjustmentFeatures.CreateAdjustmentCommand(
+            InvoiceNo: "INV-SOD-01",
+            AdjustmentType: "Credit",
+            Amount: 1000m,
+            Reason: "SoD test",
+            AdjustedBy: "EMP-001",
+            Role: "Finance Manager"
+        ), default);
+        Assert.NotNull(created);
+
+        var approveHandler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(context);
+
+        // 1. Creator self-approval blocked (SoD)
+        var exSelf = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand(created.Id, "EMP-001", "Head Accountant"), default));
+        Assert.Contains("creator of an adjusting entry cannot approve their own entry", exSelf.Message);
+
+        // 2. Non-HA role blocked
+        var exRole = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand(created.Id, "EMP-003", "Accountant"), default));
+        Assert.Contains("Head Accountant approval before posting", exRole.Message);
+
+        // 3. Head Accountant (different from creator) succeeds
+        var approved = await approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand(created.Id, "EMP-002", "Head Accountant"), default);
+        Assert.NotNull(approved);
+        Assert.Equal("Approved", approved.Status);
+        Assert.Equal("EMP-002", approved.ApprovedBy);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 11. Manila Date Boundary & Request Date Threshold Tests
+    // ─────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task CeoApproval_ManilaDateBoundary_ClockInjection_AcceptsToday_RejectsTomorrow()
+    {
+        using var context = CreateInMemoryDbContext();
+        context.AnnualBudgets.AddRange(
+            new AnnualBudget { AnnualBudgetId = 2, FiscalYear = 2027, Status = "Draft", TotalBudget = 1000000m, PreparedBy = "EMP-001" },
+            new AnnualBudget { AnnualBudgetId = 3, FiscalYear = 2028, Status = "Draft", TotalBudget = 1000000m, PreparedBy = "EMP-001" },
+            new AnnualBudget { AnnualBudgetId = 4, FiscalYear = 2029, Status = "Draft", TotalBudget = 1000000m, PreparedBy = "EMP-001" }
+        );
+        await context.SaveChangesAsync();
+
+        // Boundary A: 2026-11-11 15:59 UTC -> Manila 2026-11-11 23:59 (Today is Nov 11)
+        var clockA = new DateTime(2026, 11, 11, 15, 59, 0, DateTimeKind.Utc);
+        var gateServiceA = new CeoApprovalGateService(context, () => clockA);
+
+        // Nov 11 is Manila today -> accepted
+        var rec11A = await gateServiceA.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualBudget,
+            ItemId = "2026",
+            Status = "Approved",
+            ApprovalDate = new DateTime(2026, 11, 11)
+        }, "EMP-001", "Finance Manager");
+        Assert.NotNull(rec11A);
+
+        // Nov 12 is tomorrow in Manila at 23:59 -> rejected
+        var exA = await Assert.ThrowsAsync<ArgumentException>(() =>
+            gateServiceA.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+            {
+                ItemType = CeoApprovalItemTypes.AnnualBudget,
+                ItemId = "2027",
+                Status = "Approved",
+                ApprovalDate = new DateTime(2026, 11, 12)
+            }, "EMP-001", "Finance Manager"));
+        Assert.Contains("cannot be in the future", exA.Message);
+
+        // Boundary B: 2026-11-11 16:00 UTC -> Manila 2026-11-12 00:00 (Today is Nov 12)
+        var clockB = new DateTime(2026, 11, 11, 16, 0, 0, DateTimeKind.Utc);
+        var gateServiceB = new CeoApprovalGateService(context, () => clockB);
+
+        // Nov 12 is now Manila today -> accepted
+        var rec12B = await gateServiceB.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualBudget,
+            ItemId = "2028",
+            Status = "Approved",
+            ApprovalDate = new DateTime(2026, 11, 12)
+        }, "EMP-001", "Finance Manager");
+        Assert.NotNull(rec12B);
+
+        // Nov 13 is tomorrow in Manila on Nov 12 -> rejected
+        var exB = await Assert.ThrowsAsync<ArgumentException>(() =>
+            gateServiceB.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+            {
+                ItemType = CeoApprovalItemTypes.AnnualBudget,
+                ItemId = "2029",
+                Status = "Approved",
+                ApprovalDate = new DateTime(2026, 11, 13)
+            }, "EMP-001", "Finance Manager"));
+        Assert.Contains("cannot be in the future", exB.Message);
+    }
+
+    [Fact]
+    public async Task CeoApproval_ThresholdEvaluatedAgainstRequestCreationDate_WhenThresholdChangesLater()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        var requestCreationDate = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var thresholdChangeDate = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc);
+
+        // On Oct 1: threshold is 50,000
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 50000m,
+            EffectiveFrom = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            Reason = "Initial high threshold"
+        }, "EMP-001", "Finance Manager");
+
+        // On Oct 15: threshold changed down to 10,000
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 10000m,
+            EffectiveFrom = thresholdChangeDate,
+            Reason = "Reduced threshold"
+        }, "EMP-001", "Finance Manager");
+
+        // Request for 25,000 created on Oct 1 (evaluated against Oct 1 threshold of 50,000):
+        // 25,000 <= 50,000 -> CEO approval is NOT required!
+        var pastRequestCheck = await gateService.CheckGateAsync(
+            CeoApprovalItemTypes.CashOutflow,
+            "CA-2026-PAST",
+            amount: 25000m,
+            requestDate: requestCreationDate);
+
+        Assert.False(pastRequestCheck.IsRequired);
+        Assert.True(pastRequestCheck.IsSatisfied);
+        Assert.Equal(50000m, pastRequestCheck.ThresholdInForce);
+
+        // Same amount requested on Oct 20 (evaluated against Oct 15 threshold of 10,000):
+        // 25,000 > 10,000 -> CEO approval IS required!
+        var newRequestCheck = await gateService.CheckGateAsync(
+            CeoApprovalItemTypes.CashOutflow,
+            "CA-2026-NEW",
+            amount: 25000m,
+            requestDate: new DateTime(2026, 10, 20, 0, 0, 0, DateTimeKind.Utc));
+
+        Assert.True(newRequestCheck.IsRequired);
+        Assert.False(newRequestCheck.IsSatisfied);
+        Assert.Equal(10000m, newRequestCheck.ThresholdInForce);
     }
 }
