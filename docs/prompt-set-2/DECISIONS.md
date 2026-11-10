@@ -84,3 +84,34 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
 
 5. **Threshold Governance (CSH-09)**:
    - Do not modify threshold values during Phase 13. Maintain ₱10,000.00 provisionally for Assistant FM authorization limit. CEO threshold under CSH-09 to be finalized per user instruction.
+
+---
+
+## Phase 14 Directives & Threshold Decision (Confirmed 2026-11-10)
+
+1. **Temporary Password Expiry**:
+   - Confirmed: **72 hours** expiration for temporary passwords.
+   - Server-side enforcement via `MustChangePasswordFilter`: tokens with `MustChangePassword=true` or expired temporary passwords are restricted exclusively to `/api/auth/change-password`, `/api/auth/logout`, and `/api/auth/refresh`. All other endpoints return 403 Forbidden.
+
+2. **Threshold Architecture (Two Distinct Limits)**:
+   - **Limit (A) - Assistant FM Authorization Limit**:
+     - Value: `₱10,000.00` PHP (provisional).
+     - Controls: Assistant of Finance Manager validation authority for cash advances and liquidations.
+   - **Limit (B) - CSH-09 CEO/President Authorization Limit**:
+     - Value: **Unknown / Unset**. Must **NOT** default to 10,000 or 50,000.
+     - Schema: Dedicated setting for Setting (B) with **no seeded default** (`NULL`).
+     - Fail-Safe Governance: While unset (`NULL`), every cash outflow, reimbursement, and budget override that exceeds Limit (A) (`10,000.00`) strictly requires the CEO/President approval record.
+     - Modification Authority: Only the Finance Manager may view/modify Setting (B). Every change is audited with employee ID, timestamp, old value, and new value.
+     - Historical Integrity: Evaluation uses the threshold in effect on the request creation date.
+
+3. **Audit of Limit (A) Usage for CEO Matters**:
+   - Audit identified that `BudgetService.cs` (lines 355, 380, 436, 480) and `DisbursementAndReimbursementService.cs` (line 168) evaluated `RequiresCeoApproval` against Limit (A) (`10,000.00`).
+   - Phase 14 refactors all CEO approval gates to evaluate against Setting (B), falling back to Limit (A) under fail-safe rules when Setting (B) is unconfigured (`NULL`).
+
+4. **Pre-Phase 14 Security & Data Follow-Ups Completed**:
+   - **Salt Verification**: `AuthService.HashPassword` generates a cryptographically random 16-byte salt per call using `RandomNumberGenerator.GetBytes(16)`. Reused hashes were artifact of legacy demo seeding.
+   - **Client/Coordinator Login Audit**: `dbo.Users` entries (`client.shopee`, `coordinator.*`) cannot log into FOMS; FOMS requires an `Employees` record with one of the 4 finance roles. Client role is blocked with 403.
+   - **Script Audit**: No `update_*.py` helper scripts exist in the repository; scratch scripts reside in ephemeral artifact scratchpads and contain no secrets.
+   - **Frontend Add Employee Test Coverage**: Added `employeeFormPositionAndRole.test.tsx` (5 comprehensive integration tests covering Position required, derived role, no default, no CEO option, and temporary password modal). Frontend test count raised from 159 to 164.
+   - **Migration Rollback Validation**: `AddPositionAndRoleNormalization` tested on isolated test DB `FOMS_MIGRATION_TEST_DB` through full Up -> Down -> Up cycles. Role restoration and column drops verified.
+   - **Secrets to Rotate for Release**: Demo accounts (`EMP-001` through `EMP-004`, `client.shopee`, `coordinator.*`) and their historical hashes flagged for rotation upon release.

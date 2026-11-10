@@ -315,7 +315,7 @@ public class AuthService : IAuthService
 
     public string GenerateJwtToken(Employee user)
     {
-        var claims = new[]
+        var claimsList = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
@@ -323,8 +323,15 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim("name", user.Name),
-            new Claim("role", user.Role)
+            new Claim("role", user.Role),
+            new Claim("must_change_password", user.MustChangePassword ? "true" : "false"),
+            new Claim("is_temporary_password", user.IsTemporaryPassword ? "true" : "false")
         };
+        if (user.TemporaryPasswordExpiresAt.HasValue)
+        {
+            claimsList.Add(new Claim("temp_pw_expires_at", user.TemporaryPasswordExpiresAt.Value.ToString("o")));
+        }
+        var claims = claimsList.ToArray();
 
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Secret));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);

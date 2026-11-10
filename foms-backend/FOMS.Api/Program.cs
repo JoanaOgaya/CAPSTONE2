@@ -117,6 +117,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<FOMS.Api.Filters.ApiValidationFilter>();
+    options.Filters.Add<FOMS.Api.Filters.MustChangePasswordFilter>();
 })
 .AddJsonOptions(options =>
 {

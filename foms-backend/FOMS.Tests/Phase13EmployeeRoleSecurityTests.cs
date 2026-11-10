@@ -1,9 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using FOMS.Application.DTOs;
 using FOMS.Application.Services;
@@ -36,6 +41,23 @@ public class Phase13EmployeeRoleSecurityTests
         }).Build();
 
         return new AuthService(context, cfg, NullLogger<AuthService>.Instance);
+    }
+
+    private ActionExecutingContext CreateActionExecutingContext(string path, ClaimsPrincipal user, ApplicationDbContext? db = null)
+    {
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Path = path;
+        httpContext.User = user;
+
+        var services = new ServiceCollection();
+        if (db != null)
+        {
+            services.AddSingleton(db);
+        }
+        httpContext.RequestServices = services.BuildServiceProvider();
+
+        var actionContext = new ActionContext(httpContext, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor());
+        return new ActionExecutingContext(actionContext, new List<IFilterMetadata>(), new Dictionary<string, object?>(), new object());
     }
 
     [Fact]
@@ -240,5 +262,74 @@ public class Phase13EmployeeRoleSecurityTests
 
         Assert.Contains("FATAL SECURITY ERROR", ex.Message);
         Assert.Contains("demo accounts detected in non-development environment", ex.Message);
+    }
+
+    [Fact]
+    public async Task MustChangePasswordFilter_WhenMustChangePassword_BlocksBusinessEndpoint()
+    {
+        var filter = new FOMS.Api.Filters.MustChangePasswordFilter();
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, "EMP-010"),
+            new Claim("must_change_password", "true")
+        };
+        var identity = new ClaimsIdentity(claims, "TestAuth");
+        var principal = new ClaimsPrincipal(identity);
+
+        var context = CreateActionExecutingContext("/api/invoices", principal);
+        bool nextCalled = false;
+
+        await filter.OnActionExecutionAsync(context, () => { nextCalled = true; return Task.FromResult<ActionExecutedContext>(null!); });
+
+        Assert.False(nextCalled);
+        var objectResult = Assert.IsType<ObjectResult>(context.Result);
+        Assert.Equal(403, objectResult.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/auth/change-password")]
+    [InlineData("/api/auth/logout")]
+    [InlineData("/api/auth/refresh")]
+    public async Task MustChangePasswordFilter_WhenMustChangePassword_AllowsAuthEndpoints(string path)
+    {
+        var filter = new FOMS.Api.Filters.MustChangePasswordFilter();
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, "EMP-010"),
+            new Claim("must_change_password", "true")
+        };
+        var identity = new ClaimsIdentity(claims, "TestAuth");
+        var principal = new ClaimsPrincipal(identity);
+
+        var context = CreateActionExecutingContext(path, principal);
+        bool nextCalled = false;
+
+        await filter.OnActionExecutionAsync(context, () => { nextCalled = true; return Task.FromResult<ActionExecutedContext>(null!); });
+
+        Assert.True(nextCalled);
+        Assert.Null(context.Result);
+    }
+
+    [Fact]
+    public async Task MustChangePasswordFilter_WhenTemporaryPasswordExpired_BlocksAccess()
+    {
+        var filter = new FOMS.Api.Filters.MustChangePasswordFilter();
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, "EMP-010"),
+            new Claim("must_change_password", "true"),
+            new Claim("temp_pw_expires_at", DateTime.UtcNow.AddMinutes(-5).ToString("o"))
+        };
+        var identity = new ClaimsIdentity(claims, "TestAuth");
+        var principal = new ClaimsPrincipal(identity);
+
+        var context = CreateActionExecutingContext("/api/payments", principal);
+        bool nextCalled = false;
+
+        await filter.OnActionExecutionAsync(context, () => { nextCalled = true; return Task.FromResult<ActionExecutedContext>(null!); });
+
+        Assert.False(nextCalled);
+        var objectResult = Assert.IsType<ObjectResult>(context.Result);
+        Assert.Equal(403, objectResult.StatusCode);
     }
 }
