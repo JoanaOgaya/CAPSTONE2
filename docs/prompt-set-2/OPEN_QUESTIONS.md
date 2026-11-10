@@ -17,12 +17,8 @@ Status updated: 2026-11-10 (Phase 15 In Progress)
 ---
 
 ### Question 3: Invoice Verification Edge Case: Head Accountant as Invoice Creator
-- **Status**: OPEN / AWAITING USER DECISION.
-- **Context**: Per the no-self-approval rule, a user cannot verify or approve an invoice they created. If a Head Accountant encodes/creates an invoice, who verifies and approves it?
-- **Options**:
-  1. (Recommended) The Finance Manager verifies and approves in this specific edge case to maintain executive oversight without deadlock.
-  2. The system strictly prohibits the Head Accountant from creating invoices (invoice creation is restricted to Accountants only; HA is verifier-only).
-  3. A designated second Head Accountant or delegate verifies.
+- **Status**: RESOLVED (Option 1 confirmed by user 2026-11-10).
+- **Resolution**: If the Head Accountant created the invoice, the Finance Manager verifies and approves it to prevent self-approval without deadlock.
 
 ---
 

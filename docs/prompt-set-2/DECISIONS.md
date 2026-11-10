@@ -239,3 +239,6 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
    - Additive, reversible migration for existing dbo.Invoices rows (Pending HA Verification -> For Review, Returned to Creator -> Draft). Show mapping before applying to local dev. Test Down on a copy.
    - AR and accrual revenue post once at Sent with an idempotency key (invoice_id + event). Payments accepted only for Sent or Received invoices.
    - Edge case: Head Accountant creating an invoice cannot verify their own invoice (no-self-approval). Awaiting user decision on who verifies.
+
+3. **Invoice Verification Edge Case (Confirmed 2026-11-10)**:
+   - Option 1 Approved: If the Head Accountant created/encoded the invoice, the Finance Manager verifies and approves the invoice (For Review -> Approved) to enforce no-self-approval without deadlock.
