@@ -71,6 +71,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<FOMS.Domain.Entities.SqlServer.CashOutflow> CashOutflows => Set<FOMS.Domain.Entities.SqlServer.CashOutflow>();
     public DbSet<FOMS.Domain.Entities.SqlServer.Waybill> Waybills => Set<FOMS.Domain.Entities.SqlServer.Waybill>();
     public DbSet<FOMS.Domain.Entities.SqlServer.WaybillDuplicateAlert> WaybillDuplicateAlerts => Set<FOMS.Domain.Entities.SqlServer.WaybillDuplicateAlert>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdSetting> CeoApprovalThresholdSettings => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdSetting>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog> CeoApprovalThresholdChangeLogs => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord> CeoApprovalRecords => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation> CeoApprovalConfirmations => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

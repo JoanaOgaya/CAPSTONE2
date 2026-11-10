@@ -71,6 +71,10 @@ public interface IApplicationDbContext
     DbSet<FOMS.Domain.Entities.SqlServer.CashOutflow> CashOutflows { get; }
     DbSet<FOMS.Domain.Entities.SqlServer.Waybill> Waybills { get; }
     DbSet<FOMS.Domain.Entities.SqlServer.WaybillDuplicateAlert> WaybillDuplicateAlerts { get; }
+    DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdSetting> CeoApprovalThresholdSettings { get; }
+    DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog> CeoApprovalThresholdChangeLogs { get; }
+    DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord> CeoApprovalRecords { get; }
+    DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation> CeoApprovalConfirmations { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

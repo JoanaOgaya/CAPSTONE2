@@ -16,10 +16,16 @@ namespace FOMS.Application.Services;
 public class FinancialStatementService : IFinancialStatementService
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICeoApprovalGateService _gateService;
 
-    public FinancialStatementService(IApplicationDbContext context)
+    public FinancialStatementService(IApplicationDbContext context) : this(context, new CeoApprovalGateService(context))
+    {
+    }
+
+    public FinancialStatementService(IApplicationDbContext context, ICeoApprovalGateService gateService)
     {
         _context = context;
+        _gateService = gateService;
     }
 
     [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
@@ -524,7 +530,16 @@ public class FinancialStatementService : IFinancialStatementService
     {
         if (!IsCeoOrPresident(userRole))
         {
-            throw new UnauthorizedAccessException("Only CEO/President can approve the annual AFS package.");
+            if (!IsFinanceManager(userRole))
+            {
+                throw new UnauthorizedAccessException("Only Finance Manager can approve the annual AFS package.");
+            }
+
+            await _gateService.EnsureGateSatisfiedAsync(
+                CeoApprovalItemTypes.AnnualFinancialStatement,
+                fiscalYear.ToString(),
+                null,
+                DateTime.UtcNow);
         }
 
         var approval = await _context.FinancialStatementApprovals

@@ -158,3 +158,34 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
 5. **Legacy Approvals & Deprecations**:
    - Database audit: Exactly 0 records in `FOMS_DB` are approved or released by `EMP-CEO` or containing `CEO`.
    - Legacy `IsCeoOrPresident` checks removed from all 8 business gates; old approval roles marked deprecated.
+
+---
+
+## Phase 14 Architecture & Immutability Refinements (Confirmed 2026-11-10)
+
+1. **Confirmation Model via Dedicated Insert-Only Table (`dbo.CeoApprovalConfirmations`)**:
+   - Because `dbo.CeoApprovalRecords` is strictly immutable (trigger prohibits `UPDATE`), post-insert confirmation fields (`ConfirmedBy`, `ConfirmedAt`, `CorrectionConfirmedBy`, `CorrectionConfirmedAt`) were dropped from `dbo.CeoApprovalRecords` via migration `20261117180000_RefineCeoApprovalConfirmationsAndImmutability`.
+   - Dedicated child table `dbo.CeoApprovalConfirmations` introduced (`ConfirmationId`, `RecordId`, `Kind` ['Recording' or 'Correction'], `ConfirmedBy`, `ConfirmedAt`).
+   - Strict immutability trigger `TR_CeoApprovalConfirmations_Immutable` applied to block `UPDATE` and `DELETE`.
+   - Server-enforced rules:
+     - Items 2 and 3 (`BudgetTransfer`, `BudgetCarryOver`) become effective only with a `Recording` confirmation by the Head Accountant, who must differ from the requester and from `EnteredBy`.
+     - A correction record becomes effective only with a `Correction` confirmation from a second person who differs from `EnteredBy`.
+     - Business gates evaluate the latest effective record.
+
+2. **Threshold Settings & Change Log Immutability**:
+   - `dbo.CeoApprovalThresholdChangeLogs`: `SettingId` set to `NOT NULL` with foreign key to `dbo.CeoApprovalThresholdSettings(SettingId)`. Immutability trigger `TR_CeoApprovalThresholdChangeLogs_Immutable` applied to block `UPDATE` and `DELETE`.
+   - `dbo.CeoApprovalThresholdSettings`: Added database CHECK constraint `CHECK (ThresholdAmount IS NULL OR ThresholdAmount > 0)` and unique filtered index `IX_CeoApprovalThresholdSettings_OneActiveKey` on `(SettingKey)` where `IsActive = 1`. Service layer enforces strictly non-overlapping effective date ranges.
+
+3. **Item Existence & Validation Governance**:
+   - Because `ItemId` is polymorphic without a foreign key, the gate service verifies that the referenced item exists and matches `ItemType` before any approval/rejection record can be created.
+   - Lifecycle rule: After a rejection, the same item changes only via a confirmed correction record. Any brand-new request is assigned a new `ItemId`.
+
+4. **EF Core Model Snapshot Synchronization**:
+   - `ApplicationDbContextModelSnapshot.cs` fully synchronized with all database entities and hand-crafted migrations. Verified: `dotnet ef migrations add` produces a completely empty migration (`EmptyCheck.cs`).
+
+5. **E2E Testing & Test Cleanliness**:
+   - Because database triggers prohibit `DELETE` on `CeoApprovalRecords`, `CeoApprovalConfirmations`, and `CeoApprovalThresholdChangeLogs`, E2E test suites must use disposable, isolated test databases rather than table cleanup/deletes.
+
+6. **Gate Categorization**:
+   - **Always-on Tick Items**: (1) Annual Budget, (2) Budget Transfer, (3) Budget Carry-over, (7) Invoice Discount, (8) Annual Financial Statements.
+   - **Threshold-Dependent Items**: (4) Budget Override, (5) Reimbursement, (6) Cash Outflow (governed by Setting B with fail-safe to Limit A when unset).
