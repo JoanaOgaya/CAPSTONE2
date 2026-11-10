@@ -13,10 +13,16 @@ namespace FOMS.Application.Services;
 public class BudgetService : IBudgetService
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICeoApprovalGateService _gateService;
 
-    public BudgetService(IApplicationDbContext context)
+    public BudgetService(IApplicationDbContext context) : this(context, new CeoApprovalGateService(context))
+    {
+    }
+
+    public BudgetService(IApplicationDbContext context, ICeoApprovalGateService gateService)
     {
         _context = context;
+        _gateService = gateService;
     }
 
     private void EnsureNotHeadAccountant(string role)
@@ -210,14 +216,26 @@ public class BudgetService : IBudgetService
     {
         EnsureNotHeadAccountant(userRole);
 
-        if (!IsCeoOrPresident(userRole))
-        {
-            throw new UnauthorizedAccessException("Only CEO/President can approve the annual budget.");
-        }
-
         var budget = await _context.AnnualBudgets
             .Include(b => b.Lines)
             .FirstOrDefaultAsync(b => b.AnnualBudgetId == annualBudgetId);
+
+        if (budget == null)
+            throw new KeyNotFoundException($"Annual budget {annualBudgetId} not found.");
+
+        if (!IsCeoOrPresident(userRole))
+        {
+            if (!IsFinanceManager(userRole))
+            {
+                throw new UnauthorizedAccessException("Only Finance Manager (with valid CEO in-person approval record) can approve the annual budget.");
+            }
+
+            await _gateService.EnsureGateSatisfiedAsync(
+                CeoApprovalItemTypes.AnnualBudget,
+                budget.FiscalYear.ToString(),
+                budget.TotalBudget,
+                budget.CreatedAt);
+        }
 
         if (budget == null)
             throw new KeyNotFoundException($"Annual budget {annualBudgetId} not found.");
@@ -333,17 +351,9 @@ public class BudgetService : IBudgetService
                 l.Category == request.Category &&
                 l.Month == request.Month);
 
-        // Fetch CSH-09 active threshold limit (default 10,000)
-        decimal threshold = 10000.00m;
-        var thresholdSetting = await _context.ApprovalThresholdSettings
-            .Where(t => t.TransactionType == "CashOutflow" && t.IsActive)
-            .OrderByDescending(t => t.MaximumAmount)
-            .FirstOrDefaultAsync();
-
-        if (thresholdSetting != null)
-        {
-            threshold = thresholdSetting.MaximumAmount;
-        }
+        // Fetch active Setting (B) threshold limit (fail-safe to Limit A if unset)
+        var ceoSetting = await _gateService.GetCurrentThresholdAsync(DateTime.UtcNow);
+        decimal threshold = ceoSetting.EffectiveCeoLimit;
 
         if (line == null)
         {
@@ -424,17 +434,9 @@ public class BudgetService : IBudgetService
         decimal available = line.Available;
         decimal overBudgetAmount = request.RequestedAmount > available ? request.RequestedAmount - available : 0m;
 
-        // Fetch CSH-09 active threshold limit (default 10,000)
-        decimal threshold = 10000.00m;
-        var thresholdSetting = await _context.ApprovalThresholdSettings
-            .Where(t => t.TransactionType == "CashOutflow" && t.IsActive)
-            .OrderByDescending(t => t.MaximumAmount)
-            .FirstOrDefaultAsync();
-
-        if (thresholdSetting != null)
-        {
-            threshold = thresholdSetting.MaximumAmount;
-        }
+        // Fetch active Setting (B) threshold limit (fail-safe to Limit A if unset)
+        var ceoSetting = await _gateService.GetCurrentThresholdAsync(DateTime.UtcNow);
+        decimal threshold = ceoSetting.EffectiveCeoLimit;
 
         bool requiresCeo = overBudgetAmount > threshold;
 
@@ -480,8 +482,11 @@ public class BudgetService : IBudgetService
         {
             if (!IsCeoOrPresident(userRole))
             {
-                throw new UnauthorizedAccessException(
-                    $"Over-budget amount of ₱{budgetOverride.OverBudgetAmount:N2} exceeds CSH-09 threshold limit (₱{budgetOverride.ThresholdLimit:N2}) and strictly requires CEO/President approval.");
+                await _gateService.EnsureGateSatisfiedAsync(
+                    CeoApprovalItemTypes.BudgetOverride,
+                    overrideId.ToString(),
+                    budgetOverride.OverBudgetAmount,
+                    budgetOverride.RequestedAt);
             }
         }
         else
@@ -627,16 +632,25 @@ public class BudgetService : IBudgetService
     {
         EnsureNotHeadAccountant(userRole);
 
-        if (!IsCeoOrPresident(userRole))
-        {
-            throw new UnauthorizedAccessException("Only CEO/President can approve budget transfers and carry-overs.");
-        }
-
         var transfer = await _context.BudgetTransfers
             .FirstOrDefaultAsync(t => t.TransferId == transferId);
 
         if (transfer == null)
             throw new KeyNotFoundException($"Budget transfer {transferId} not found.");
+
+        if (!IsCeoOrPresident(userRole))
+        {
+            if (!IsFinanceManager(userRole))
+            {
+                throw new UnauthorizedAccessException("Only Finance Manager can approve budget transfers.");
+            }
+
+            await _gateService.EnsureGateSatisfiedAsync(
+                CeoApprovalItemTypes.BudgetTransfer,
+                transferId.ToString(),
+                transfer.Amount,
+                transfer.RequestedAt);
+        }
 
         if (transfer.Status != "Pending")
             throw new InvalidOperationException($"Cannot approve transfer in status '{transfer.Status}'.");

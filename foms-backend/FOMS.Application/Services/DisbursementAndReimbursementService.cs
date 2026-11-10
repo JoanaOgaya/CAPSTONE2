@@ -14,10 +14,16 @@ namespace FOMS.Application.Services;
 public class DisbursementAndReimbursementService : IDisbursementAndReimbursementService
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICeoApprovalGateService _gateService;
 
-    public DisbursementAndReimbursementService(IApplicationDbContext context)
+    public DisbursementAndReimbursementService(IApplicationDbContext context) : this(context, new CeoApprovalGateService(context))
+    {
+    }
+
+    public DisbursementAndReimbursementService(IApplicationDbContext context, ICeoApprovalGateService gateService)
     {
         _context = context;
+        _gateService = gateService;
     }
 
     private void EnsureValidCategory(string category)
@@ -53,7 +59,8 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
 
     private async Task<decimal> GetCsh09ThresholdAsync()
     {
-        return await ApprovalThresholdResolver.ResolveThresholdLimitAsync(_context.ApprovalThresholdSettings);
+        var setting = await _gateService.GetCurrentThresholdAsync(DateTime.UtcNow);
+        return setting.EffectiveCeoLimit;
     }
 
     private async Task<MonthlyBudgetLine?> GetBudgetLineAsync(int fiscalYear, string departmentCode, string category, int month)
@@ -166,14 +173,15 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot release advance in status '{advance.Status}'. Must be 'Approved'.");
         }
 
-        // TODO(Phase 14): Replace with CEO/President in-person approval record
-        // Above CSH-09 threshold needs CEO/President approval first before release
         if (advance.RequiresCeoApproval)
         {
             if (!IsCeoOrPresident(userRole) && advance.ApprovedBy != "EMP-CEO" && !advance.ApprovedBy!.ToLower().Contains("ceo"))
             {
-                throw new UnauthorizedAccessException(
-                    $"Cash advance amount of ₱{advance.AmountGiven:N2} exceeds CSH-09 threshold and strictly requires CEO/President approval prior to release.");
+                await _gateService.EnsureGateSatisfiedAsync(
+                    CeoApprovalItemTypes.CashOutflow,
+                    advanceId,
+                    advance.AmountGiven,
+                    advance.CreatedAt);
             }
         }
 
@@ -472,6 +480,15 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         if (reim.Status != "Validated")
         {
             throw new InvalidOperationException($"Cannot approve reimbursement in status '{reim.Status}'. Must be 'Validated'.");
+        }
+
+        if (!IsCeoOrPresident(userRole))
+        {
+            await _gateService.EnsureGateSatisfiedAsync(
+                CeoApprovalItemTypes.Reimbursement,
+                reimbursementId.ToString(),
+                reim.Amount,
+                reim.SubmittedAt);
         }
 
         // Commit budget amount
