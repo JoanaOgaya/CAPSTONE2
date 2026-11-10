@@ -3,10 +3,10 @@
 ## 1. Executive Summary
 Phase 18 successfully implemented and verified the end-to-end Cash Advance, Liquidation, Reimbursement, Direct Disbursement, and Net Cash workflows (`CSH-01` to `CSH-12`, Flow B) adhering strictly to the user's routing directives, separation of duties, and audit compliance requirements.
 
-All 4 test suites pass cleanly across all system components (635 total automated tests):
-- **FOMS Backend (`FOMS.Tests`)**: 400 passed, 0 failed, 0 skipped
+All 4 test suites pass cleanly across all system components (637 total automated tests):
+- **FOMS Backend (`FOMS.Tests`)**: 401 passed, 0 failed, 0 skipped
 - **AI Gateway (`foms-ai-gateway.Tests`)**: 40 passed, 0 failed, 0 skipped
-- **Frontend (`foms-frontend`)**: 16 test files, 164 passed, 0 failed
+- **Frontend (`foms-frontend`)**: 16 test files, 165 passed, 0 failed
 - **AI Service (`ai-service`)**: 31 passed, 0 failed
 
 ---
@@ -42,15 +42,18 @@ All 4 test suites pass cleanly across all system components (635 total automated
 ### D. Direct Disbursement (`CSH-12`)
 - **Direct Recognition**: Operational direct disbursements (e.g., third-party emergency vehicle repairs) convert directly from `Committed` to `Actual` upon release, requiring NO liquidation.
 
-### E. Net Cash Calculation (Direct Method)
+### E. Net Cash Calculation (Direct Method & Period Chaining)
 - Added `[HttpGet("api/CashFlow/net-cash")]` in `CashFlowController.cs`:
   $$\text{Net Cash} = \text{Beginning Balance} + \sum \text{Validated Inflows} - \sum \text{Validated Outflows}$$
-  - **Beginning Balance**: Sum of debits minus credits on Cash and Cash Equivalent accounts (`1010 Cash on Hand`, `1020 Cash in Bank`, `1030 Petty Cash`) from `dbo.GoLiveOpeningBalances`.
-  - **Inflows**: Client payments (`PaymentStatus == "Validated"` or `"Approved"`) plus returned advances (`CashInflows` from leftover cash returns).
+  - **Beginning Balance & Period Chaining**:
+    - Period 1 starts from `dbo.GoLiveOpeningBalances` (accounts `1010 Cash on Hand` and `1020 Cash in Bank`; account `1030 Petty Cash` mapped into `1010` per R4.6).
+    - For subsequent periods (e.g., Month 2+), beginning cash strictly chains from the previous period's ending cash: $\text{Beginning Cash} = \text{Base Opening Cash} + \text{Prior Inflows} - \text{Prior Outflows}$.
+  - **Inflows**: Validated client payments (`PaymentStatus == "Validated"` only) plus returned advances (`CashInflows` from leftover cash returns).
   - **Outflows**: Cash advances released + direct disbursements + paid reimbursements.
 
 ---
 
 ## 3. Verification & Test Evidence
-- Created new test file: [Phase18DisbursementsLiquidationsAndNetCashTests.cs](file:///C:/Users/Joana/Downloads/another%20one/CAPSTONE2/foms-backend/FOMS.Tests/Phase18DisbursementsLiquidationsAndNetCashTests.cs) (19 passing unit tests covering all Phase 18 criteria).
-- Verified full regression across all 400 backend unit tests, 40 AI gateway tests, 16 frontend test files (164 tests), and 31 AI service tests.
+- Created new test file: [Phase18DisbursementsLiquidationsAndNetCashTests.cs](file:///C:/Users/Joana/Downloads/another%20one/CAPSTONE2/foms-backend/FOMS.Tests/Phase18DisbursementsLiquidationsAndNetCashTests.cs) (20 passing unit tests covering all Phase 18 criteria, commitment releases, and period chaining).
+- Updated [emp001Flow.test.tsx](file:///C:/Users/Joana/Downloads/another%20one/CAPSTONE2/foms-frontend/src/__tests__/emp001Flow.test.tsx) adding frontend liquidation rejection dropdown and "For Correction" flow verification.
+- Verified full regression across all 401 backend unit tests, 40 AI gateway tests, 16 frontend test files (165 tests), and 31 AI service tests (637 tests total).

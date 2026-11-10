@@ -292,9 +292,18 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
 
 2. **Implementation & Verification Status**:
    - **Cash Advance & CEO Gate**: Release enforces CEO/President approval record (`CeoApprovalItemTypes.CashOutflow`) when amount exceeds CSH-09 threshold setting. Requesters cannot approve own advance.
-   - **Liquidation**: Validated by Assistant of Finance Manager (or FM). Leftover cash return records an independent `CashInflow`. Late status is a dynamic boolean flag `isLate`. Fixed dropdown reasons supported (`wrong receipt date or amount`, `manual fuel receipt`, `late submission`, `other with remarks`). Returns status `"For Correction"` without posting GL entries.
+   - **Liquidation**: Validated by Assistant of Finance Manager (or FM as explicit decision; validator ≠ submitter strictly enforced). Leftover cash return records an independent `CashInflow`. Late status is a dynamic boolean flag `isLate`. Fixed dropdown reasons supported (`wrong receipt date or amount`, `manual fuel receipt`, `late submission`, `other with remarks`). Returns status `"For Correction"` without posting GL entries.
    - **Reimbursement**: Validated by Assistant FM, approved by FM (`Committed`), paid by cashier/FM (`Actual`). Enforces CEO gate above threshold.
    - **Direct Disbursement (CSH-12)**: Moves directly from `Committed` to `Actual` at release with zero liquidation required.
-   - **Net Cash Endpoint**: `GET /api/CashFlow/net-cash` computes beginning balance (GoLive balances) + validated inflows - outflows.
-   - **All 4 Test Suites Green**: Backend (400 passed), Gateway (40 passed), Frontend (16 test files, 164 passed), AI-service (31 passed). Full details in `phase-18-report.md`.
+   - **Net Cash Period Chaining**: `GET /api/CashFlow/net-cash` computes beginning cash for later periods as previous period's ending cash. Validated client payments only are counted in inflows. Account 1030 is mapped to 1010.
+   - **Commitment Release Verification**: Verified via unit tests that Cancelled and Rejected cash advances release their committed budget reservations, and unused commitment is released back to Available upon liquidation validation.
+   - **Frontend Rejection Dropdown Test**: Added to `emp001Flow.test.tsx` covering canonical dropdown selection, required remarks for 'other with remarks', and update payload.
+   - **All 4 Test Suites Green**: Backend (401 passed), Gateway (40 passed), Frontend (16 test files, 165 passed), AI-service (31 passed). Full details in `phase-18-report.md`.
+
+3. **Phase 18 Follow-ups & Open Questions Logged for Finance**:
+   - **CSH-09 Threshold Value**: The ₱10,000 setting remains a provisional placeholder pending Finance confirmation (`R5.11 q2`).
+   - **Account 1030 (Petty Cash)**: Mapped into Account 1010 (Cash on Hand). Open Question: Confirm whether Petty Cash (1030) should be formally added to Chart of Accounts (R4.6) or permanently consolidated under 1010.
+   - **Reimbursement CEO Tick Count**: Open Question: Does a reimbursement above the threshold need one tick (`Item 5: Reimbursement`) or two (`Item 5: Reimbursement` and `Item 6: CashOutflow`)?
+   - **General Ledger Postings (R4.5)**: Phase 18 events currently record cash flows and update budget lines, but do not yet post double-entry general ledger journal entries (`dbo.GeneralLedgerEntries`). These journal entries will be integrated into the Centralized Double-Entry Engine in Phase 19.
+
 
