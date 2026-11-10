@@ -22,6 +22,20 @@ Status updated: 2026-11-10 (Phase 15 In Progress)
 
 ---
 
+### Question 4: VAT Treatment of Applied Client Credit (Pending Finance Confirmation)
+- **Status**: OPEN / PENDING FINANCE CONFIRMATION.
+- **Context**: A credit memo issued on an already-paid invoice creates an unapplied client credit balance. When applied to the client's next invoice, it is displayed as a separate credit deduction line after the grand total (capped at invoice total).
+- **Action Needed**: Finance confirmation on whether the credit memo was VAT-inclusive at issuance (reversing output VAT) or whether the subsequent invoice output VAT computation is affected by the applied credit line.
+
+---
+
+### Question 5: R4.11 Item 3: Client Credit Balance Application Timing
+- **Status**: PENDING FINANCE CONFIRMATION (Option A automatic deduction implemented as configurable setting).
+- **Context**: Credit on an already-paid invoice is held as an unapplied credit balance and automatically queued to deduct from the client's next invoice total.
+
+
+---
+
 ## Resolved Questions (Logged in DECISIONS.md)
 
 1. **Conflict rows 1 to 11**: All approved as recommended.

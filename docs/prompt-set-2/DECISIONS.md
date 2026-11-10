@@ -242,3 +242,32 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
 
 3. **Invoice Verification Edge Case (Confirmed 2026-11-10)**:
    - Option 1 Approved: If the Head Accountant created/encoded the invoice, the Finance Manager verifies and approves the invoice (For Review -> Approved) to enforce no-self-approval without deadlock.
+
+---
+
+## Phase 17 Approvals & Directives (Confirmed 2026-11-10)
+
+1. **Refund Policy & System Hygiene**:
+   - Keep the refund block in `CashOutflowsController.cs` active (rejects `Refund` category with HTTP 400).
+   - Keep `dbo.RefundRequests` strictly read-only and unmapped (historical retention only, `IsLegacyHistory = 1`).
+   - Rename UI label in `LiquidationValidation.tsx` and settlements from "Leftover Refund to Cashier" to "Leftover Cash Return to Cashier" to clarify internal cash inflow vs. client outflow.
+
+2. **Payment Validation & Delegate Configuration (PAY-03, Row 4)**:
+   - Build the delegate feature but keep it disabled by default.
+   - Only the Finance Manager validates payments until a delegate is explicitly configured and logged in settings.
+   - Enforce maker-checker rule: `validator != recorder` (the validator cannot validate payments they recorded).
+   - Strict privilege boundary: A payment delegate cannot record CEO/President approval records.
+
+3. **Client Credit Application on Already-Paid Invoices (Item 7 / R4.11 Item 3)**:
+   - Implement Option A (automatic) as a configurable setting, marked pending Finance confirmation (R4.11 item 3 is an open question for Finance, not a recommendation).
+   - Show the applied credit as its own separate line **after the grand total**, not deducted from the subtotal.
+   - Cap applied credit at the invoice total (BIL-05) so the invoice balance does not turn negative.
+   - Carry any remainder forward as an unapplied client credit balance.
+   - Log the VAT treatment of applied credit as an open question for Finance.
+
+4. **AR Aging Buckets & Reminders (ARC-03, ARC-04, ARC-05)**:
+   - Canonical aging buckets: `Not Yet Due`, `Due Soon (configurable)`, `1-30`, `31-60`, `61-90`, `90+`.
+   - Buckets and overdue flags are dynamically derived from `DueDate` and never stored in the database.
+   - `Due Soon` default threshold is **7 days** before due date, configurable in settings.
+   - Follow-up reminders: 7 days after billing if unacknowledged, then due soon, then overdue.
+
