@@ -30,6 +30,8 @@ using DomainInvoice = FOMS.Domain.Entities.Invoice;
 using InvoiceDocumentStatus = FOMS.Domain.Entities.InvoiceDocumentStatus;
 using DomainEmployee = FOMS.Domain.Entities.Employee;
 using DomainRole = FOMS.Domain.Entities.Role;
+using DomainAdjustment = FOMS.Domain.Entities.PaymentAdjustment;
+using DomainPeriodClose = FOMS.Domain.Entities.AccountingPeriodClose;
 
 namespace FOMS.Tests;
 
@@ -1273,5 +1275,267 @@ public class Phase22Rev5CorrectionsTests
         Assert.True(newRequestCheck.IsRequired);
         Assert.False(newRequestCheck.IsSatisfied);
         Assert.Equal(10000m, newRequestCheck.ThresholdInForce);
+    }
+
+    [Fact]
+    public async Task Fin23_AdjustingEntries_ClosedMonthDate_WhileTodayInOpenMonth_BlockedOnCreateAndApprove()
+    {
+        using var context = CreateInMemoryDbContext();
+
+        // Close October 2026 (2026-10-01 to 2026-10-31)
+        context.AccountingPeriodCloses.Add(new DomainPeriodClose
+        {
+            Id = "CLOSE-2026-10",
+            PeriodType = "Month",
+            PeriodStart = new DateTime(2026, 10, 1),
+            PeriodEnd = new DateTime(2026, 10, 31),
+            ClosedBy = "EMP-001",
+            ClosedAt = new DateTime(2026, 11, 2)
+        });
+
+        // Seed invoice
+        var invoice = new DomainInvoice
+        {
+            Id = "INV-CLOSED-1",
+            InvoiceNo = "INV-CLOSED-1",
+            ClientId = "CLI-001",
+            FreightCharges = 10000m
+        };
+        BillingComputationService.RecalculateInvoice(invoice);
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+
+        var createHandler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(context);
+        var approveHandler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(context);
+
+        // 1. Create with AdjustmentDate in closed October while today is open November
+        var closedDateReq = new AdjustmentFeatures.CreateAdjustmentCommand(
+            InvoiceNo: "INV-CLOSED-1",
+            AdjustmentType: "Credit",
+            Amount: 1000m,
+            Reason: "Correction for October delivery",
+            AdjustedBy: "EMP-001",
+            Role: "Finance Manager",
+            AdjustmentDate: new DateTime(2026, 10, 15)
+        );
+
+        var exCreate = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            createHandler.Handle(closedDateReq, default));
+        Assert.Contains("closed accounting period", exCreate.Message);
+
+        // 2. Pre-existing Pending adjustment with DateRequested in October cannot be approved
+        var pendingOctAdj = new DomainAdjustment
+        {
+            Id = "ADJ-OCT-01",
+            InvoiceNo = "INV-CLOSED-1",
+            AdjustmentType = "Credit",
+            Amount = 1000m,
+            Reason = "Prior unapproved adjustment",
+            AdjustedBy = "EMP-001",
+            DateRequested = "2026-10-20",
+            Status = "Pending"
+        };
+        context.PaymentAdjustments.Add(pendingOctAdj);
+        await context.SaveChangesAsync();
+
+        var exApprove = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand("ADJ-OCT-01", "EMP-002", "Head Accountant"), default));
+        Assert.Contains("closed accounting period", exApprove.Message);
+    }
+
+    [Fact]
+    public async Task Reimbursement_RealService_CreationDateThreshold_SucceedsPreChange_FailsPostChange()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+        var disbService = new DisbursementAndReimbursementService(context, gateService);
+
+        var oct1 = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc);
+        var oct15 = new DateTime(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc);
+        var oct20 = new DateTime(2026, 10, 20, 0, 0, 0, DateTimeKind.Utc);
+
+        // Threshold on Oct 1 is 50,000
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 50000m,
+            EffectiveFrom = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            Reason = "High threshold"
+        }, "EMP-001", "Finance Manager");
+
+        // Threshold on Oct 15 reduced to 10,000
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 10000m,
+            EffectiveFrom = oct15,
+            Reason = "Lower threshold"
+        }, "EMP-001", "Finance Manager");
+
+        // Seed monthly budget line for DEP-FIN Supplies in month 10
+        context.MonthlyBudgetLines.Add(new MonthlyBudgetLine
+        {
+            BudgetLineId = 1001,
+            FiscalYear = 2026,
+            DepartmentCode = "DEP-FIN",
+            Category = "Supplies",
+            Month = 10,
+            BudgetAmount = 100000m,
+            CommittedAmount = 0m,
+            ActualAmount = 0m
+        });
+
+        // Reimbursement 1: submitted Oct 1 for 25,000 (status Validated)
+        var reim1 = new Reimbursement
+        {
+            ReimbursementId = 101,
+            ReferenceNumber = "REIM-OCT-01",
+            EmployeeId = "EMP-003",
+            Amount = 25000m,
+            DepartmentCode = "DEP-FIN",
+            Category = "Supplies",
+            FiscalYear = 2026,
+            Month = 10,
+            Status = "Validated",
+            SubmittedAt = oct1
+        };
+
+        // Reimbursement 2: submitted Oct 20 for 25,000 (status Validated)
+        var reim2 = new Reimbursement
+        {
+            ReimbursementId = 102,
+            ReferenceNumber = "REIM-OCT-02",
+            EmployeeId = "EMP-003",
+            Amount = 25000m,
+            DepartmentCode = "DEP-FIN",
+            Category = "Supplies",
+            FiscalYear = 2026,
+            Month = 10,
+            Status = "Validated",
+            SubmittedAt = oct20
+        };
+
+        context.Reimbursements.AddRange(reim1, reim2);
+        await context.SaveChangesAsync();
+
+        // Approve Reimbursement 1 (evaluated against Oct 1 threshold of 50k: 25k <= 50k -> succeeds!)
+        var approved1 = await disbService.ApproveReimbursementAsync(101, "EMP-001", "Finance Manager");
+        Assert.NotNull(approved1);
+        Assert.Equal("Approved", approved1.Status);
+
+        // Approve Reimbursement 2 (evaluated against Oct 15 threshold of 10k: 25k > 10k -> fails without CEO approval!)
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            disbService.ApproveReimbursementAsync(102, "EMP-001", "Finance Manager"));
+        Assert.Contains("requires CEO/President approval record", ex.Message);
+
+        // Once CEO approval is recorded for Reimbursement 2 -> approval succeeds!
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.Reimbursement,
+            ItemId = "102",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        var approved2 = await disbService.ApproveReimbursementAsync(102, "EMP-001", "Finance Manager");
+        Assert.NotNull(approved2);
+        Assert.Equal("Approved", approved2.Status);
+    }
+
+    [Fact]
+    public async Task BudgetTransfer_RealService_ApproveBudgetTransferAsync_BlockedWithoutCeoRecord_SucceedsWithRecord()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+        var budgetService = new BudgetService(context, gateService);
+
+        context.MonthlyBudgetLines.AddRange(
+            new MonthlyBudgetLine { BudgetLineId = 2001, FiscalYear = 2026, DepartmentCode = "DEP-FIN", Category = "Supplies", Month = 1, BudgetAmount = 50000m },
+            new MonthlyBudgetLine { BudgetLineId = 2002, FiscalYear = 2026, DepartmentCode = "DEP-DSP", Category = "Fuel", Month = 1, BudgetAmount = 50000m }
+        );
+
+        var transfer = new BudgetTransfer
+        {
+            TransferId = 201,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = "Transfer",
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        };
+        context.BudgetTransfers.Add(transfer);
+        await context.SaveChangesAsync();
+
+        // 1. Real service call fails without CEO approval record
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            budgetService.ApproveBudgetTransferAsync(201, "EMP-001", "Finance Manager"));
+        Assert.Contains("CEO/President approval record", ex.Message);
+
+        // 2. Record CEO approval
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetTransfer,
+            ItemId = "201",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        await gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant");
+
+        // 3. Real service call succeeds!
+        var approved = await budgetService.ApproveBudgetTransferAsync(201, "EMP-001", "Finance Manager");
+        Assert.NotNull(approved);
+        Assert.Equal("Approved", approved.Status);
+    }
+
+    [Fact]
+    public async Task BudgetOverride_RealService_ApproveBudgetOverrideAsync_BlockedWithoutCeoRecord_SucceedsWithRecord()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+        var budgetService = new BudgetService(context, gateService);
+
+        context.MonthlyBudgetLines.Add(
+            new MonthlyBudgetLine { BudgetLineId = 3001, FiscalYear = 2026, DepartmentCode = "DEP-FIN", Category = "Supplies", Month = 1, BudgetAmount = 50000m, CommittedAmount = 50000m }
+        );
+
+        var bOverride = new BudgetOverride
+        {
+            OverrideId = 301,
+            BudgetLineId = 3001,
+            RequestedAmount = 70000m,
+            OverBudgetAmount = 20000m,
+            Reason = "Emergency bulk order",
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            RequiresCeoApproval = true,
+            Status = "Pending"
+        };
+        context.BudgetOverrides.Add(bOverride);
+        await context.SaveChangesAsync();
+
+        // 1. Real service call fails without CEO approval record
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            budgetService.ApproveBudgetOverrideAsync(301, "EMP-001", "Finance Manager"));
+        Assert.Contains("CEO/President approval record", ex.Message);
+
+        // 2. Record CEO approval
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetOverride,
+            ItemId = "301",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // 3. Real service call succeeds!
+        var approved = await budgetService.ApproveBudgetOverrideAsync(301, "EMP-001", "Finance Manager");
+        Assert.NotNull(approved);
+        Assert.Equal("Approved", approved.Status);
     }
 }
