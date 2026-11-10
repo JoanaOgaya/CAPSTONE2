@@ -503,6 +503,8 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
 - **Role Alignment**: There is no Bookkeeper role in FOMS; authority conforms strictly to the four canonical roles in `IAM-01`.
 - **Reason Mandatory**: A non-empty reason is strictly required upon creation.
 - **Posting Lifecycle**: Created in `Pending` status. Financial impact (balance reduction, credit memo amount, GL posting) is blocked until the adjustment is approved before posting.
+- **Status Lifecycle Deviation**: Spec R4.4 specifies adjusting entry statuses as `Draft`, `Approved`, `Posted`, `Rejected`. Current FOMS implementation uses `Pending`, `Approved`, `Rejected` (where `Pending` represents unapproved draft/review state, and `Approved` immediately posts journal entries to General Ledger and applies invoice balance deductions). Logged as an active deviation.
+- **Maker-Checker & Approver Gap**: `ApproveAdjustmentCommandHandler` currently does not enforce role verification or block self-approval by the creator (`AdjustedBy == ApprovedBy`).
 - **Open Question `R4.11 q4`**: Who approves adjusting entries when the Finance Manager is the creator? (Logged as open question pending PO determination).
 
 ### 7. Unset CSH-09 Threshold Fail-Safe & Go-Live Setup (`PO Decision E`)
@@ -510,12 +512,12 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
 - **Clear Actionable Message**: If a cash outflow is initiated while the threshold is unset, the gate fails safely and outputs an explicit, actionable message to prevent silent blockage:
   `"Gate blocked: Setting (B) (CSH-09 CEO threshold) is not configured in Go-Live setup. Under PO Decision E, every cash outflow requires an in-person CEO/President approval record until a threshold is configured in System Settings by the Finance Manager. Transaction strictly requires CEO/President approval record for {itemType} '{itemId}'."`
 
-### 8. Department Rules Traced to `IAM-11` and `IAM-12`
+### 8. Department Rules Traced to `IAM-11` and `FIN-26` (with `R5.11 Item 5`)
 - **IAM-11 (Employee Records Department Independence)**:
   - Employee records (`dbo.Employees`) and user profile forms have **zero department field**.
   - Roles never depend on department. Personnel are structured strictly by `Position`, canonical `FOMS Role` (IAM-01), and optional `DMS Operational Role`.
   - Add Employee form in `ProfilePage.tsx` strictly presents 3 fields: Position, FOMS Role, DMS Role.
-- **IAM-12 (Mandatory Department & Immutability Governance on Expense Requests)**:
+- **FIN-26 & R5.11 Item 5 (Mandatory Department & Immutability Governance on Expense Requests)**:
   - Department code is strictly required on all financial expense transactions: budget lines, cash advances, direct disbursements, and reimbursements.
   - Zero default department: legacy `'DEP-OPS'` defaults dropped from database schemas and initialized to `string.Empty` in domain models.
   - Requesters have no default department; inbound DMS requests without a department enter `"Needs department"` status (`PO Decision C`).
