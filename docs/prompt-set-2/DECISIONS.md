@@ -115,3 +115,46 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
    - **Frontend Add Employee Test Coverage**: Added `employeeFormPositionAndRole.test.tsx` (5 comprehensive integration tests covering Position required, derived role, no default, no CEO option, and temporary password modal). Frontend test count raised from 159 to 164.
    - **Migration Rollback Validation**: `AddPositionAndRoleNormalization` tested on isolated test DB `FOMS_MIGRATION_TEST_DB` through full Up -> Down -> Up cycles. Role restoration and column drops verified.
    - **Secrets to Rotate for Release**: Demo accounts (`EMP-001` through `EMP-004`, `client.shopee`, `coordinator.*`) and their historical hashes flagged for rotation upon release.
+
+---
+
+## Phase 14 Schema & Governance Approvals (Confirmed 2026-11-10)
+
+1. **Test Counts Across All Four Components**:
+   - `FOMS.Tests.dll`: 312 passed, 0 failed, 0 skipped
+   - `foms-ai-gateway.Tests.dll`: 40 passed, 0 failed, 0 skipped
+   - `Frontend (Vitest)`: 164 passed across 16 test suites, 0 failed
+   - `AI-Service (pytest 9.2.0 on Python 3.11.9)`: 31 passed, 0 failed, 0 skipped
+   - **Grand Total**: 547 passed, 0 failed, 0 skipped
+
+2. **Setting (B) Configuration & Audit Schema (`dbo.CeoApprovalThresholdSettings`)**:
+   - `SettingKey` is not unique; supports historical effective dating (`EffectiveFrom`, `EffectiveTo`).
+   - Requests are evaluated against the threshold in force on the request creation date (`EffectiveFrom <= requestDate AND (EffectiveTo IS NULL OR EffectiveTo > requestDate)`).
+   - `ThresholdAmount` defaults to `NULL` (no default seed; strictly neither 10,000 nor 50,000).
+   - Fail-safe rule: when `ThresholdAmount` is `NULL`, transactions exceeding Limit (A) (`10,000.00`) mandate the CEO tick.
+   - Authority: Only Finance Manager may write. Setting (B) is rejected if lower than Limit (A) unless explicitly overridden.
+   - Dedicated change log: `dbo.CeoApprovalThresholdChangeLogs` captures `LogId`, `SettingId`, `OldAmount`, `NewAmount`, `ChangedBy`, `ChangedAt`, and mandatory `Reason`.
+
+3. **In-Person Approval Records Schema (`dbo.CeoApprovalRecords`)**:
+   - Record created only upon decision (`Approved` or `Rejected`). "Pending" is derived dynamically and never stored.
+   - Complete immutability: Database trigger strictly blocks all `UPDATE` and `DELETE` operations.
+   - Corrections: Recorded as new rows referencing `OriginalRecordId`, requiring `CorrectionReason` and confirmation by a second person (`CorrectionConfirmedBy`, `CorrectionConfirmedAt`). Gates evaluate the latest effective record.
+   - Database CHECK constraints:
+     - `ItemType` in 8 allowed items (`AnnualBudget`, `BudgetTransfer`, `BudgetCarryOver`, `BudgetOverride`, `Reimbursement`, `CashOutflow`, `InvoiceDiscount`, `AnnualFinancialStatement`).
+     - `RejectionReason` mandatory when `Status == 'Rejected'`.
+     - `HasAttachment = 1` permitted only on items 1, 6, and 8.
+     - `ApprovalDate` cannot be in the future (evaluated in `Asia/Manila` / UTC+8).
+   - Single active original record per `ItemType` + `ItemId` enforced by unique filtered index.
+   - `EnteredBy` references `dbo.Employees(Id)` and must be the Finance Manager.
+   - Items 2 & 3 (`BudgetTransfer`, `BudgetCarryOver`) mandate Head Accountant confirmation (`ConfirmedBy`, `ConfirmedAt`), where confirmer differs from requester and `EnteredBy`.
+
+4. **Attachment Security & Retention**:
+   - Magic bytes validation for PDF, JPG, PNG.
+   - 10 MB strict file size limit.
+   - Stored outside public web root (`Storage/SecureAttachments/CeoApprovals/`).
+   - File names sanitized with GUIDs; 5-year retention flag.
+   - Download restricted to Finance Manager and Head Accountant.
+
+5. **Legacy Approvals & Deprecations**:
+   - Database audit: Exactly 0 records in `FOMS_DB` are approved or released by `EMP-CEO` or containing `CEO`.
+   - Legacy `IsCeoOrPresident` checks removed from all 8 business gates; old approval roles marked deprecated.
