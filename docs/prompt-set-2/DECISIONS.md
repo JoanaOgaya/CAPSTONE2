@@ -306,4 +306,75 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
    - **Reimbursement CEO Tick Count**: Open Question: Does a reimbursement above the threshold need one tick (`Item 5: Reimbursement`) or two (`Item 5: Reimbursement` and `Item 6: CashOutflow`)?
    - **General Ledger Postings (R4.5)**: Phase 18 events currently record cash flows and update budget lines, but do not yet post double-entry general ledger journal entries (`dbo.GeneralLedgerEntries`). These journal entries will be integrated into the Centralized Double-Entry Engine in Phase 19.
 
+---
+
+## Phase 19 Governance, Chart of Accounts (R4.6), and Posting Architecture (2026-11-10)
+
+### 1. Test Suite Audit & Frontend Baseline
+- **Audit Findings**: The 18-file list referenced in step 3248 was a hallucinated model output block generated while task-3244 was running asynchronously. Task-3244's actual execution log on disk (`.system_generated/tasks/task-3244.log` and step 3252 system notification) completed with **16 test files (164 tests)**.
+- **Current Baseline**: 16 test files, 165 tests (with the rejection dropdown test added in `emp001Flow.test.tsx`), all passing cleanly.
+- **Full Verification**: Git history, reflog, stash, and full recursive disk search confirm zero deleted or missing test files.
+
+### 2. Standardized Chart of Accounts (R4.6 Alignment)
+The general ledger strictly adopts the R4.6 account codes without collision or reuse:
+
+| Account Code | Account Title | Category / Flow | Source / Status |
+|---|---|---|---|
+| **1010** | Cash on Hand | Asset | Addition (Petty Cash / Physical Cash Collections & Inflows; R4.11 q2) |
+| **1020** | Cash in Bank | Asset | Addition (Operating Bank Account Deposits / Releases; R4.11 q2) |
+| **1030** | Petty Cash | Asset | Addition (Mapped to 1010 pending Finance confirmation; R4.11 q2) |
+| **1100** | Accounts Receivable (Trade) | Asset | R4.6 Standard |
+| **1150** | Advances to Officers & Employees | Asset | R4.6 Standard |
+| **2010** | Reimbursements Payable | Liability | R4.6 Standard |
+| **2100** | Output VAT Payable | Liability | R4.6 Standard |
+| **2110** | Unapplied Client Credits | Liability | R4.6 Standard |
+| **2120** | Unidentified Payments Held | Liability | R4.6 Standard |
+| **2130** | Accounts Payable (Trade) | Liability | Addition (Non-employee trade payables; R4.11 q2) |
+| **2200** | Accrued Expenses | Liability | R4.6 Standard |
+| **3010** | Common Stock | Equity | R4.6 Standard |
+| **3020** | Additional Paid-in Capital | Equity | R4.6 Standard |
+| **3030** | Retained Earnings | Equity | R4.6 Standard |
+| **4010** | Freight Revenue | Revenue | R4.6 Standard |
+| **4020** | Valuation Charge Revenue | Revenue | R4.6 Standard |
+| **4030** | ODA (Out-of-Delivery Area) Revenue | Revenue | R4.6 Standard |
+| **4040** | Fuel Surcharge Revenue | Revenue | R4.6 Standard |
+| **4900** | Sales Discounts | Contra-Revenue | R4.6 Standard (Approved discounts) |
+| **4910** | Cargo Claims & Sales Allowances | Contra-Revenue | R4.6 Standard (Credit memos / claims) |
+| **5010** | Fuel | Expense | R4.6 Standard |
+| **5020** | Toll | Expense | R4.6 Standard |
+| **5030** | Parking | Expense | R4.6 Standard |
+| **5040** | Food Allowance | Expense | R4.6 Standard |
+| **5050** | Vulcanizing | Expense | R4.6 Standard |
+| **5060** | Repairs & Maintenance | Expense | R4.6 Standard |
+| **5070** | Hotel & Lodging | Expense | R4.6 Standard |
+| **5080** | Office Supplies | Expense | R4.6 Standard |
+| **5090** | Miscellaneous Operating Expense | Expense | R4.6 Standard |
+
+### 3. Double-Entry Posting Rules (R4.5 Strict Alignment)
+- **Central Double-Entry Engine**: Every posted entry balances ($\sum \text{Debits} == \sum \text{Credits}$). Unbalanced entries are rejected.
+- **Line Metadata**: Every entry line carries `AccountCode`, `DepartmentCode`, and `Category`.
+- **Database Immutability**: Enforced via SQL Server triggers on `dbo.JournalEntries` and `dbo.GeneralLedgerEntries` (no `UPDATE` or `DELETE`).
+- **Period Locking**: Posting fails with validation error if target date falls within a locked accounting period (`AccountingPeriods.IsLocked = 1`).
+- **Commitments**: Commitments remain strictly out of the general ledger and are tracked purely in budget control tables.
+- **Posting Events Summary**:
+  1. **Invoice Sent**: `Dr Accounts Receivable [1100]` / `Cr Freight Revenue [4010]`, `Cr Valuation Charge Revenue [4020]`, `Cr ODA Revenue [4030]`, `Cr Fuel Surcharge Revenue [4040]`, `Cr Output VAT Payable [2100]`.
+  2. **Invoice Void**: Reverses Sent entry only if previously posted.
+  3. **Invoice Approved Discount**: `Dr Sales Discounts [4900]` / `Cr Accounts Receivable [1100]`.
+  4. **Validated Payment**: `Dr Cash in Bank [1020]` / `Cr Accounts Receivable [1100]`.
+  5. **Overpayment**: `Dr Cash in Bank [1020]` / `Cr Unapplied Client Credits [2110]` held for Finance resolution (invoice NEVER directly marked Paid per `PAY-10`).
+  6. **Unidentified Payment**: `Dr Cash in Bank [1020]` / `Cr Unidentified Payments Held [2120]`.
+  7. **Credit Memo (Paid Invoice)**: `Dr Cargo Claims & Sales Allowances [4910]` / `Cr Unapplied Client Credits [2110]`.
+  8. **Cash Advance Release**: `Dr Advances to Officers & Employees [1150]` / `Cr Cash in Bank [1020]` (or Cash on Hand [1010]).
+  9. **Liquidation Validated**: `Dr Expense [5010-5090] by Category` / `Cr Advances to Officers & Employees [1150]`.
+  10. **Leftover Cash Returned**: `Dr Cash on Hand [1010]` / `Cr Advances to Officers & Employees [1150]`.
+  11. **Reimbursement Approved**: `Dr Expense [5010-5090] by Category` / `Cr Reimbursements Payable [2010]`.
+  12. **Reimbursement Paid**: `Dr Reimbursements Payable [2010]` / `Cr Cash in Bank [1020]` (or Cash on Hand [1010]).
+  13. **Direct Disbursement Released**: `Dr Expense [5010-5090] by Category` / `Cr Cash in Bank [1020]` (or Cash on Hand [1010]).
+
+### 4. Tie-Out Verifications
+1. **AR to Aging (`ARC-07`)**: Account `1100` ledger balance == Total Outstanding in AR Aging Report.
+2. **Cash to Net Cash & Bank Rec**: Accounts `1010 + 1020` == Ending Cash in Net Cash Flow and Bank Reconciliation unadjusted book balance.
+3. **Advances to Unliquidated List**: Account `1150` == Total outstanding unliquidated cash advances.
+
+
 
