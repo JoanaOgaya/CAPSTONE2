@@ -449,12 +449,20 @@ public class InvoiceDocumentLifecycleAndAgingTests
         Assert.Equal(3000m, Convert.ToDecimal(GetValueProp(summary, "bucket1To30")));
         Assert.Equal(4000m, Convert.ToDecimal(GetValueProp(summary, "bucket90Plus")));
 
-        // 2. Excel / CSV Export
+        // 2. Excel (.xlsx per ARC-04) and CSV Export
         var exportRes = await controller.ExportAgingReportExcel(dueSoonDays: 7);
         var fileResult = Assert.IsType<FileContentResult>(exportRes);
-        Assert.Equal("text/csv; charset=utf-8", fileResult.ContentType);
-        Assert.Contains("Weekly_AR_Aging_Report_", fileResult.FileDownloadName);
-        var content = System.Text.Encoding.UTF8.GetString(fileResult.FileContents);
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileResult.ContentType);
+        Assert.EndsWith(".xlsx", fileResult.FileDownloadName);
+        Assert.True(fileResult.FileContents.Length > 0);
+        Assert.Equal(0x50, fileResult.FileContents[0]);
+        Assert.Equal(0x4B, fileResult.FileContents[1]);
+
+        var exportCsvRes = await controller.ExportAgingReportExcel(dueSoonDays: 7, format: "csv");
+        var csvFileResult = Assert.IsType<FileContentResult>(exportCsvRes);
+        Assert.Equal("text/csv; charset=utf-8", csvFileResult.ContentType);
+        Assert.EndsWith(".csv", csvFileResult.FileDownloadName);
+        var content = System.Text.Encoding.UTF8.GetString(csvFileResult.FileContents);
         Assert.Contains("WEEKLY ACCOUNTS RECEIVABLE AGING REPORT", content);
         Assert.Contains("Client A", content);
         Assert.Contains("Client B", content);

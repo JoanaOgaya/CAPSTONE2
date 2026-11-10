@@ -9,7 +9,9 @@ using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 using FOMS.Api.Controllers;
@@ -46,6 +48,20 @@ public class Phase17AccountsReceivableAndPaymentsTests
             .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new FomsDbContext(options);
+    }
+
+    private static AuthService CreateAuthService(ApplicationDbContext context)
+    {
+        var cfg = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["JwtSettings:Secret"] = new string('k', 48),
+            ["JwtSettings:Issuer"] = "FOMS",
+            ["JwtSettings:Audience"] = "FOMS_Audience",
+            ["JwtSettings:AccessTokenExpirationMinutes"] = "60",
+            ["JwtSettings:RefreshTokenExpirationDays"] = "7"
+        }).Build();
+
+        return new AuthService(context, cfg, NullLogger<AuthService>.Instance);
     }
 
     private static ClaimsPrincipal CreatePrincipal(string role, string name, string empId, string? clientId = null)
@@ -443,6 +459,26 @@ public class Phase17AccountsReceivableAndPaymentsTests
 
         // 4. Zero cash outflow (BIL-05 / C2 FR-032)
         Assert.Equal(initialCashFlowCount, await appDb.CashFlowTransactions.CountAsync());
+
+        // 5. R4.5: Post Dr Cargo Claims (Sales Allowances) / Cr Unapplied Client Credits
+        var je = await appDb.JournalEntries.FirstOrDefaultAsync(j => j.InvoiceId == paidInvoice.Id);
+        Assert.NotNull(je);
+        Assert.True(je.Posted);
+        Assert.Contains("Dr Cargo Claims (Sales Allowances) / Cr Unapplied Client Credits", je.Description);
+
+        var glEntries = await appDb.GeneralLedgerEntries.Where(g => g.JournalEntryId == je.Id).ToListAsync();
+        Assert.Equal(2, glEntries.Count);
+        var debitEntry = glEntries.FirstOrDefault(g => g.Debit == 300m && g.Credit == 0m);
+        var creditEntry = glEntries.FirstOrDefault(g => g.Credit == 300m && g.Debit == 0m);
+        Assert.NotNull(debitEntry);
+        Assert.NotNull(creditEntry);
+
+        var cargoClaimsAcct = await appDb.ChartOfAccounts.FindAsync(debitEntry.AccountId);
+        var unappliedCreditsAcct = await appDb.ChartOfAccounts.FindAsync(creditEntry.AccountId);
+        Assert.NotNull(cargoClaimsAcct);
+        Assert.NotNull(unappliedCreditsAcct);
+        Assert.Equal("4200", cargoClaimsAcct.AccountCode);
+        Assert.Equal("2160", unappliedCreditsAcct.AccountCode);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -553,6 +589,16 @@ public class Phase17AccountsReceivableAndPaymentsTests
         {
             Assert.DoesNotContain("The AR ledger total must equal the aging report total", br.Value?.ToString() ?? "");
         }
+
+        // ARC-04: Export aging report as real .xlsx
+        var exportResult = await invoicesController.ExportAgingReportExcel(dueSoonDays: 7, format: "xlsx");
+        var fileResult = Assert.IsType<FileContentResult>(exportResult);
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileResult.ContentType);
+        Assert.EndsWith(".xlsx", fileResult.FileDownloadName);
+        Assert.True(fileResult.FileContents.Length > 0);
+        // Valid ZIP/XLSX magic bytes (0x50, 0x4B)
+        Assert.Equal(0x50, fileResult.FileContents[0]);
+        Assert.Equal(0x4B, fileResult.FileContents[1]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -564,6 +610,34 @@ public class Phase17AccountsReceivableAndPaymentsTests
         using var appDb = CreateAppDb(nameof(Client_NeverSeesAnotherClientsBillingAmounts_IAM06));
         using var fomsDb = CreateFomsDb(nameof(Client_NeverSeesAnotherClientsBillingAmounts_IAM06));
 
+        // 1. IAM-06 Verification: Clients have NO role and NO login in FOMS
+        Assert.DoesNotContain("Client", FOMS.Domain.Constants.FomsRoles.AllCanonicalRoles);
+        Assert.False(FOMS.Domain.Constants.FomsRoles.IsRole("Client", FOMS.Domain.Constants.FomsRoles.AllCanonicalRoles));
+
+        var authService = CreateAuthService(appDb);
+
+        // Attempting to login with a client ID throws UnauthorizedAccessException
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            authService.LoginAsync("CL-SHOPEE", "Password@123"));
+
+        // Even if an employee record somehow had Role = "Client", Login rejects it
+        appDb.Employees.Add(new Employee
+        {
+            Id = "EMP-ROGUE-CLIENT",
+            Username = "client.shopee",
+            Name = "Shopee Client User",
+            Role = "Client",
+            Position = "Client Representative",
+            Status = "Active",
+            IsActive = true,
+            PasswordHash = "PBKDF2$100000$saltsalt$dummyhash"
+        });
+        await appDb.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            authService.LoginAsync("EMP-ROGUE-CLIENT", "Password@123"));
+
+        // 2. Data Scoping Verification: Invoices show only their own client's amounts
         var lazadaInvoice = new Invoice
         {
             Id = "INV-LZD-01",
@@ -588,23 +662,25 @@ public class Phase17AccountsReceivableAndPaymentsTests
         await appDb.SaveChangesAsync();
 
         var controller = new InvoicesController(appDb, fomsDb);
+        // Authenticated internal staff viewing client-filtered invoices
+        SetContext(controller, CreatePrincipal("Accountant", "Staff User", "EMP-003"));
 
-        // Client token for Shopee
-        SetContext(controller, CreatePrincipal("Client", "Shopee User", "CLIENT-SHP", clientId: "CL-SHOPEE"));
+        // A. Direct access to a specific invoice returns only that invoice's client amounts
+        var accessShopeeResult = await controller.GetById("INV-SHP-01");
+        var okSingle = Assert.IsType<OkObjectResult>(accessShopeeResult);
+        Assert.Equal("CL-SHOPEE", GetValueProp(okSingle.Value, "clientId")?.ToString());
+        Assert.Equal(80000m, Convert.ToDecimal(GetValueProp(okSingle.Value, "totalAmount")));
 
-        // A. Direct access to another client's invoice hides data (returns 404/NotFound)
-        var accessLazadaResult = await controller.GetById("INV-LZD-01");
-        Assert.IsType<NotFoundObjectResult>(accessLazadaResult);
-
-        // B. Querying invoice list filters strictly to Shopee; Lazada amounts never leaked
-        var listResult = await controller.GetInvoices(null);
+        // B. Querying invoice list filtered by client returns only that client's invoices; other client never leaked
+        var listResult = await controller.GetInvoices(clientId: "CL-SHOPEE");
         var okList = Assert.IsType<OkObjectResult>(listResult);
         var returnedInvoices = Assert.IsAssignableFrom<IEnumerable<object>>(okList.Value).ToList();
         Assert.Single(returnedInvoices);
 
-        // C. Access to own invoice succeeds
-        var accessShopeeResult = await controller.GetById("INV-SHP-01");
-        Assert.IsType<OkObjectResult>(accessShopeeResult);
+        var singleInv = returnedInvoices.First();
+        Assert.Equal("INV-SHP-01", GetValueProp(singleInv, "invoiceNo")?.ToString());
+        Assert.Equal(80000m, Convert.ToDecimal(GetValueProp(singleInv, "totalAmount")));
+        Assert.DoesNotContain(returnedInvoices, inv => string.Equals(GetValueProp(inv, "invoiceNo")?.ToString(), "INV-LZD-01"));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
