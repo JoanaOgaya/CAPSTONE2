@@ -153,6 +153,8 @@ public class FinancePaymentsController : ControllerBase
             return BadRequest(new { message = "Cannot approve payment for a void invoice. Void is terminal." });
         }
 
+
+
         BillingComputationService.RecalculateInvoice(invoice);
 
         // Reject overpayment

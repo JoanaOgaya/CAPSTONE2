@@ -722,7 +722,7 @@ public class InvoicesController : ApiControllerBase
 
             if (_gateService != null)
             {
-                string discountItemId = submission.InvoiceNo ?? submission.ClientId ?? "NEW_INVOICE";
+                string discountItemId = invNo;
                 var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, discountItemId, discountAmount);
                 if (!gateCheck.IsSatisfied)
                 {
@@ -1021,7 +1021,16 @@ public class InvoicesController : ApiControllerBase
                     break;
 
                 case "verify":
+                    if (_gateService != null && (invoice.DiscountAmount > 0m || invoice.DiscountRate > 0m))
+                    {
+                        var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, invoice.InvoiceNo, invoice.DiscountAmount);
+                        if (!gateCheck.IsSatisfied)
+                        {
+                            return BadRequest(new { message = $"Invoice discount strictly requires an in-person CEO/President approval record for invoice '{invoice.InvoiceNo}'. Record CEO approval before verifying/approving invoice." });
+                        }
+                    }
                     invoice.Verify(userId, role);
+                    await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
                     break;
 
                 case "return":
@@ -1035,14 +1044,22 @@ public class InvoicesController : ApiControllerBase
                     break;
 
                 case "approve":
+                    if (_gateService != null && (invoice.DiscountAmount > 0m || invoice.DiscountRate > 0m))
+                    {
+                        var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, invoice.InvoiceNo, invoice.DiscountAmount);
+                        if (!gateCheck.IsSatisfied)
+                        {
+                            return BadRequest(new { message = $"Invoice discount strictly requires an in-person CEO/President approval record for invoice '{invoice.InvoiceNo}'. Record CEO approval before approving invoice." });
+                        }
+                    }
                     invoice.Approve(userId, role);
-                    await BillingComputationService.RecognizeAccrualRevenueAsync(invoice, _context);
                     await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
                     break;
 
                 case "send":
                 case "dispatch":
                     invoice.Send(userId, role);
+                    await BillingComputationService.RecognizeAccrualRevenueAsync(invoice, _context);
                     await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
                     break;
 
@@ -1066,14 +1083,10 @@ public class InvoicesController : ApiControllerBase
                     break;
 
                 case "void":
-                    if (oldStatus == InvoiceDocumentStatus.Approved)
+                    invoice.Void(userId, role, reason);
+                    if (invoice.AccrualRevenueRecognized)
                     {
-                        invoice.Void(userId, role, reason);
                         await BillingComputationService.ReverseAccrualRevenueAsync(invoice, _context, reason);
-                    }
-                    else
-                    {
-                        invoice.Void(userId, role, reason);
                     }
 
                     // Release waybills locked to this invoice so they can be re-billed

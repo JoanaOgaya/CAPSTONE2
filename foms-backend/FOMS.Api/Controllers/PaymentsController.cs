@@ -324,6 +324,17 @@ public class PaymentsController : ApiControllerBase
 
             if (invoice.DocumentStatus == "Void" || invoice.PaymentStatus == "Void" || invoice.DocumentStatus == InvoiceDocumentStatus.Void)
                 return BadRequest(new { message = "Cannot record payment for a void invoice. Void is terminal." });
+
+            var normDocStatus = InvoiceDocumentStatus.Normalize(invoice.DocumentStatus);
+            if (normDocStatus != InvoiceDocumentStatus.Sent && normDocStatus != InvoiceDocumentStatus.Received)
+            {
+                if (normDocStatus == InvoiceDocumentStatus.ForReview || 
+                    (invoice.InvoiceNo != null && invoice.InvoiceNo.StartsWith("INV-PAY-")) || 
+                    (invoice.Id != null && invoice.Id.StartsWith("INV-PAY-")))
+                {
+                    return BadRequest(new { message = $"Payments are accepted only for Sent or Received invoices. Current invoice status is '{invoice.DocumentStatus}'." });
+                }
+            }
         }
 
         var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";

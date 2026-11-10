@@ -7,8 +7,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace FOMS.Infrastructure.Migrations
 {
-    [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261117190000_AddDepartmentControlAndChangeLogs")]
     public partial class AddDepartmentControlAndChangeLogs : Migration
     {
         /// <inheritdoc />
