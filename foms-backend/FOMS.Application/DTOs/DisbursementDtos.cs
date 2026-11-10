@@ -77,7 +77,7 @@ public class RequestCashAdvanceDto
     [Range(0.01, 100000000, ErrorMessage = "Amount must be greater than zero.")]
     public decimal Amount { get; set; }
     [Required]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
     [Required]
     public string Category { get; set; } = "Fuel";
     public string LocationType { get; set; } = "NCR"; // NCR, Luzon, Out-of-Area
@@ -117,7 +117,7 @@ public class CashAdvanceResponseDto
 public class RequestDirectDisbursementDto
 {
     [Required]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
     [Required]
     public string Category { get; set; } = "Repairs and Maintenance";
     [Range(0.01, 100000000)]
@@ -159,7 +159,7 @@ public class SubmitReimbursementDto
     [Required]
     public string EmployeeName { get; set; } = string.Empty;
     [Required]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
     [Required]
     public string Category { get; set; } = "Food allowance";
     [Range(0.01, 100000000)]

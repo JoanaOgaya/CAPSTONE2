@@ -439,11 +439,13 @@ public class BudgetService : IBudgetService
         decimal available = line.Available;
         decimal overBudgetAmount = request.RequestedAmount > available ? request.RequestedAmount - available : 0m;
 
-        // Fetch active Setting (B) threshold limit (fail-safe to Limit A if unset)
+        // Fetch active Setting (B) threshold limit (Decision E: unset means all overrides require CEO approval)
         var ceoSetting = await _gateService.GetCurrentThresholdAsync(DateTime.UtcNow);
         decimal threshold = ceoSetting.EffectiveCeoLimit;
 
-        bool requiresCeo = overBudgetAmount > threshold;
+        bool requiresCeo = !ceoSetting.ThresholdAmount.HasValue
+            ? overBudgetAmount > 0
+            : overBudgetAmount > ceoSetting.ThresholdAmount.Value;
 
         var budgetOverride = new BudgetOverride
         {

@@ -76,7 +76,7 @@ public class CeoApprovalsController : ControllerBase
     public async Task<IActionResult> ExportExcel([FromQuery] string? itemType, [FromQuery] string? status)
     {
         var bytes = await _gateService.ExportRecordsToExcelAsync(itemType, status);
-        return File(bytes, "text/csv; charset=utf-8", $"ceo_approval_records_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv");
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"ceo_approval_records_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx");
     }
 
     [HttpPost]

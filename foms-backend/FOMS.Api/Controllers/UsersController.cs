@@ -20,6 +20,18 @@ public class UsersController : ControllerBase
         _userService = userService;
     }
 
+    [HttpGet("positions")]
+    [AllowAnonymous]
+    public IActionResult GetPositions()
+    {
+        return Ok(new
+        {
+            financePositions = FOMS.Domain.Constants.EmployeePositions.FinancePositions,
+            nonFinancePositions = FOMS.Domain.Constants.EmployeePositions.AssumedNonFinancePositions,
+            dmsRoles = FOMS.Domain.Constants.EmployeePositions.AllowedDmsRoles
+        });
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {

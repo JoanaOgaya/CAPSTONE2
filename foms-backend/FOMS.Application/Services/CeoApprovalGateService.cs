@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using ClosedXML.Excel;
 using FOMS.Application.DTOs;
 using FOMS.Application.Interfaces;
 using FOMS.Domain.Constants;
@@ -90,6 +91,10 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 {
                     exists = await _context.Reimbursements.AnyAsync(r => r.ReimbursementId == reimId, ct);
                 }
+                if (!exists)
+                {
+                    exists = await _context.Reimbursements.AnyAsync(r => r.ReferenceNumber == itemId, ct);
+                }
                 break;
 
             case CeoApprovalItemTypes.CashOutflow:
@@ -101,7 +106,6 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 break;
 
             case CeoApprovalItemTypes.InvoiceDiscount:
-            case CeoApprovalItemTypes.BadDebtWriteOff:
                 exists = await _context.Waybills.AnyAsync(w => w.InvoiceNo == itemId, ct) ||
                          await _context.Invoices.AnyAsync(i => i.InvoiceNo == itemId, ct) ||
                          !string.IsNullOrWhiteSpace(itemId);
@@ -149,20 +153,21 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             .OrderByDescending(s => s.EffectiveFrom)
             .FirstOrDefaultAsync(ct);
 
-        if (setting == null)
+        if (setting == null || !setting.ThresholdAmount.HasValue)
         {
             return new CeoApprovalThresholdDto
             {
-                SettingId = 0,
+                SettingId = setting?.SettingId ?? 0,
                 SettingKey = "CSH-09_CEO_THRESHOLD",
                 ThresholdAmount = null,
-                EffectiveCeoLimit = limitA,
+                // Product Owner Decision E: An unset CSH-09 threshold: every cash outflow requires CEO approval. No amount is assumed.
+                EffectiveCeoLimit = 0m,
                 Currency = "PHP",
-                EffectiveFrom = DateTime.UtcNow,
-                EffectiveTo = null,
-                IsActive = true,
-                UpdatedBy = "System (Fail-safe)",
-                UpdatedAt = DateTime.UtcNow
+                EffectiveFrom = setting?.EffectiveFrom ?? DateTime.UtcNow,
+                EffectiveTo = setting?.EffectiveTo,
+                IsActive = setting?.IsActive ?? true,
+                UpdatedBy = setting?.UpdatedBy ?? "System (Fail-safe)",
+                UpdatedAt = setting?.UpdatedAt ?? DateTime.UtcNow
             };
         }
 
@@ -171,7 +176,8 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             SettingId = setting.SettingId,
             SettingKey = setting.SettingKey,
             ThresholdAmount = setting.ThresholdAmount,
-            EffectiveCeoLimit = setting.ThresholdAmount ?? limitA,
+            // When threshold is configured, use the configured threshold
+            EffectiveCeoLimit = setting.ThresholdAmount.Value,
             Currency = setting.Currency,
             EffectiveFrom = setting.EffectiveFrom,
             EffectiveTo = setting.EffectiveTo,
@@ -275,7 +281,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
 
         bool isRequired = false;
         bool usedFailSafe = thresholdDto.IsUnsetFailSafe;
-        decimal effectiveCeoLimit = thresholdDto.EffectiveCeoLimit;
+        decimal? thresholdInForce = thresholdDto.ThresholdAmount;
 
         if (CeoApprovalItemTypes.AlwaysRequiredTypes.Contains(itemType))
         {
@@ -284,9 +290,14 @@ public class CeoApprovalGateService : ICeoApprovalGateService
         else
         {
             // Threshold-dependent items: BudgetOverride, Reimbursement, CashOutflow
-            if (amount.HasValue)
+            // Product Owner Decision E: An unset CSH-09 threshold: every cash outflow requires CEO approval. No amount is assumed.
+            if (!thresholdDto.ThresholdAmount.HasValue)
             {
-                isRequired = amount.Value > effectiveCeoLimit;
+                isRequired = true;
+            }
+            else if (amount.HasValue)
+            {
+                isRequired = amount.Value > thresholdDto.ThresholdAmount.Value;
             }
             else
             {
@@ -303,7 +314,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 ItemType = itemType,
                 ItemId = itemId,
                 EvaluatedAmount = amount,
-                ThresholdInForce = effectiveCeoLimit,
+                ThresholdInForce = thresholdInForce,
                 UsedFailSafeLimit = usedFailSafe,
                 Message = "No CEO/President approval record required for this transaction."
             };
@@ -325,7 +336,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 ItemType = itemType,
                 ItemId = itemId,
                 EvaluatedAmount = amount,
-                ThresholdInForce = effectiveCeoLimit,
+                ThresholdInForce = thresholdInForce,
                 UsedFailSafeLimit = usedFailSafe,
                 Message = $"Gate blocked: Transaction strictly requires CEO/President approval record for {itemType} '{itemId}'."
             };
@@ -389,7 +400,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             ItemType = itemType,
             ItemId = itemId,
             EvaluatedAmount = amount,
-            ThresholdInForce = effectiveCeoLimit,
+            ThresholdInForce = thresholdInForce,
             UsedFailSafeLimit = usedFailSafe,
             Message = isEffective ? "CEO/President approval record is satisfied." : detailMessage,
             EffectiveRecord = dto
@@ -472,6 +483,10 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             attachmentPath = saved.Path;
             attachmentFileName = saved.FileName;
             hasAttachment = true;
+        }
+        else if (request.Status == "Approved" && CeoApprovalItemTypes.AttachmentMandatoryTypes.Contains(request.ItemType))
+        {
+            throw new ArgumentException($"Item 8 ({request.ItemType}) strictly requires an attachment.");
         }
 
         var record = new CeoApprovalRecord
@@ -556,6 +571,10 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             attachmentPath = saved.Path;
             attachmentFileName = saved.FileName;
             hasAttachment = true;
+        }
+        else if (request.Status == "Approved" && CeoApprovalItemTypes.AttachmentMandatoryTypes.Contains(request.ItemType))
+        {
+            throw new ArgumentException($"Item 8 ({request.ItemType}) strictly requires an attachment.");
         }
 
         var correctionRecord = new CeoApprovalRecord
@@ -864,18 +883,49 @@ public class CeoApprovalGateService : ICeoApprovalGateService
     public async Task<byte[]> ExportRecordsToExcelAsync(string? itemType = null, string? status = null, CancellationToken ct = default)
     {
         var records = await GetRecordsAsync(itemType, status, null, ct);
-        var sb = new StringBuilder();
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("CEO Approval Records");
 
-        // CSV formatted for Excel
-        sb.AppendLine("Record ID,Item Type,Item ID,Status,Approver Label,Entered By,Entered At (UTC),Approval Date,Attachment Flag,File Name,Is Correction,Original Record ID,Effective");
-
-        foreach (var r in records)
+        var headers = new[]
         {
+            "Record ID", "Item Type", "Item ID", "Status", "Approver Label",
+            "Entered By", "Entered At (UTC)", "Approval Date", "Attachment Flag",
+            "File Name", "Rejection Reason", "Notes", "Is Correction", "Original Record ID", "Effective"
+        };
+
+        for (int i = 0; i < headers.Length; i++)
+        {
+            worksheet.Cell(1, i + 1).Value = headers[i];
+        }
+        worksheet.Row(1).Style.Font.Bold = true;
+
+        for (int rIndex = 0; rIndex < records.Count; rIndex++)
+        {
+            var r = records[rIndex];
+            int row = rIndex + 2;
             string attachmentFlag = r.HasAttachment ? "Attached" : (CeoApprovalItemTypes.AttachmentAllowedTypes.Contains(r.ItemType) ? "No attachment" : "N/A");
-            sb.AppendLine($"{r.RecordId},\"{r.ItemType}\",\"{r.ItemId}\",\"{r.Status}\",\"{r.ApproverLabel}\",\"{r.EnteredBy}\",\"{r.EnteredAt:yyyy-MM-dd HH:mm:ss}\",\"{r.ApprovalDate:yyyy-MM-dd}\",\"{attachmentFlag}\",\"{r.AttachmentFileName ?? ""}\",{r.IsCorrection},\"{r.OriginalRecordId}\",{r.IsEffective}");
+
+            worksheet.Cell(row, 1).Value = r.RecordId;
+            worksheet.Cell(row, 2).Value = r.ItemType;
+            worksheet.Cell(row, 3).Value = r.ItemId;
+            worksheet.Cell(row, 4).Value = r.Status;
+            worksheet.Cell(row, 5).Value = r.ApproverLabel;
+            worksheet.Cell(row, 6).Value = r.EnteredBy;
+            worksheet.Cell(row, 7).Value = r.EnteredAt.ToString("yyyy-MM-dd HH:mm:ss");
+            worksheet.Cell(row, 8).Value = r.ApprovalDate.ToString("yyyy-MM-dd");
+            worksheet.Cell(row, 9).Value = attachmentFlag;
+            worksheet.Cell(row, 10).Value = r.AttachmentFileName ?? string.Empty;
+            worksheet.Cell(row, 11).Value = r.RejectionReason ?? string.Empty;
+            worksheet.Cell(row, 12).Value = r.Notes ?? string.Empty;
+            worksheet.Cell(row, 13).Value = r.IsCorrection;
+            worksheet.Cell(row, 14).Value = r.OriginalRecordId?.ToString() ?? string.Empty;
+            worksheet.Cell(row, 15).Value = r.IsEffective;
         }
 
-        return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+        worksheet.Columns().AdjustToContents();
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 
     private static CeoApprovalRecordDto MapToDto(CeoApprovalRecord r, List<CeoApprovalConfirmation> confirmations, bool isEffective)

@@ -134,8 +134,8 @@ public class Phase20Rev5ApprovalsAndEmployeesTests
         Assert.True(check6.IsRequired);
         Assert.False(check6.IsSatisfied);
 
-        // 7. Bad debt write-off
-        var check7 = await gateService.CheckGateAsync(CeoApprovalItemTypes.BadDebtWriteOff, "INV-2026-001");
+        // 7. Invoice discount around 10%
+        var check7 = await gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, "INV-2026-001");
         Assert.True(check7.IsRequired);
         Assert.False(check7.IsSatisfied);
 
@@ -323,8 +323,8 @@ public class Phase20Rev5ApprovalsAndEmployeesTests
     [InlineData(CeoApprovalItemTypes.BudgetTransfer, "101")]
     [InlineData(CeoApprovalItemTypes.BudgetCarryOver, "102")]
     [InlineData(CeoApprovalItemTypes.BudgetOverride, "103")]
+    [InlineData(CeoApprovalItemTypes.Reimbursement, "104")]
     [InlineData(CeoApprovalItemTypes.InvoiceDiscount, "INV-001")]
-    [InlineData(CeoApprovalItemTypes.BadDebtWriteOff, "INV-002")]
     public async Task CreateCeoApprovalRecord_TickOnlyItems_RejectAttachment_And_SucceedWithoutAttachment(string itemType, string itemId)
     {
         using var context = CreateInMemoryDbContext();
@@ -335,6 +335,8 @@ public class Phase20Rev5ApprovalsAndEmployeesTests
             context.BudgetTransfers.Add(new BudgetTransfer { TransferId = int.Parse(itemId), Status = "Pending", Amount = 5000 });
         else if (itemType == CeoApprovalItemTypes.BudgetOverride)
             context.BudgetOverrides.Add(new BudgetOverride { OverrideId = int.Parse(itemId), Status = "Pending", RequestedAmount = 5000 });
+        else if (itemType == CeoApprovalItemTypes.Reimbursement)
+            context.Reimbursements.Add(new Reimbursement { ReimbursementId = int.Parse(itemId), ReferenceNumber = $"REIM-{itemId}", Status = "Validated", Amount = 5000, DepartmentCode = "DEP-FIN" });
 
         await context.SaveChangesAsync();
 
@@ -374,7 +376,6 @@ public class Phase20Rev5ApprovalsAndEmployeesTests
     [InlineData(CeoApprovalItemTypes.CashOutflow, "CA-2026-001")] // Cash advance outflow
     [InlineData(CeoApprovalItemTypes.CashOutflow, "10")] // Direct disbursement outflow
     [InlineData(CeoApprovalItemTypes.CashOutflow, "REIM-2026-001")] // Reimbursement outflow
-    [InlineData(CeoApprovalItemTypes.AnnualFinancialStatement, "2026")] // Item 8 AFS
     public async Task CreateCeoApprovalRecord_OptionalAttachmentItems_SucceedWithOrWithoutAttachment(string itemType, string itemId)
     {
         using var context = CreateInMemoryDbContext();

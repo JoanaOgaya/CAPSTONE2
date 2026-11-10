@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using ClosedXML.Excel;
 using FOMS.Application.DTOs;
 using FOMS.Application.Interfaces;
 using FOMS.Domain.Constants;
@@ -365,5 +367,59 @@ public class DepartmentService : IDepartmentService
             ChangedBy = l.ChangedBy,
             ChangedAt = l.ChangedAt
         }).ToList();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 6. Export Department Change Logs to Excel (.xlsx)
+    // ─────────────────────────────────────────────────────────────────────────
+    public async Task<byte[]> ExportDepartmentChangeLogsToExcelAsync(
+        string? requestType = null, string? requestId = null, CancellationToken ct = default)
+    {
+        var query = _context.DepartmentChangeLogs.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(requestType))
+            query = query.Where(l => l.RequestType == requestType);
+        if (!string.IsNullOrWhiteSpace(requestId))
+            query = query.Where(l => l.RequestId == requestId);
+
+        var logs = await query.OrderByDescending(l => l.ChangedAt).ToListAsync(ct);
+
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Department Change Logs");
+
+        var headers = new[]
+        {
+            "Log ID", "Request Type", "Request ID", "Old Department Code", "Old Department Name",
+            "New Department Code", "New Department Name", "Changed By", "Changed At (UTC)", "Change Reason"
+        };
+
+        for (int i = 0; i < headers.Length; i++)
+        {
+            worksheet.Cell(1, i + 1).Value = headers[i];
+        }
+        worksheet.Row(1).Style.Font.Bold = true;
+
+        for (int rIndex = 0; rIndex < logs.Count; rIndex++)
+        {
+            var l = logs[rIndex];
+            int row = rIndex + 2;
+            string oldName = FomsDepartments.DepartmentNames.TryGetValue(l.OldDepartmentCode, out var oName) ? oName : l.OldDepartmentCode;
+            string newName = FomsDepartments.DepartmentNames.TryGetValue(l.NewDepartmentCode, out var nName) ? nName : l.NewDepartmentCode;
+
+            worksheet.Cell(row, 1).Value = l.LogId;
+            worksheet.Cell(row, 2).Value = l.RequestType;
+            worksheet.Cell(row, 3).Value = l.RequestId;
+            worksheet.Cell(row, 4).Value = l.OldDepartmentCode;
+            worksheet.Cell(row, 5).Value = oldName;
+            worksheet.Cell(row, 6).Value = l.NewDepartmentCode;
+            worksheet.Cell(row, 7).Value = newName;
+            worksheet.Cell(row, 8).Value = l.ChangedBy;
+            worksheet.Cell(row, 9).Value = l.ChangedAt.ToString("yyyy-MM-dd HH:mm:ss");
+            worksheet.Cell(row, 10).Value = l.Reason;
+        }
+
+        worksheet.Columns().AdjustToContents();
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 }

@@ -452,6 +452,53 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
 - Add Employee modal supports 390px mobile viewports with responsive padding and flexible grid columns (`add-employee-390px.png`).
 - Check 9 remains `UNVERIFIED (handoff doc only)`. Documented removal of pre-selected Encoder, addition of `None (no DMS access)`, and open question R5.11 Item 7 in `docs/prompt-set-2/dms-handoff.md`.
 
+---
+
+## Phase 22 Revision 5 Corrections: Authority, Gates, and Architecture Alignment (2026-11-11)
+
+### 1. Product Owner Decisions
+- **PO Decision C (DMS Requests Without Department)**:
+  - Any inbound DMS cash advance request arriving without a department code is accepted into a `"Needs department"` status (`DepartmentCode = string.Empty`).
+  - No cash outflow or automatic budget reservation is created.
+  - The request cannot be budget-checked or approved until a department is set, either by the requester or by the Finance Manager with a logged reason (`FIN-26`).
+  - Zero default department: the previous `DEP-DSP` fallback has been completely removed from `CashAdvancesController` and `DmsIntegrationService`.
+- **PO Decision E (Unset CSH-09 Threshold Fail-Safe)**:
+  - When the CSH-09 threshold is unset (`ThresholdAmount = null`), **every cash outflow requires CEO approval** (`EffectiveCeoLimit = 0m`).
+  - Zero amount is assumed; the previous fallback to Limit A (₱10,000) has been eliminated.
+  - Configurable database setting `CSH-09_CEO_THRESHOLD` in `dbo.CeoApprovalThresholdSettings` is managed exclusively by the Finance Manager with audit logs in `dbo.CeoApprovalThresholdChangeLogs`.
+
+### 2. Items Labeled ASSUMED (`R5.11`)
+- **Limit A (₱10,000)**:
+  - *Origin*: Phase 7 commit `8eed0bf` (`ApprovalThresholdConfig.cs`) as Assistant FM threshold.
+  - *Status*: Labeled `ASSUMED` in code, `DECISIONS.md`, and configuration. Not defined in Rev 5 addendum. Eliminated as a fallback for CSH-09 per Decision E.
+- **Non-Finance Operational Positions**:
+  - *List*: "Courier, Dispatcher, Driver, Hub Supervisor, Sorter".
+  - *Origin*: Phase 20 commit `bb4d0ee` in `ProfilePage.tsx`. Operational assumptions, not sourced from DMS schema.
+  - *Status*: Labeled `ASSUMED` in `FOMS.Domain.Constants.EmployeePositions`, `DECISIONS.md`, and `dms-handoff.md`.
+  - *Architecture*: Unified to single server-side source of truth (`GET /api/users/positions`). Frontend fetches from this endpoint on mount with `ASSUMED` fallback constants.
+
+### 3. Canonical R5.3 8-Item CEO Gate Mapping
+- BadDebtWriteOff is not an item in `R5.3` and has been completely removed from the gate service and DTOs.
+- Corrected 8-Item Mapping:
+  1. `AnnualBudget`: Blocks allocation. Attachment: **Optional**.
+  2. `BudgetTransfer`: Blocks transfer. Attachment: **Prohibited**. Requires Head Accountant maker-checker recording confirmation.
+  3. `BudgetCarryOver`: Blocks carry-over. Attachment: **Prohibited**. Requires Head Accountant maker-checker recording confirmation.
+  4. `BudgetOverride`: Blocks override approval & Committed reservation. Attachment: **Prohibited**.
+  5. `Reimbursement`: Blocks reimbursement approval & Committed reservation above CSH-09 threshold. Attachment: **Prohibited**.
+  6. `CashOutflow`: Blocks release/payment above CSH-09 threshold (covers cash advance release, direct disbursement release, and reimbursement payment). Attachment: **Optional**.
+  7. `InvoiceDiscount`: Blocks invoice dispatch. Attachment: **Prohibited**.
+  8. `AnnualFinancialStatement`: Blocks sign-off/closing. Attachment: **Mandatory**.
+
+### 4. Repeatable Migration for EMP-005
+- Reversible EF Core migration `20261117220000_RemapEmp005ToAccountant.cs` created and applied to `FOMS_DB`.
+- Verified against fresh database using `FromScratchMigrationCheckTests` (clean 32-migration sequence).
+- User `EMP-005` permanently assigned `role_id = 3` (`Accountant`). Finance Manager login is held exclusively by `EMP-001` (`crystalyn`).
+
+### 5. Excel Export Enhancements
+- `ExportRecordsToExcelAsync` in `CeoApprovalGateService` and `ExportDepartmentChangeLogsToExcelAsync` in `DepartmentService` generate full Excel `.xlsx` workbooks via `ClosedXML.Excel`.
+- Columns assert "No attachment" flag, rejection reasons, approver labels, and old/new department codes and names.
+
+
 
 
 

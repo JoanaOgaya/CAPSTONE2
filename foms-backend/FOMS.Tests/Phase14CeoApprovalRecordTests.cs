@@ -325,25 +325,23 @@ public class Phase14CeoApprovalRecordTests
         using var context = CreateInMemoryDbContext();
         var gateService = new CeoApprovalGateService(context);
 
-        // Setting (B) is unconfigured (NULL). Limit (A) is 10,000.
+        // PO Decision E: Setting (B) is unconfigured (NULL). EffectiveCeoLimit is 0m (no fallback).
         var threshold = await gateService.GetCurrentThresholdAsync();
         Assert.True(threshold.IsUnsetFailSafe);
-        Assert.Equal(10000.00m, threshold.EffectiveCeoLimit);
+        Assert.Equal(0.00m, threshold.EffectiveCeoLimit);
 
-        // Amount <= 10,000 does NOT require CEO tick
+        // Every cash outflow requires CEO approval under Decision E
         var checkBelow = await gateService.CheckGateAsync(CeoApprovalItemTypes.CashOutflow, "CA-2026-001", 9999.99m);
-        Assert.False(checkBelow.IsRequired);
-        Assert.True(checkBelow.IsSatisfied);
+        Assert.True(checkBelow.IsRequired);
+        Assert.False(checkBelow.IsSatisfied);
 
         var checkExact = await gateService.CheckGateAsync(CeoApprovalItemTypes.CashOutflow, "CA-2026-001", 10000.00m);
-        Assert.False(checkExact.IsRequired);
-        Assert.True(checkExact.IsSatisfied);
+        Assert.True(checkExact.IsRequired);
+        Assert.False(checkExact.IsSatisfied);
 
-        // Amount > 10,000 strictly requires CEO tick
         var checkAbove = await gateService.CheckGateAsync(CeoApprovalItemTypes.CashOutflow, "CA-2026-001", 10000.01m);
         Assert.True(checkAbove.IsRequired);
         Assert.False(checkAbove.IsSatisfied);
-        Assert.True(checkAbove.UsedFailSafeLimit);
     }
 
     [Fact]

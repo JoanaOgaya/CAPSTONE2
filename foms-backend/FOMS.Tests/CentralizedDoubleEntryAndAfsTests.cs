@@ -588,13 +588,16 @@ public class CentralizedDoubleEntryAndAfsTests
             () => service.ApproveAfsPackageAsync(2026, "Year", 1, "EMP-001", "Finance Manager"));
 
         // 3. FM records in-person CEO approval record, then approves annual package (IAM-07 to IAM-10)
+        // Item 8 strictly requires an attachment per R5.3
         var gateService = new CeoApprovalGateService(context);
         await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
         {
             ItemType = CeoApprovalItemTypes.AnnualFinancialStatement,
             ItemId = "2026",
             Status = "Approved",
-            ApprovalDate = DateTime.UtcNow.Date
+            ApprovalDate = DateTime.UtcNow.Date,
+            AttachmentBytes = System.Text.Encoding.UTF8.GetBytes("%PDF-1.4 Audited Financial Statement PDF"),
+            AttachmentFileName = "audited_afs_2026.pdf"
         }, "EMP-001", "Finance Manager");
 
         var pkgApproved = await service.ApproveAfsPackageAsync(2026, "Year", 1, "EMP-001", "Finance Manager");

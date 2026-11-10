@@ -32,6 +32,18 @@ public class DisbursementAndReimbursementWorkflowTests
             IsActive = true
         });
 
+        context.CeoApprovalThresholdSettings.Add(new CeoApprovalThresholdSetting
+        {
+            SettingId = 1,
+            SettingKey = "CSH-09_CEO_THRESHOLD",
+            ThresholdAmount = 10000.00m,
+            Currency = "PHP",
+            EffectiveFrom = DateTime.UtcNow.AddYears(-1),
+            IsActive = true,
+            UpdatedBy = "EMP-001",
+            UpdatedAt = DateTime.UtcNow.AddYears(-1)
+        });
+
         // Seed budget line for DEP-OPS / Fuel: Budget = 100,000, Actual = 20,000, Committed = 0, Available = 80,000
         context.MonthlyBudgetLines.Add(new MonthlyBudgetLine
         {

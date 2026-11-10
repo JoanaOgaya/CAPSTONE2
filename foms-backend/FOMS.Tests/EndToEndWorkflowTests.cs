@@ -376,6 +376,18 @@ public class EndToEndWorkflowTests
             IsActive = true
         });
 
+        context.CeoApprovalThresholdSettings.Add(new CeoApprovalThresholdSetting
+        {
+            SettingId = 1,
+            SettingKey = "CSH-09_CEO_THRESHOLD",
+            ThresholdAmount = 10000.00m,
+            Currency = "PHP",
+            EffectiveFrom = DateTime.UtcNow.AddYears(-1),
+            IsActive = true,
+            UpdatedBy = "EMP-001",
+            UpdatedAt = DateTime.UtcNow.AddYears(-1)
+        });
+
         // Seed Go-Live Opening Balances
         context.GoLiveOpeningBalances.AddRange(
             new GoLiveOpeningBalance { AccountCode = "101", AccountName = "Cash in Bank", Debit = 300000m, Credit = 0m, DepartmentCode = "DEP-FIN", Category = "Cash" },
@@ -535,7 +547,9 @@ public class EndToEndWorkflowTests
             ItemType = CeoApprovalItemTypes.AnnualFinancialStatement,
             ItemId = "2026",
             Status = "Approved",
-            ApprovalDate = DateTime.UtcNow.Date
+            ApprovalDate = DateTime.UtcNow.Date,
+            AttachmentBytes = System.Text.Encoding.UTF8.GetBytes("%PDF-1.4 Audited Financial Statements"),
+            AttachmentFileName = "audited_afs_2026.pdf"
         }, "EMP-001", "Finance Manager");
 
         var pkgApproved = await statementService.ApproveAfsPackageAsync(2026, "Year", 1, "EMP-001", "Finance Manager");

@@ -160,8 +160,7 @@ public class CashAdvancesController : ControllerBase
         string rawDept = dto.DepartmentCode ?? Request.Headers["X-Department"].FirstOrDefault() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(rawDept))
         {
-            bool isDms = Request.Headers.ContainsKey("X-DMS-Inbound") || Request.Headers.ContainsKey("X-DMS-API-Key");
-            rawDept = isDms ? FomsDepartments.Dispatch : FomsDepartments.Finance;
+            return BadRequest(new { message = "Department is strictly required with no default." });
         }
         string normDept;
         try

@@ -33,6 +33,18 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
             IsActive = true
         });
 
+        context.CeoApprovalThresholdSettings.Add(new CeoApprovalThresholdSetting
+        {
+            SettingId = 1,
+            SettingKey = "CSH-09_CEO_THRESHOLD",
+            ThresholdAmount = 10000.00m,
+            Currency = "PHP",
+            EffectiveFrom = DateTime.UtcNow.AddYears(-1),
+            IsActive = true,
+            UpdatedBy = "EMP-001",
+            UpdatedAt = DateTime.UtcNow.AddYears(-1)
+        });
+
         // Seed monthly budget lines for 2026 / Month 1
         context.MonthlyBudgetLines.AddRange(
             new MonthlyBudgetLine

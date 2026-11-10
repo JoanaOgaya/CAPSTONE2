@@ -493,6 +493,62 @@ public class DmsIntegrationService : IDmsIntegrationService
             };
         }
 
+        // Product Owner Decision C: A DMS request that arrives without a department: accept it into a "Needs department" state.
+        // It cannot be budget-checked or approved until a department is set, either by the requester or by the Finance Manager with a logged reason (FIN-26).
+        // No default department.
+        string? rawDept = dto.DepartmentCode?.Trim();
+        bool hasDept = !string.IsNullOrWhiteSpace(rawDept);
+
+        if (!hasDept)
+        {
+            var noDeptAdvanceId = $"CA-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}";
+            var noDeptAdvance = new CashAdvance
+            {
+                AdvanceId = noDeptAdvanceId,
+                CourierName = dto.RequesterName,
+                TripReference = dto.DeliveryReference,
+                AmountGiven = dto.RequestedAmount,
+                ReleaseDate = DateTime.UtcNow,
+                ReleasedBy = "DMS Operations Dispatch",
+                Status = "Needs department",
+                DepartmentCode = string.Empty,
+                Notes = $"[DMS {dto.RequestId}] {dto.Purpose} (Requester: {dto.RequesterName})",
+                ApprovedBy = null,
+                ApprovedAt = null,
+                CreatedAt = ToUtc(dto.RequestDate)
+            };
+            _fomsDb.CashAdvances.Add(noDeptAdvance);
+            await _fomsDb.SaveChangesAsync();
+
+            _logger.LogInformation("Accepted cash advance #{AdvanceId} for DMS request {RequestId} into 'Needs department' state per Decision C.",
+                noDeptAdvance.AdvanceId, dto.RequestId);
+
+            return new DmsIntegrationResponseDto
+            {
+                IsSuccess = true,
+                AdvanceNumber = noDeptAdvance.AdvanceId,
+                CashAdvanceId = Math.Abs(noDeptAdvance.AdvanceId.GetHashCode()),
+                ComputedAmount = dto.RequestedAmount,
+                Status = "Needs department",
+                Message = $"Cash advance #{noDeptAdvance.AdvanceId} accepted into 'Needs department' state per Decision C. Department must be set before budget check and approval (FIN-26)."
+            };
+        }
+
+        // Validate provided department (DEP-OPS is legacy and rejected; unknown departments throw)
+        string validatedDept;
+        try
+        {
+            validatedDept = FomsDepartments.Normalize(rawDept!, "DMS", isNewRequest: true);
+        }
+        catch (Exception ex)
+        {
+            return new DmsIntegrationResponseDto
+            {
+                IsSuccess = false,
+                Message = ex.Message
+            };
+        }
+
         // Create CashAdvance in FOMS (FR-050)
         var advanceId = $"CA-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}";
         var advance = new CashAdvance
@@ -504,7 +560,7 @@ public class DmsIntegrationService : IDmsIntegrationService
             ReleaseDate = DateTime.UtcNow,
             ReleasedBy = "DMS Operations Dispatch",
             Status = "Approved",
-            DepartmentCode = FomsDepartments.Dispatch,
+            DepartmentCode = validatedDept,
             Notes = $"[DMS {dto.RequestId}] {dto.Purpose} (Requester: {dto.RequesterName})",
             ApprovedBy = "Finance Manager",
             ApprovedAt = now,

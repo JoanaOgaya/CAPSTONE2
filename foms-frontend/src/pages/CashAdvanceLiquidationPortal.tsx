@@ -16,6 +16,14 @@ import { canRequestCashAdvance } from '../utils/roleAccess';
 import { departmentsService } from '../services/departmentsService';
 import type { Liquidation } from '../types/entities';
 
+const SELECTABLE_DEPARTMENTS = [
+  { departmentCode: 'DEP-FIN', departmentName: 'Finance' },
+  { departmentCode: 'DEP-CCS', departmentName: 'Customer Care & Sales' },
+  { departmentCode: 'DEP-DSP', departmentName: 'Dispatch Team' },
+  { departmentCode: 'DEP-FWD', departmentName: 'Forwarding Team' },
+  { departmentCode: 'DEP-OVH', departmentName: 'Company Overhead' },
+];
+
 export const CashAdvanceLiquidationPortal: React.FC = () => {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -339,6 +347,7 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
             onClick={() => {
               setAdvanceForm({
                 courierName: '',
+                departmentCode: '',
                 tripReference: '',
                 amountGiven: '' as unknown as number,
                 purpose: '',
@@ -1342,30 +1351,9 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
               </div>
 
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                    Department *
-                  </label>
-                  {departmentSuggestion?.hasSuggestion && departmentSuggestion.departmentCode && (
-                    <button
-                      type="button"
-                      onClick={() => setAdvanceForm({ ...advanceForm, departmentCode: departmentSuggestion.departmentCode! })}
-                      style={{
-                        background: '#EEF2FF',
-                        border: '1px solid #C7D2FE',
-                        borderRadius: '12px',
-                        padding: '2px 8px',
-                        fontSize: '11px',
-                        color: '#4F46E5',
-                        cursor: 'pointer',
-                        fontWeight: 500
-                      }}
-                      title="Click to apply your last-used department"
-                    >
-                      Suggested: {departmentSuggestion.departmentName || departmentSuggestion.departmentCode}
-                    </button>
-                  )}
-                </div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                  Department *
+                </label>
                 <select
                   required
                   value={advanceForm.departmentCode}
@@ -1373,7 +1361,7 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
                   style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff' }}
                 >
                   <option value="">Select Department</option>
-                  {departmentList.map((d: any) => (
+                  {SELECTABLE_DEPARTMENTS.filter(d => d.departmentCode !== 'DEP-OVH' || user?.role === 'FINANCE_MANAGER').map((d) => (
                     <option key={d.departmentCode} value={d.departmentCode}>
                       {d.departmentName} ({d.departmentCode})
                     </option>

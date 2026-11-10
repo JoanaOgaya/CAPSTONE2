@@ -7,9 +7,10 @@ namespace FOMS.Domain.Constants;
 public static class ApprovalThresholdConfig
 {
     /// <summary>
-    /// Default Assistant of Finance Manager (EMP-004) approval limit: ₱10,000.00.
-    /// Transactions exceeding this threshold require Tier 1 Assistant FM endorsement
-    /// followed by Tier 2 Finance Manager (EMP-001) final sign-off.
+    /// ASSUMED: Default Assistant of Finance Manager (EMP-004) approval limit: ₱10,000.00 ("Limit A").
+    /// Seeded in Phase 7. Not specified in Revision 5 addendum.
+    /// Per Product Owner Decision E, Limit A is NOT used as a fallback for the CSH-09 CEO threshold.
+    /// An unset CSH-09 threshold mandates CEO approval for all cash outflows; no amount is assumed.
     /// </summary>
     public const decimal DefaultAssistantFmThreshold = 10000.00m;
 

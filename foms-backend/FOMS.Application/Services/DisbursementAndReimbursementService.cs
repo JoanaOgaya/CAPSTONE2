@@ -174,15 +174,12 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot release advance in status '{advance.Status}'. Must be 'Approved'.");
         }
 
-        decimal threshold = await GetCsh09ThresholdAsync(advance.CreatedAt);
-        if (advance.RequiresCeoApproval || advance.AmountGiven > threshold)
-        {
-            await _gateService.EnsureGateSatisfiedAsync(
-                CeoApprovalItemTypes.CashOutflow,
-                advanceId,
-                advance.AmountGiven,
-                advance.CreatedAt);
-        }
+        // Gate check for CashOutflow above CSH-09 threshold (Decision E: unset threshold mandates CEO approval for all outflows)
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.CashOutflow,
+            advanceId,
+            advance.AmountGiven,
+            advance.CreatedAt);
 
         advance.Status = "Released";
         advance.ReleasedBy = userId;
@@ -341,15 +338,12 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot release disbursement in status '{disb.Status}'. Must be 'Approved'.");
         }
 
-        decimal threshold = await GetCsh09ThresholdAsync(disb.CreatedAt);
-        if (disb.Amount > threshold)
-        {
-            await _gateService.EnsureGateSatisfiedAsync(
-                CeoApprovalItemTypes.CashOutflow,
-                disbursementId.ToString(),
-                disb.Amount,
-                disb.CreatedAt);
-        }
+        // Gate check for CashOutflow above CSH-09 threshold (Decision E: unset threshold mandates CEO approval for all outflows)
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.CashOutflow,
+            disbursementId.ToString(),
+            disb.Amount,
+            disb.CreatedAt);
 
         // CSH-12: Actual at release, NO liquidation!
         // Move from Committed -> Actual
@@ -508,15 +502,12 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new UnauthorizedAccessException("Separation of duties violation: Submitter cannot approve their own reimbursement.");
         }
 
-        decimal threshold = await GetCsh09ThresholdAsync(reim.SubmittedAt);
-        if (reim.Amount > threshold)
-        {
-            await _gateService.EnsureGateSatisfiedAsync(
-                CeoApprovalItemTypes.Reimbursement,
-                reimbursementId.ToString(),
-                reim.Amount,
-                reim.SubmittedAt);
-        }
+        // Gate check for Reimbursement approval above CSH-09 threshold (Decision E: unset threshold mandates CEO approval)
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.Reimbursement,
+            reimbursementId.ToString(),
+            reim.Amount,
+            reim.SubmittedAt);
 
         // Commit budget amount
         var line = await GetBudgetLineAsync(reim.FiscalYear, reim.DepartmentCode, reim.Category, reim.Month);
@@ -545,15 +536,12 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot pay reimbursement in status '{reim.Status}'. Must be 'Approved'.");
         }
 
-        decimal threshold = await GetCsh09ThresholdAsync(reim.SubmittedAt);
-        if (reim.Amount > threshold)
-        {
-            await _gateService.EnsureGateSatisfiedAsync(
-                CeoApprovalItemTypes.CashOutflow,
-                reim.ReferenceNumber,
-                reim.Amount,
-                reim.SubmittedAt);
-        }
+        // Gate check for Reimbursement payment outflow above CSH-09 threshold (Decision E: unset threshold mandates CEO approval)
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.CashOutflow,
+            reim.ReferenceNumber,
+            reim.Amount,
+            reim.SubmittedAt);
 
         // Convert Committed -> Actual
         var line = await GetBudgetLineAsync(reim.FiscalYear, reim.DepartmentCode, reim.Category, reim.Month);

@@ -110,4 +110,14 @@ public class DepartmentsController : ControllerBase
         var logs = await _departmentService.GetDepartmentChangeLogsAsync(requestType, requestId, ct);
         return Ok(logs);
     }
+
+    /// <summary>
+    /// Exports department change logs to an Excel (.xlsx) file.
+    /// </summary>
+    [HttpGet("change-logs/export")]
+    public async Task<IActionResult> ExportChangeLogs([FromQuery] string? requestType, [FromQuery] string? requestId, CancellationToken ct)
+    {
+        var bytes = await _departmentService.ExportDepartmentChangeLogsToExcelAsync(requestType, requestId, ct);
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"department_change_logs_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx");
+    }
 }

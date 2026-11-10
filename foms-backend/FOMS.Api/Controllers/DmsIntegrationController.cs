@@ -166,6 +166,8 @@ public class DmsCashAdvanceRequest
 
     public DateTime? RequestDate { get; set; }
     public DateTime? ReleaseDate { get; set; }
+    public string? DepartmentCode { get; set; }
+    public string? Department { get; set; }
 
     public DmsCashAdvanceRequestDto ToDto()
     {
@@ -177,6 +179,7 @@ public class DmsCashAdvanceRequest
         var requester = !string.IsNullOrWhiteSpace(RequesterName) ? RequesterName : (CourierName ?? "Courier");
         var reference = DeliveryReference ?? TripReference;
         var purpose = !string.IsNullOrWhiteSpace(Purpose) ? Purpose : (Notes ?? "Operational Route Advance");
+        var dept = !string.IsNullOrWhiteSpace(DepartmentCode) ? DepartmentCode : Department;
 
         return new DmsCashAdvanceRequestDto
         {
@@ -186,7 +189,8 @@ public class DmsCashAdvanceRequest
             RequesterEmployeeId = RequesterEmployeeId,
             Purpose = purpose,
             RequestedAmount = amount,
-            RequestDate = RequestDate ?? ReleaseDate ?? DateTime.UtcNow
+            RequestDate = RequestDate ?? ReleaseDate ?? DateTime.UtcNow,
+            DepartmentCode = dept
         };
     }
 }

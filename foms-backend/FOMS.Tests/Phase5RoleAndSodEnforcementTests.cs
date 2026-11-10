@@ -291,7 +291,7 @@ public class Phase5RoleAndSodEnforcementTests
 
         // Head Accountant ("EMP-002") is in canRequestCashAdvance and succeeds on Create
         SetUserContext(caController, "Head Accountant", "EMP-002", "EMP-002");
-        var rHaCreate = await caController.Create(new CashAdvanceCreateDto { Amount = 1500m, Purpose = "Field Audit" });
+        var rHaCreate = await caController.Create(new CashAdvanceCreateDto { Amount = 1500m, Purpose = "Field Audit", DepartmentCode = "DEP-FIN" });
         Assert.IsType<OkObjectResult>(rHaCreate);
 
         var createdCa = await fomsDb.CashAdvances.FirstAsync();

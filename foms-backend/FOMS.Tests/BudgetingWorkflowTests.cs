@@ -40,6 +40,18 @@ public class BudgetingWorkflowTests
             IsActive = true
         });
 
+        context.CeoApprovalThresholdSettings.Add(new CeoApprovalThresholdSetting
+        {
+            SettingId = 1,
+            SettingKey = "CSH-09_CEO_THRESHOLD",
+            ThresholdAmount = 10000.00m,
+            Currency = "PHP",
+            EffectiveFrom = DateTime.UtcNow.AddYears(-1),
+            IsActive = true,
+            UpdatedBy = "EMP-001",
+            UpdatedAt = DateTime.UtcNow.AddYears(-1)
+        });
+
         context.SaveChanges();
         return context;
     }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/Card';
 import { useQuery } from '../hooks/useQuery';
@@ -18,14 +18,17 @@ const ROLE_LABEL_MAP: Record<string, string> = {
 };
 const getRoleLabel = (r?: string) => (r && ROLE_LABEL_MAP[r]) || r || 'User';
 
-const FINANCE_POSITIONS = [
+// Authoritative positions unified from backend single source (EmployeePositions.cs / GET /api/users/positions)
+const DEFAULT_FINANCE_POSITIONS = [
   'Finance Manager',
   'Head Accountant',
   'Accountant',
   'Assistant of Finance Manager'
 ];
 
-const NON_FINANCE_POSITIONS = [
+// ASSUMED: Non-finance positions provisionally listed pending DMS confirmation (R5.11 / dms-handoff.md)
+// Sourced originally from commit bb4d0ee (Phase 20) as operational defaults; not verified in DMS database.
+const DEFAULT_NON_FINANCE_POSITIONS = [
   'Courier',
   'Dispatcher',
   'Driver',
@@ -33,7 +36,7 @@ const NON_FINANCE_POSITIONS = [
   'Sorter'
 ];
 
-const DMS_OPERATIONAL_ROLES = [
+const DEFAULT_DMS_OPERATIONAL_ROLES = [
   'Admin',
   'Encoder',
   'Driver',
@@ -94,12 +97,33 @@ export const ProfilePage: React.FC = () => {
   // Modal State for Add / Edit Employee
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<AppUserRecord | null>(null);
+  const [financePositions, setFinancePositions] = useState<string[]>(DEFAULT_FINANCE_POSITIONS);
+  const [nonFinancePositions, setNonFinancePositions] = useState<string[]>(DEFAULT_NON_FINANCE_POSITIONS);
+  const [dmsRoles, setDmsRoles] = useState<string[]>(DEFAULT_DMS_OPERATIONAL_ROLES);
+
+  useEffect(() => {
+    // Unify to server-side source of truth (GET /api/users/positions)
+    fetch('/api/users/positions')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          if (Array.isArray(data.financePositions)) setFinancePositions(data.financePositions);
+          if (Array.isArray(data.nonFinancePositions)) setNonFinancePositions(data.nonFinancePositions);
+          if (Array.isArray(data.dmsRoles)) setDmsRoles(data.dmsRoles);
+        }
+      })
+      .catch(() => {
+        // Fallback gracefully to default constants if offline
+      });
+  }, []);
+
   const [formData, setFormData] = useState<EmployeeFormData>({
     employeeId: '',
     fullName: '',
     email: '',
     position: '',
     role: '',
+    dmsRole: '',
     phone: '',
     salaryRate: '',
     dateHired: '',
@@ -149,7 +173,7 @@ export const ProfilePage: React.FC = () => {
         if (!trimmed) return 'Role is required.';
         return undefined;
       case 'dmsRole':
-        if (NON_FINANCE_POSITIONS.includes(formData.position) && !trimmed) {
+        if (nonFinancePositions.includes(formData.position) && !trimmed) {
           return 'DMS operational role is required for non-finance staff.';
         }
         return undefined;
@@ -217,7 +241,7 @@ export const ProfilePage: React.FC = () => {
       email: emp.email || '',
       position: initialPosition,
       role: initialRole,
-      dmsRole: (emp as any).dmsRole || (FINANCE_POSITIONS.includes(initialPosition) ? 'None' : 'None (no DMS access)'),
+      dmsRole: (emp as any).dmsRole || (financePositions.includes(initialPosition) ? 'None' : 'None (no DMS access)'),
       phone: emp.phone || '',
       salaryRate: emp.salaryRate ? String(emp.salaryRate) : '',
       dateHired: emp.dateHired ? emp.dateHired.split('T')[0] : '',
@@ -234,7 +258,7 @@ export const ProfilePage: React.FC = () => {
   };
 
   const handlePositionChange = (pos: string) => {
-    if (FINANCE_POSITIONS.includes(pos)) {
+    if (financePositions.includes(pos)) {
       setFormData(prev => ({
         ...prev,
         position: pos,
@@ -247,18 +271,18 @@ export const ProfilePage: React.FC = () => {
         role: undefined,
         dmsRole: undefined,
       }));
-    } else if (NON_FINANCE_POSITIONS.includes(pos)) {
+    } else if (nonFinancePositions.includes(pos)) {
       setFormData(prev => ({
         ...prev,
         position: pos,
         role: 'None',
-        dmsRole: prev.dmsRole && DMS_OPERATIONAL_ROLES.includes(prev.dmsRole) && prev.dmsRole !== 'None' ? prev.dmsRole : '',
+        dmsRole: prev.dmsRole && dmsRoles.includes(prev.dmsRole) && prev.dmsRole !== 'None' ? prev.dmsRole : '',
       }));
       setFieldErrors(prev => ({
         ...prev,
         position: undefined,
         role: undefined,
-        dmsRole: prev.dmsRole && DMS_OPERATIONAL_ROLES.includes(prev.dmsRole) && prev.dmsRole !== 'None' ? undefined : 'DMS operational role is required for non-finance staff.',
+        dmsRole: prev.dmsRole && dmsRoles.includes(prev.dmsRole) && prev.dmsRole !== 'None' ? undefined : 'DMS operational role is required for non-finance staff.',
       }));
     } else {
       setFormData(prev => ({
@@ -742,12 +766,12 @@ export const ProfilePage: React.FC = () => {
                   >
                     <option value="">-- Select Position --</option>
                     <optgroup label="Finance Positions">
-                      {FINANCE_POSITIONS.map(p => (
+                      {financePositions.map(p => (
                         <option key={p} value={p}>{p}</option>
                       ))}
                     </optgroup>
                     <optgroup label="Non-Finance Positions">
-                      {NON_FINANCE_POSITIONS.map(p => (
+                      {nonFinancePositions.map(p => (
                         <option key={p} value={p}>{p}</option>
                       ))}
                     </optgroup>
@@ -789,9 +813,9 @@ export const ProfilePage: React.FC = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    DMS Operational Role {NON_FINANCE_POSITIONS.includes(formData.position) && <span style={{ color: '#EF4444' }}>*</span>}
+                    DMS Operational Role {nonFinancePositions.includes(formData.position) && <span style={{ color: '#EF4444' }}>*</span>}
                   </label>
-                  {NON_FINANCE_POSITIONS.includes(formData.position) ? (
+                  {nonFinancePositions.includes(formData.position) ? (
                     <select
                       aria-label="DMS Operational Role"
                       value={formData.dmsRole}
@@ -807,7 +831,7 @@ export const ProfilePage: React.FC = () => {
                       }}
                     >
                       <option value="">-- Select DMS Role --</option>
-                      {DMS_OPERATIONAL_ROLES.map(r => (
+                      {dmsRoles.map(r => (
                         <option key={r} value={r}>{r}</option>
                       ))}
                     </select>
@@ -816,8 +840,8 @@ export const ProfilePage: React.FC = () => {
                       type="text"
                       readOnly
                       disabled
-                      value={FINANCE_POSITIONS.includes(formData.position) ? "None" : ""}
-                      placeholder={FINANCE_POSITIONS.includes(formData.position) ? "None" : "Select position first"}
+                      value={financePositions.includes(formData.position) ? "None" : ""}
+                      placeholder={financePositions.includes(formData.position) ? "None" : "Select position first"}
                       style={{
                         width: '100%',
                         padding: '10px 12px',

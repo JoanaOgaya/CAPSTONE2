@@ -31,6 +31,11 @@ public interface IDepartmentService
     Task<List<DepartmentChangeLogDto>> GetDepartmentChangeLogsAsync(string requestType, string requestId, CancellationToken ct = default);
 
     /// <summary>
+    /// Exports department change logs to an Excel (.xlsx) workbook.
+    /// </summary>
+    Task<byte[]> ExportDepartmentChangeLogsToExcelAsync(string? requestType = null, string? requestId = null, CancellationToken ct = default);
+
+    /// <summary>
     /// Validates and normalizes department for a new or modified request.
     /// Enforces non-empty department, rejects DEP-OPS as legacy, and restricts DEP-OVH to Finance Manager.
     /// </summary>
