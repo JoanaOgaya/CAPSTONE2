@@ -164,10 +164,11 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
         var caEntity = await context.CashAdvances.FindAsync(ca.AdvanceId);
         Assert.Equal("Liquidated", caEntity!.Status);
 
-        // Budget committed is released, actual increases by 5,000
+        // Budget committed is released, actual increases by 5,000, and unused commitment is released
         budgetLine = await context.MonthlyBudgetLines.FirstAsync(l => l.Category == "Fuel");
         Assert.Equal(0m, budgetLine.CommittedAmount);
         Assert.Equal(25000m, budgetLine.ActualAmount); // 20k + 5k
+        Assert.Equal(75000m, budgetLine.Available); // 100k allocated - 25k actual - 0 committed (1,000 unused reservation released)
 
         // Leftover cash (1,000) posted as Inflow
         var inflow = await context.CashInflows.FirstOrDefaultAsync(i => i.Source.Contains(liq.ReferenceNumber));
@@ -200,6 +201,26 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
         // Cancel releases committed reservation
         var cancelled = await service.CancelCashAdvanceAsync(ca.AdvanceId, "Trip cancelled", "EMP-001", "Finance Manager");
         Assert.Equal("Cancelled", cancelled.Status);
+
+        budgetLine = await context.MonthlyBudgetLines.FirstAsync(l => l.Category == "Fuel");
+        Assert.Equal(0m, budgetLine.CommittedAmount);
+
+        // Reject also releases committed reservation
+        var ca2Req = new RequestCashAdvanceDto
+        {
+            CourierName = "Test Courier 2",
+            Amount = 3500m,
+            Category = "Fuel",
+            DepartmentCode = "DEP-OPS"
+        };
+        var ca2 = await service.RequestCashAdvanceAsync(ca2Req, "EMP-004", "Assistant of Finance Manager");
+        await service.ApproveCashAdvanceAsync(ca2.AdvanceId, "EMP-001", "Finance Manager");
+
+        budgetLine = await context.MonthlyBudgetLines.FirstAsync(l => l.Category == "Fuel");
+        Assert.Equal(3500m, budgetLine.CommittedAmount);
+
+        var rejected = await service.RejectCashAdvanceAsync(ca2.AdvanceId, "Route suspended", "EMP-001", "Finance Manager");
+        Assert.Equal("Rejected", rejected.Status);
 
         budgetLine = await context.MonthlyBudgetLines.FirstAsync(l => l.Category == "Fuel");
         Assert.Equal(0m, budgetLine.CommittedAmount);
@@ -591,7 +612,7 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
             Id = "PAY-NET-01",
             Amount = 100000m,
             PaymentStatus = "Validated",
-            ValidatedAt = DateTime.UtcNow
+            ValidatedAt = new DateTime(2026, 1, 10)
         });
 
         // 3. Returned unused advance (inflow): 5,000.00
@@ -600,7 +621,7 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
             Amount = 5000m,
             Source = "Liquidation LIQ-001 Cash Return",
             Status = "Completed",
-            TransactionDate = DateTime.UtcNow
+            TransactionDate = new DateTime(2026, 1, 15)
         });
 
         // 4. Cash advance released (outflow): 20,000.00
@@ -608,7 +629,10 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
         {
             AdvanceId = "CA-NET-01",
             AmountGiven = 20000m,
-            Status = "Released"
+            Status = "Released",
+            FiscalYear = 2026,
+            Month = 1,
+            ReleaseDate = new DateTime(2026, 1, 12)
         });
 
         // 5. Direct disbursement released (outflow): 10,000.00
@@ -616,7 +640,10 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
         {
             ReferenceNumber = "DD-NET-01",
             Amount = 10000m,
-            Status = "Released"
+            Status = "Released",
+            FiscalYear = 2026,
+            Month = 1,
+            ReleasedAt = new DateTime(2026, 1, 14)
         });
 
         // 6. Paid reimbursement (outflow): 5,000.00
@@ -624,7 +651,10 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
         {
             ReferenceNumber = "REIM-NET-01",
             Amount = 5000m,
-            Status = "Paid"
+            Status = "Paid",
+            FiscalYear = 2026,
+            Month = 1,
+            PaidAt = new DateTime(2026, 1, 16)
         });
 
         await context.SaveChangesAsync();
@@ -645,5 +675,82 @@ public class Phase18DisbursementsLiquidationsAndNetCashTests
         Assert.Equal(35000m, cf.TotalOperatingOutflows);
         Assert.Equal(70000m, cf.NetCashFromOperating);
         Assert.Equal(120000m, cf.EndingNetCash);
+    }
+
+    [Fact]
+    public async Task NetCash_PeriodChaining_BeginningCashMatchesPreviousPeriodEndingCash()
+    {
+        using var context = CreateContext(nameof(NetCash_PeriodChaining_BeginningCashMatchesPreviousPeriodEndingCash));
+
+        // Opening cash = 40,000 (GoLiveOpeningBalances: Account 1010 + 1030 mapped to 1010)
+        context.GoLiveOpeningBalances.Add(new GoLiveOpeningBalance
+        {
+            AccountCode = "1010",
+            AccountName = "Cash on Hand",
+            Debit = 30000m,
+            Credit = 0m
+        });
+        context.GoLiveOpeningBalances.Add(new GoLiveOpeningBalance
+        {
+            AccountCode = "1030", // Petty cash mapped to 1010
+            AccountName = "Petty Cash",
+            Debit = 10000m,
+            Credit = 0m
+        });
+
+        // Month 1 (January): Validated payment of 50,000 and released advance of 20,000
+        context.Payments.Add(new Domain.Entities.Payment
+        {
+            Id = "PAY-JAN-01",
+            Amount = 50000m,
+            PaymentStatus = "Validated",
+            ValidatedAt = new DateTime(2026, 1, 15)
+        });
+        context.CashAdvances.Add(new CashAdvance
+        {
+            AdvanceId = "CA-JAN-01",
+            AmountGiven = 20000m,
+            Status = "Released",
+            ReleaseDate = new DateTime(2026, 1, 20),
+            FiscalYear = 2026,
+            Month = 1
+        });
+
+        // Month 2 (February): Validated payment of 30,000 and released direct disb of 15,000
+        context.Payments.Add(new Domain.Entities.Payment
+        {
+            Id = "PAY-FEB-01",
+            Amount = 30000m,
+            PaymentStatus = "Validated",
+            ValidatedAt = new DateTime(2026, 2, 10)
+        });
+        context.DirectDisbursements.Add(new DirectDisbursement
+        {
+            ReferenceNumber = "DD-FEB-01",
+            Amount = 15000m,
+            Status = "Released",
+            ReleasedAt = new DateTime(2026, 2, 14),
+            FiscalYear = 2026,
+            Month = 2
+        });
+
+        await context.SaveChangesAsync();
+
+        var gateService = new CeoApprovalGateService(context);
+        var statementService = new FinancialStatementService(context, gateService);
+
+        // Month 1
+        var cfM1 = await statementService.GenerateCashFlowStatementAsync(2026, "Month", 1);
+        Assert.Equal(40000m, cfM1.BeginningCash); // 30k + 10k opening
+        Assert.Equal(50000m, cfM1.TotalOperatingInflows);
+        Assert.Equal(20000m, cfM1.TotalOperatingOutflows);
+        Assert.Equal(70000m, cfM1.EndingNetCash); // 40k + 50k - 20k = 70k
+
+        // Month 2: Beginning cash MUST chain from Month 1 Ending Cash (70,000)
+        var cfM2 = await statementService.GenerateCashFlowStatementAsync(2026, "Month", 2);
+        Assert.Equal(70000m, cfM2.BeginningCash);
+        Assert.Equal(30000m, cfM2.TotalOperatingInflows);
+        Assert.Equal(15000m, cfM2.TotalOperatingOutflows);
+        Assert.Equal(85000m, cfM2.EndingNetCash); // 70k + 30k - 15k = 85k
     }
 }

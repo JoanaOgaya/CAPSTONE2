@@ -871,6 +871,53 @@ describe('EMP-001 (Finance Manager) — Complete Page-by-Page Workflow & Verific
         }));
       });
     });
+
+    it('returns liquidation for correction with canonical rejection reason dropdown and required remarks', async () => {
+      mockAuthUser();
+      renderWithContext(<LiquidationValidation />, '/liquidations');
+
+      await waitFor(() => {
+        expect(screen.getByText(/LIQ-EXP-001/i)).toBeDefined();
+        expect(screen.getByRole('button', { name: /review liquidation/i })).toBeDefined();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /review liquidation/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /log decision/i })).toBeDefined();
+      });
+
+      // Change review decision to "Return for Correction"
+      const decisionSelect = screen.getByDisplayValue('Validate liquidation');
+      fireEvent.change(decisionSelect, { target: { value: 'Return for Correction' } });
+
+      // Rejection reason dropdown appears with canonical options
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('wrong receipt date or amount')).toBeDefined();
+      });
+
+      const rejectionSelect = screen.getByDisplayValue('wrong receipt date or amount');
+      expect(screen.getByRole('option', { name: 'wrong receipt date or amount' })).toBeDefined();
+      expect(screen.getByRole('option', { name: 'manual fuel receipt' })).toBeDefined();
+      expect(screen.getByRole('option', { name: 'late submission' })).toBeDefined();
+      expect(screen.getByRole('option', { name: 'other with remarks' })).toBeDefined();
+
+      // Select 'other with remarks' and fill required remarks
+      fireEvent.change(rejectionSelect, { target: { value: 'other with remarks' } });
+
+      const remarksInput = screen.getByPlaceholderText(/Add review notes/i);
+      fireEvent.change(remarksInput, { target: { value: 'Detailed itemized receipt required for reimbursement' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /log decision/i }));
+
+      await waitFor(() => {
+        expect(onLiquidationUpdate).toHaveBeenCalledWith('LIQ-001', expect.objectContaining({
+          status: 'For Correction',
+          rejectionReason: 'other with remarks',
+          remarks: 'Detailed itemized receipt required for reimbursement'
+        }));
+      });
+    });
   });
 
   // ── Page 14: Cash Flow ────────────────────────────────────────────────────
