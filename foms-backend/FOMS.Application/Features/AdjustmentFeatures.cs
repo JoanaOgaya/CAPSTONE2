@@ -257,6 +257,9 @@ public static class AdjustmentFeatures
 
                     // C1 FR-034 / C2 FR-032: Paid-invoice credits remain client credit, never cash outflow.
                     client.AvailableCredit += adjustment.Amount;
+
+                    // R4.5: Post Dr Cargo Claims (Sales Allowances) / Cr Unapplied Client Credits
+                    await PostCreditMemoJournalEntryAsync(invoice, adjustment, cancellationToken);
                 }
             }
             else if (adjType == "debit")
@@ -295,6 +298,69 @@ public static class AdjustmentFeatures
             await _context.SaveChangesAsync(cancellationToken);
 
             return adjustment;
+        }
+
+        private async Task PostCreditMemoJournalEntryAsync(Invoice invoice, PaymentAdjustment adjustment, CancellationToken cancellationToken)
+        {
+            var claimsAccount = await _context.ChartOfAccounts.FirstOrDefaultAsync(
+                a => a.Name.Contains("Cargo Claims") || a.AccountCode == "4200" || a.Name.Contains("Sales Allowances"),
+                cancellationToken);
+            if (claimsAccount == null)
+            {
+                claimsAccount = new ChartOfAccount
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    AccountCode = "4200",
+                    Name = "Cargo Claims (Sales Allowances)",
+                    Type = "Expense"
+                };
+                _context.ChartOfAccounts.Add(claimsAccount);
+            }
+
+            var unappliedCreditsAccount = await _context.ChartOfAccounts.FirstOrDefaultAsync(
+                a => a.Name.Contains("Unapplied Client Credits") || a.AccountCode == "2160",
+                cancellationToken);
+            if (unappliedCreditsAccount == null)
+            {
+                unappliedCreditsAccount = new ChartOfAccount
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    AccountCode = "2160",
+                    Name = "Unapplied Client Credits",
+                    Type = "Liability"
+                };
+                _context.ChartOfAccounts.Add(unappliedCreditsAccount);
+            }
+
+            var jeId = Guid.NewGuid().ToString();
+            var je = new JournalEntry
+            {
+                Id = jeId,
+                EntryNumber = $"JE-CREDITMEMO-{invoice.InvoiceNo}-{jeId[..8]}",
+                InvoiceId = invoice.Id,
+                Date = DateTime.UtcNow,
+                Description = $"Credit Memo on Paid Invoice {invoice.InvoiceNo}: Dr Cargo Claims (Sales Allowances) / Cr Unapplied Client Credits",
+                Posted = true
+            };
+            _context.JournalEntries.Add(je);
+
+            _context.GeneralLedgerEntries.Add(new GeneralLedgerEntry
+            {
+                Id = Guid.NewGuid().ToString(),
+                JournalEntryId = jeId,
+                AccountId = claimsAccount.Id,
+                Debit = adjustment.Amount,
+                Credit = 0m
+            });
+
+            _context.GeneralLedgerEntries.Add(new GeneralLedgerEntry
+            {
+                Id = Guid.NewGuid().ToString(),
+                JournalEntryId = jeId,
+                AccountId = unappliedCreditsAccount.Id,
+                Debit = 0m,
+                Credit = adjustment.Amount
+            });
         }
     }
 
