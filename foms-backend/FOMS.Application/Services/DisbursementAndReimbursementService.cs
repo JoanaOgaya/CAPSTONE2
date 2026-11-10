@@ -35,21 +35,13 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         }
     }
 
-    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
-    private bool IsCeoOrPresident(string role)
-    {
-        if (string.IsNullOrWhiteSpace(role)) return false;
-        var r = role.ToLowerInvariant();
-        return r.Contains("ceo") || r.Contains("president") || r.Contains("executive") || r.Contains("general manager");
-    }
-
     private bool IsFinanceManager(string role)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
         if (FomsRoles.IsFinanceManager(role)) return true;
         var r = role.ToLowerInvariant();
         if (r.Contains("assistant")) return false;
-        return r.Contains("finance manager") || r.Contains("admin") || IsCeoOrPresident(role);
+        return r.Contains("finance manager") || r.Contains("admin");
     }
 
     private bool IsAssistantFinanceManager(string role)
@@ -140,7 +132,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     {
         if (!IsFinanceManager(userRole))
         {
-            throw new UnauthorizedAccessException("Only Finance Manager (or CEO/President) can approve cash advances.");
+            throw new UnauthorizedAccessException("Only Finance Manager can approve cash advances.");
         }
 
         var advance = await _context.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == advanceId);
@@ -172,7 +164,6 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         return MapToAdvanceDto(advance);
     }
 
-    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<CashAdvanceResponseDto> ReleaseCashAdvanceAsync(string advanceId, string userId, string userRole)
     {
         var advance = await _context.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == advanceId);
@@ -184,8 +175,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         }
 
         decimal threshold = await GetCsh09ThresholdAsync(advance.CreatedAt);
-        if ((advance.RequiresCeoApproval || advance.AmountGiven > threshold) &&
-            !IsCeoOrPresident(userRole) && advance.ApprovedBy != "EMP-CEO" && !(advance.ApprovedBy ?? "").ToLower().Contains("ceo"))
+        if (advance.RequiresCeoApproval || advance.AmountGiven > threshold)
         {
             await _gateService.EnsureGateSatisfiedAsync(
                 CeoApprovalItemTypes.CashOutflow,
@@ -351,6 +341,16 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot release disbursement in status '{disb.Status}'. Must be 'Approved'.");
         }
 
+        decimal threshold = await GetCsh09ThresholdAsync(disb.CreatedAt);
+        if (disb.Amount > threshold)
+        {
+            await _gateService.EnsureGateSatisfiedAsync(
+                CeoApprovalItemTypes.CashOutflow,
+                disbursementId.ToString(),
+                disb.Amount,
+                disb.CreatedAt);
+        }
+
         // CSH-12: Actual at release, NO liquidation!
         // Move from Committed -> Actual
         var line = await GetBudgetLineAsync(disb.FiscalYear, disb.DepartmentCode, disb.Category, disb.Month);
@@ -508,7 +508,8 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new UnauthorizedAccessException("Separation of duties violation: Submitter cannot approve their own reimbursement.");
         }
 
-        if (!IsCeoOrPresident(userRole))
+        decimal threshold = await GetCsh09ThresholdAsync(reim.SubmittedAt);
+        if (reim.Amount > threshold)
         {
             await _gateService.EnsureGateSatisfiedAsync(
                 CeoApprovalItemTypes.Reimbursement,
@@ -545,7 +546,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         }
 
         decimal threshold = await GetCsh09ThresholdAsync(reim.SubmittedAt);
-        if (reim.Amount > threshold && !IsCeoOrPresident(userRole))
+        if (reim.Amount > threshold)
         {
             await _gateService.EnsureGateSatisfiedAsync(
                 CeoApprovalItemTypes.CashOutflow,

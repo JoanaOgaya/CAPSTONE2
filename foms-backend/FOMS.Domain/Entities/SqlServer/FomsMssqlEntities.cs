@@ -1074,7 +1074,7 @@ public class CashAdvance
     public DateTime? CreatedAt { get; set; }
 
     [Column("DepartmentCode")]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
 
     [Column("Category")]
     public string Category { get; set; } = "Fuel";
@@ -1237,7 +1237,7 @@ public class Liquidation
     public bool SupervisorPreApproved { get; set; } = false;
 
     [Column("DepartmentCode")]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
 
     [Column("Category")]
     public string Category { get; set; } = "Fuel";
@@ -1301,7 +1301,7 @@ public class DirectDisbursement
     public string ReferenceNumber { get; set; } = string.Empty;
 
     [Column("department_code")]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
 
     [Column("category")]
     public string Category { get; set; } = "Repairs and Maintenance";
@@ -1448,7 +1448,7 @@ public class Reimbursement
     public string EmployeeName { get; set; } = string.Empty;
 
     [Column("department_code")]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
 
     [Column("category")]
     public string Category { get; set; } = "Food allowance";

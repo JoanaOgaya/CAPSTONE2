@@ -12,6 +12,7 @@ public class UserDto
     public string Role { get; set; } = string.Empty;
     public string? RoleId { get; set; }
     public string? Position { get; set; }
+    public string? DmsRole { get; set; }
     public string? Phone { get; set; }
     public decimal? SalaryRate { get; set; }
     public string Status { get; set; } = "Active";
@@ -32,6 +33,7 @@ public class UserCreateDto
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
     public string? Position { get; set; }
+    public string? DmsRole { get; set; }
     public string? Phone { get; set; }
     public decimal? SalaryRate { get; set; }
     public DateTime? DateHired { get; set; }
@@ -43,6 +45,7 @@ public class UserUpdateDto
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
     public string? Position { get; set; }
+    public string? DmsRole { get; set; }
     public string? Phone { get; set; }
     public decimal? SalaryRate { get; set; }
     public string Status { get; set; } = "Active";

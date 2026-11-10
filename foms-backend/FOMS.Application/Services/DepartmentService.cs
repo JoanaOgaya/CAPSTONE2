@@ -24,8 +24,7 @@ public class DepartmentService : IDepartmentService
 
     private static bool IsFinanceManager(string role)
     {
-        return string.Equals(role, "Finance Manager", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(role, "Financial Manager", StringComparison.OrdinalIgnoreCase);
+        return string.Equals(role, "Finance Manager", StringComparison.OrdinalIgnoreCase);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -376,5 +376,48 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
 2. **Cash to Net Cash & Bank Rec**: Accounts `1010 + 1020` == Ending Cash in Net Cash Flow and Bank Reconciliation unadjusted book balance.
 3. **Advances to Unliquidated List**: Account `1150` == Total outstanding unliquidated cash advances.
 
+---
+
+## Phase 20 Revision 5 Addendum Governance: Approvals, Roles, and Personnel Architecture (2026-11-10)
+
+### 1. In-Person CEO/President Approval Governance (`IAM-07` to `IAM-10`)
+- **Zero CEO/President Login or Role**: No login, user credentials, employee record, or authorization claim for CEO or President exists anywhere in FOMS.
+- **Physical In-Person Approval Table**: `dbo.CeoApprovalRecords` is the single source of truth for documented approvals (`ItemType`, `ItemId`, `Status`, `ApprovalDate`, `Notes`, `HasAttachment`, `EnteredBy`, `EnteredAt`, `RejectionReason`).
+- **Database Immutability**: Protected by trigger `TR_CeoApprovalRecords_Immutable` blocking `UPDATE` and `DELETE`. Corrections are appended as linked correction records.
+- **Finance Manager Exclusive Recording**: Only the Finance Manager (`FomsRoles.FinanceManager`) can record an approval or rejection. Attempts by any other role throw HTTP 403 / `UnauthorizedAccessException`.
+- **The 8 Gated Transaction Items**:
+  1. `AnnualBudget`: Allocation gated on board approval (optional attachment permitted).
+  2. `BudgetOverride`: Over-budget spend override (attachments strictly prohibited).
+  3. `BudgetTransfer`: Budget transfers and carry-overs require in-person approval record plus Head Accountant maker-checker recording confirmation (attachments strictly prohibited).
+  4. `CashOutflow` (Cash Advance above CSH-09 threshold): Evaluated against threshold in force as of request date; attachments strictly prohibited.
+  5. `Reimbursement` (Above CSH-09 threshold): Evaluated against threshold in force as of request date; attachments strictly prohibited.
+  6. `CashOutflow` (Direct Disbursement above CSH-09 threshold): Evaluated against threshold in force as of request date; board resolution/minutes attachment permitted.
+  7. `BadDebtWriteOff` / `InvoiceDiscount`: Gated on CEO/President in-person approval record (attachments strictly prohibited).
+  8. `AnnualFinancialStatement`: Gated on CEO/President approval record before final issuance (audited statement attachment permitted).
+- **Threshold Setting Governance (CSH-09)**:
+  - Setting B (`CSH-09_CEO_THRESHOLD`) is tested against the threshold in force as of the request date.
+  - An unconfigured or deactivated threshold fails safe to Limit A (`ApprovalThresholdConfig.DefaultAssistantFmThreshold`, ₱10,000) requiring mandatory approval record.
+  - Threshold amount cannot be set lower than Limit A.
+- **Rejection Reservation Release**: Recording a rejection on a Cash Advance or Budget Override releases the Committed budget reservation and records the mandatory rejection reason.
+
+### 2. Department Governance (`FIN-26`)
+- `DEP-OVH` (Company-wide Overhead) is strictly selectable only by the Finance Manager, enforced both server-side in `FomsDepartments.Normalize` and client-side by filtering it out of dropdowns for non-FM users.
+- Database default constraints `('DEP-OPS')` dropped across `CashAdvances`, `DirectDisbursements`, and `Reimbursements` with C# initializers set to `string.Empty` to ensure all expense submissions require an explicit department selection with zero defaulting. Legacy rows remain untouched.
+
+### 3. Personnel Architecture & DMS Operational Alignment (`IAM-11`, `R5.6`)
+- **Add Employee Form Layout**:
+  - `Position` (required, starts empty, grouped into Finance and Non-Finance positions).
+  - `FOMS Role` (read-only, derived automatically from Position).
+  - `DMS Operational Role` (read-only `None` for finance positions; active dropdown with options `Admin`, `Encoder`, `Driver`, `None (no DMS access)` for non-finance positions).
+  - Responsive mobile stacking (one field per row on mobile viewports).
+- **Zero Department on Personnel**: Personnel records carry strictly NO department field (Check 2: department belongs to expense transactions, not employee records).
+- **Client Role Removal**: Client role is permanently forbidden from employee registration; client accounts have zero login access to FOMS (`IAM-06`).
+- **Database Seed Normalization**:
+  - `ROLE-004` Description renamed to `"Assistant of Finance Manager"`.
+  - `dbo.Users` row 1 (`user_id = 1`) renamed to `"Finance Manager Test User"`.
+  - `dbo.Users` row 8 (`CLIENT-001`) deactivated (`is_active = 0`).
+  - `dbo.Users` row 5 (`EMP-005`, "Billing Staff", `role_id = 1`) kept untouched and flagged for user review.
+
+
 
 

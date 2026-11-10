@@ -28,19 +28,11 @@ public class FinancialStatementService : IFinancialStatementService
         _gateService = gateService;
     }
 
-    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
-    private bool IsCeoOrPresident(string role)
-    {
-        if (string.IsNullOrWhiteSpace(role)) return false;
-        var r = role.ToLowerInvariant();
-        return r.Contains("ceo") || r.Contains("president") || r.Contains("executive") || r.Contains("general manager");
-    }
-
     private bool IsFinanceManager(string role)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
         var r = role.ToLowerInvariant();
-        return r.Contains("finance manager") || r.Contains("admin") || IsCeoOrPresident(role);
+        return r.Contains("finance manager") || r.Contains("admin");
     }
 
     private async Task LogAuditAsync(string userId, string action, string details)
@@ -602,22 +594,18 @@ public class FinancialStatementService : IFinancialStatementService
         return await GenerateAfsPackageAsync(fiscalYear, periodType, periodNumber);
     }
 
-    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<AfsPackageDto> ApproveAfsPackageAsync(int fiscalYear, string periodType, int periodNumber, string userId, string userRole)
     {
-        if (!IsCeoOrPresident(userRole))
+        if (!IsFinanceManager(userRole))
         {
-            if (!IsFinanceManager(userRole))
-            {
-                throw new UnauthorizedAccessException("Only Finance Manager can approve the annual AFS package.");
-            }
-
-            await _gateService.EnsureGateSatisfiedAsync(
-                CeoApprovalItemTypes.AnnualFinancialStatement,
-                fiscalYear.ToString(),
-                null,
-                DateTime.UtcNow);
+            throw new UnauthorizedAccessException("Only Finance Manager can approve the annual AFS package.");
         }
+
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.AnnualFinancialStatement,
+            fiscalYear.ToString(),
+            null,
+            DateTime.UtcNow);
 
         var approval = await _context.FinancialStatementApprovals
             .FirstOrDefaultAsync(a => a.FiscalYear == fiscalYear && a.PeriodType == (periodType ?? "Year") && a.PeriodNumber == periodNumber);

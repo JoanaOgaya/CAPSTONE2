@@ -46,8 +46,7 @@ public class FinancePaymentsController : ControllerBase
             ?? user;
 
         if (role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) ||
-            role.Equals("FINANCE_MANAGER", StringComparison.OrdinalIgnoreCase) ||
-            role.Equals("Financial Manager", StringComparison.OrdinalIgnoreCase))
+            role.Equals("FINANCE_MANAGER", StringComparison.OrdinalIgnoreCase))
         {
             return (true, "Finance Manager", null);
         }

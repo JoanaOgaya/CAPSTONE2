@@ -25,12 +25,28 @@ const FINANCE_POSITIONS = [
   'Assistant of Finance Manager'
 ];
 
+const NON_FINANCE_POSITIONS = [
+  'Courier',
+  'Dispatcher',
+  'Driver',
+  'Hub Supervisor',
+  'Sorter'
+];
+
+const DMS_OPERATIONAL_ROLES = [
+  'Admin',
+  'Encoder',
+  'Driver',
+  'None (no DMS access)'
+];
+
 interface EmployeeFormData {
   employeeId: string;
   fullName: string;
   email: string;
   position: string;
   role: string;
+  dmsRole: string;
   phone: string;
   salaryRate: string;
   dateHired: string;
@@ -43,6 +59,7 @@ interface FormFieldErrors {
   email?: string;
   position?: string;
   role?: string;
+  dmsRole?: string;
   phone?: string;
   salaryRate?: string;
   dateHired?: string;
@@ -98,7 +115,7 @@ export const ProfilePage: React.FC = () => {
 
   // Validation rules
   const validateField = (name: keyof EmployeeFormData, val: string): string | undefined => {
-    const trimmed = val.trim();
+    const trimmed = (val || '').trim();
     switch (name) {
       case 'employeeId':
         if (!editingEmployee) {
@@ -131,6 +148,11 @@ export const ProfilePage: React.FC = () => {
       case 'role':
         if (!trimmed) return 'Role is required.';
         return undefined;
+      case 'dmsRole':
+        if (NON_FINANCE_POSITIONS.includes(formData.position) && !trimmed) {
+          return 'DMS operational role is required for non-finance staff.';
+        }
+        return undefined;
       case 'phone':
         if (trimmed && !/^(\+63|0)9\d{9}$/.test(trimmed.replace(/[\s-]/g, ''))) {
           return 'Valid format: 09171234567 or +639171234567.';
@@ -159,11 +181,12 @@ export const ProfilePage: React.FC = () => {
     const errEmail = validateField('email', formData.email);
     const errPos = validateField('position', formData.position);
     const errRole = validateField('role', formData.role);
+    const errDms = validateField('dmsRole', formData.dmsRole);
     const errPhone = validateField('phone', formData.phone);
     const errSalary = validateField('salaryRate', formData.salaryRate);
     const errDate = validateField('dateHired', formData.dateHired);
 
-    return !errId && !errName && !errEmail && !errPos && !errRole && !errPhone && !errSalary && !errDate;
+    return !errId && !errName && !errEmail && !errPos && !errRole && !errDms && !errPhone && !errSalary && !errDate;
   }, [formData, editingEmployee, staffList]);
 
   const handleOpenAddModal = () => {
@@ -174,6 +197,7 @@ export const ProfilePage: React.FC = () => {
       email: '',
       position: '',
       role: '',
+      dmsRole: '',
       phone: '',
       salaryRate: '',
       dateHired: new Date().toISOString().split('T')[0],
@@ -193,6 +217,7 @@ export const ProfilePage: React.FC = () => {
       email: emp.email || '',
       position: initialPosition,
       role: initialRole,
+      dmsRole: (emp as any).dmsRole || (FINANCE_POSITIONS.includes(initialPosition) ? 'None' : 'None (no DMS access)'),
       phone: emp.phone || '',
       salaryRate: emp.salaryRate ? String(emp.salaryRate) : '',
       dateHired: emp.dateHired ? emp.dateHired.split('T')[0] : '',
@@ -208,6 +233,49 @@ export const ProfilePage: React.FC = () => {
     setFieldErrors(prev => ({ ...prev, [field]: error }));
   };
 
+  const handlePositionChange = (pos: string) => {
+    if (FINANCE_POSITIONS.includes(pos)) {
+      setFormData(prev => ({
+        ...prev,
+        position: pos,
+        role: pos,
+        dmsRole: 'None',
+      }));
+      setFieldErrors(prev => ({
+        ...prev,
+        position: undefined,
+        role: undefined,
+        dmsRole: undefined,
+      }));
+    } else if (NON_FINANCE_POSITIONS.includes(pos)) {
+      setFormData(prev => ({
+        ...prev,
+        position: pos,
+        role: 'None',
+        dmsRole: prev.dmsRole && DMS_OPERATIONAL_ROLES.includes(prev.dmsRole) && prev.dmsRole !== 'None' ? prev.dmsRole : '',
+      }));
+      setFieldErrors(prev => ({
+        ...prev,
+        position: undefined,
+        role: undefined,
+        dmsRole: prev.dmsRole && DMS_OPERATIONAL_ROLES.includes(prev.dmsRole) && prev.dmsRole !== 'None' ? undefined : 'DMS operational role is required for non-finance staff.',
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        position: pos,
+        role: '',
+        dmsRole: '',
+      }));
+      setFieldErrors(prev => ({
+        ...prev,
+        position: pos ? undefined : 'Position is required.',
+        role: undefined,
+        dmsRole: undefined,
+      }));
+    }
+  };
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isFormValid || isSubmitting) return;
@@ -221,6 +289,7 @@ export const ProfilePage: React.FC = () => {
         email: formData.email.trim().toLowerCase(),
         position: formData.position.trim(),
         role: formData.role.trim(),
+        dmsRole: formData.dmsRole.trim() || undefined,
         phone: formData.phone.trim() || undefined,
         salaryRate: formData.salaryRate ? parseFloat(formData.salaryRate) : undefined,
         dateHired: formData.dateHired ? new Date(formData.dateHired).toISOString() : undefined,
@@ -233,6 +302,7 @@ export const ProfilePage: React.FC = () => {
           email: payload.email,
           position: payload.position,
           role: payload.role,
+          dmsRole: payload.dmsRole,
           phone: payload.phone,
           salaryRate: payload.salaryRate,
           status: payload.status,
@@ -625,7 +695,7 @@ export const ProfilePage: React.FC = () => {
             </div>
 
             <form onSubmit={handleFormSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
                     Employee ID {!editingEmployee && <span style={{ color: '#EF4444' }}>*</span>}
@@ -660,13 +730,7 @@ export const ProfilePage: React.FC = () => {
                   </label>
                   <select
                     value={formData.position}
-                    onChange={e => {
-                      const pos = e.target.value;
-                      handleFormChange('position', pos);
-                      if (FINANCE_POSITIONS.includes(pos)) {
-                        handleFormChange('role', pos);
-                      }
-                    }}
+                    onChange={e => handlePositionChange(e.target.value)}
                     style={{
                       width: '100%',
                       padding: '10px 12px',
@@ -677,9 +741,16 @@ export const ProfilePage: React.FC = () => {
                     }}
                   >
                     <option value="">-- Select Position --</option>
-                    {FINANCE_POSITIONS.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
+                    <optgroup label="Finance Positions">
+                      {FINANCE_POSITIONS.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Non-Finance Positions">
+                      {NON_FINANCE_POSITIONS.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </optgroup>
                   </select>
                   {fieldErrors.position && (
                     <span style={{ color: '#EF4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
@@ -712,6 +783,56 @@ export const ProfilePage: React.FC = () => {
                   {fieldErrors.role && (
                     <span style={{ color: '#EF4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
                       {fieldErrors.role}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    DMS Operational Role {NON_FINANCE_POSITIONS.includes(formData.position) && <span style={{ color: '#EF4444' }}>*</span>}
+                  </label>
+                  {NON_FINANCE_POSITIONS.includes(formData.position) ? (
+                    <select
+                      aria-label="DMS Operational Role"
+                      value={formData.dmsRole}
+                      onChange={e => handleFormChange('dmsRole', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        border: `1px solid ${fieldErrors.dmsRole ? '#EF4444' : '#CBD5E1'}`,
+                        fontSize: '0.9rem',
+                        background: '#FFF',
+                        color: '#0F172A'
+                      }}
+                    >
+                      <option value="">-- Select DMS Role --</option>
+                      {DMS_OPERATIONAL_ROLES.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={FINANCE_POSITIONS.includes(formData.position) ? "None" : ""}
+                      placeholder={FINANCE_POSITIONS.includes(formData.position) ? "None" : "Select position first"}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        background: '#F1F5F9',
+                        color: '#64748B',
+                        fontSize: '0.9rem',
+                        fontWeight: 500
+                      }}
+                    />
+                  )}
+                  {fieldErrors.dmsRole && (
+                    <span style={{ color: '#EF4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                      {fieldErrors.dmsRole}
                     </span>
                   )}
                 </div>

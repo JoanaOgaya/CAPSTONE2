@@ -39,8 +39,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
     private static bool IsFinanceManager(string role)
     {
         return !string.IsNullOrWhiteSpace(role) &&
-               (role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) ||
-                role.Equals("Financial Manager", StringComparison.OrdinalIgnoreCase));
+               role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsHeadAccountant(string role)
@@ -101,7 +100,9 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 break;
 
             case CeoApprovalItemTypes.InvoiceDiscount:
+            case CeoApprovalItemTypes.BadDebtWriteOff:
                 exists = await _context.Waybills.AnyAsync(w => w.InvoiceNo == itemId, ct) ||
+                         await _context.Invoices.AnyAsync(i => i.InvoiceNo == itemId, ct) ||
                          !string.IsNullOrWhiteSpace(itemId);
                 break;
 
@@ -143,7 +144,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
         var setting = await _context.CeoApprovalThresholdSettings
             .Where(s => s.SettingKey == "CSH-09_CEO_THRESHOLD" &&
                         s.EffectiveFrom <= targetDate &&
-                        (s.EffectiveTo == null || s.EffectiveTo > targetDate))
+                        (s.EffectiveTo == null ? s.IsActive : s.EffectiveTo > targetDate))
             .OrderByDescending(s => s.EffectiveFrom)
             .FirstOrDefaultAsync(ct);
 
@@ -285,6 +286,10 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             if (amount.HasValue)
             {
                 isRequired = amount.Value > effectiveCeoLimit;
+            }
+            else
+            {
+                isRequired = true;
             }
         }
 
@@ -462,6 +467,16 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 throw new ArgumentException($"Attachments are permitted only on items 1, 6, and 8 ({string.Join(", ", CeoApprovalItemTypes.AttachmentAllowedTypes)}).");
             }
 
+            if (request.ItemType == CeoApprovalItemTypes.CashOutflow)
+            {
+                // Item 4 (Cash Advance): attachment not allowed. Item 6 (Direct Disbursement): attachment allowed.
+                bool isCashAdvance = await _context.CashAdvances.AnyAsync(a => a.AdvanceId == request.ItemId, ct);
+                if (isCashAdvance)
+                {
+                    throw new ArgumentException("Attachments are not permitted for Cash Advance approval records (Item 4). Attachments are allowed only on items 1, 6 (Direct Disbursement), and 8.");
+                }
+            }
+
             var saved = await ValidateAndSaveAttachmentAsync(request.AttachmentBytes, request.AttachmentFileName ?? "attachment", ct);
             attachmentPath = saved.Path;
             attachmentFileName = saved.FileName;
@@ -544,6 +559,15 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             if (!CeoApprovalItemTypes.AttachmentAllowedTypes.Contains(request.ItemType))
             {
                 throw new ArgumentException($"Attachments are permitted only on items 1, 6, and 8.");
+            }
+
+            if (request.ItemType == CeoApprovalItemTypes.CashOutflow)
+            {
+                bool isCashAdvance = await _context.CashAdvances.AnyAsync(a => a.AdvanceId == request.ItemId, ct);
+                if (isCashAdvance)
+                {
+                    throw new ArgumentException("Attachments are not permitted for Cash Advance approval records (Item 4). Attachments are allowed only on items 1, 6 (Direct Disbursement), and 8.");
+                }
             }
 
             var saved = await ValidateAndSaveAttachmentAsync(request.AttachmentBytes, request.AttachmentFileName ?? "attachment", ct);

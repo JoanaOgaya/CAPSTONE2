@@ -36,7 +36,7 @@ public class UserService : IUserService
         ValidateNotCeoOrPresident(request.Role, request.Position, request.Username, request.EmployeeId);
 
         // 2. Validate Position and FOMS Role alignment
-        var (resolvedPosition, resolvedRole) = ValidateAndAlignPositionAndRole(request.Position, request.Role);
+        var (resolvedPosition, resolvedRole, resolvedDmsRole) = ValidateAndAlignPositionAndRole(request.Position, request.Role, request.DmsRole);
 
         // 3. Check local email uniqueness
         if (!string.IsNullOrWhiteSpace(request.Email))
@@ -242,7 +242,7 @@ public class UserService : IUserService
         if (existing == null)
             return null;
 
-        var (resolvedPosition, resolvedRole) = ValidateAndAlignPositionAndRole(request.Position, request.Role);
+        var (resolvedPosition, resolvedRole, resolvedDmsRole) = ValidateAndAlignPositionAndRole(request.Position, request.Role, request.DmsRole);
 
         existing.Name = request.FullName.Trim();
         existing.Email = request.Email.Trim().ToLowerInvariant();
@@ -283,39 +283,69 @@ public class UserService : IUserService
         };
     }
 
-    private static (string? position, string role) ValidateAndAlignPositionAndRole(string? position, string? role)
+    public static (string position, string role, string dmsRole) ValidateAndAlignPositionAndRole(string? position, string? role, string? dmsRole = null)
     {
-        var normPosition = FomsRoles.NormalizeRole(position);
-        var normRole = FomsRoles.NormalizeRole(role);
-
-        // If position is a known finance position
-        if (!string.IsNullOrEmpty(normPosition) && FinancePositions.Contains(normPosition))
+        if (string.IsNullOrWhiteSpace(position))
         {
-            if (!string.IsNullOrEmpty(normRole) && !string.Equals(normPosition, normRole, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Position is strictly required.");
+        }
+
+        var trimmedPosition = position.Trim();
+        var trimmedRole = (role ?? string.Empty).Trim();
+
+        if (string.Equals(trimmedPosition, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmedRole, "Client", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(dmsRole?.Trim(), "Client", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Client role is forbidden and not offered in FOMS (IAM-06, IAM-11).");
+        }
+
+        var normPosition = FomsRoles.NormalizeRole(trimmedPosition);
+        bool isFinancePosition = !string.IsNullOrEmpty(normPosition) && FinancePositions.Contains(normPosition);
+
+        if (isFinancePosition)
+        {
+            // Finance positions: FOMS role auto-filled from position; DMS role must be None
+            if (!string.IsNullOrEmpty(trimmedRole) && !string.Equals(trimmedRole, normPosition, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException($"Role '{role}' does not match Position '{position}'. For finance staff, FOMS role is derived from Position.");
             }
-            return (normPosition, normPosition);
-        }
 
-        // If role is a known finance role but position was not specified or matches
-        if (!string.IsNullOrEmpty(normRole) && FinancePositions.Contains(normRole))
-        {
-            if (!string.IsNullOrEmpty(normPosition) && !string.Equals(normPosition, normRole, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(dmsRole) &&
+                !string.Equals(dmsRole.Trim(), "None", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(dmsRole.Trim(), "None (no DMS access)", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException($"Position '{position}' does not match Role '{role}'. For finance staff, FOMS role is derived from Position.");
+                throw new InvalidOperationException($"Finance positions cannot be assigned an active DMS operational role (received '{dmsRole}'). Must be 'None'.");
             }
-            return (normRole, normRole);
-        }
 
-        // Non-finance positions: position is retained, role must not be a finance role
-        var trimmedRole = (role ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(trimmedRole))
+            return (normPosition, normPosition, "None");
+        }
+        else
         {
-            throw new InvalidOperationException("Role is required.");
-        }
+            // Non-finance positions: FOMS role must be 'None'
+            if (string.IsNullOrWhiteSpace(trimmedRole))
+            {
+                throw new ArgumentException("Role is strictly required.");
+            }
 
-        return (position?.Trim(), trimmedRole);
+            if (!string.Equals(trimmedRole, "None", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Non-finance position '{trimmedPosition}' must have FOMS role 'None', but received '{role}'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(dmsRole))
+            {
+                throw new ArgumentException("DMS operational role is required for non-finance staff.");
+            }
+
+            var allowedDmsRoles = new[] { "Admin", "Encoder", "Driver", "None (no DMS access)", "None" };
+            if (!allowedDmsRoles.Any(a => string.Equals(a, dmsRole.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new ArgumentException($"Invalid DMS operational role '{dmsRole}'. Allowed roles: Admin, Encoder, Driver, None (no DMS access).");
+            }
+
+            return (trimmedPosition, "None", dmsRole.Trim());
+        }
     }
 
     private static void ValidateNotCeoOrPresident(string? role, string? position, string? username, string? employeeId)

@@ -88,8 +88,7 @@ public static class FomsDepartments
             trimmed.Equals("COMPANY_OVERHEAD", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Equals("Company-wide (Overhead)", StringComparison.OrdinalIgnoreCase))
         {
-            bool isFm = string.Equals(userRole, "Finance Manager", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(userRole, "Financial Manager", StringComparison.OrdinalIgnoreCase);
+            bool isFm = string.Equals(userRole, "Finance Manager", StringComparison.OrdinalIgnoreCase);
 
             if (!isFm)
             {

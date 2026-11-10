@@ -245,8 +245,17 @@ public class DisbursementAndReimbursementWorkflowTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-001", "Finance Manager"));
 
-        // Release by CEO/President succeeds
-        var released = await service.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-CEO", "CEO");
+        // Release with in-person CEO/President approval record entered by FM (IAM-07 to IAM-10)
+        var gateService = new CeoApprovalGateService(context);
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.CashOutflow,
+            ItemId = ca.AdvanceId,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        var released = await service.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-001", "Finance Manager");
         Assert.Equal("Released", released.Status);
     }
 
@@ -305,7 +314,17 @@ public class DisbursementAndReimbursementWorkflowTests
         var budgetLine = await context.MonthlyBudgetLines.FirstAsync(l => l.Category == "Repairs and Maintenance");
         Assert.Equal(12000m, budgetLine.CommittedAmount);
 
-        // 3. Released: CSH-12 converts Committed -> Actual immediately without any liquidation!
+        // 3. Record CEO approval for disbursement > CSH-09 threshold, then release
+        var gateService = new CeoApprovalGateService(context);
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.CashOutflow,
+            ItemId = disb.DisbursementId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        // Released: CSH-12 converts Committed -> Actual immediately without any liquidation!
         var released = await service.ReleaseDirectDisbursementAsync(disb.DisbursementId, "EMP-001", "Finance Manager");
         Assert.Equal("Released", released.Status);
 

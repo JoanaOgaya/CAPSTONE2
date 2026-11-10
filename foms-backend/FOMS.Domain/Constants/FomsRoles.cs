@@ -11,12 +11,6 @@ public static class FomsRoles
     public const string Accountant = "Accountant";
     public const string AssistantFinanceManager = "Assistant of Finance Manager";
 
-    [Obsolete("Use FinanceManager instead. Legacy Financial Manager role is deprecated.")]
-    public const string LegacyFinancialManager = "Financial Manager";
-
-    [Obsolete("Use AssistantFinanceManager instead. Legacy Assistant Financial Manager role is deprecated.")]
-    public const string LegacyAssistantFinancialManager = "Assistant Financial Manager";
-
     public const string EmpFinanceManager = "EMP-001";
     public const string EmpHeadAccountant = "EMP-002";
     public const string EmpAccountant = "EMP-003";
@@ -37,8 +31,7 @@ public static class FomsRoles
 
         var trimmed = rawRole.Trim();
         if (string.Equals(trimmed, FinanceManager, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "FinanceManager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "Financial Manager", StringComparison.OrdinalIgnoreCase))
+            string.Equals(trimmed, "FinanceManager", StringComparison.OrdinalIgnoreCase))
         {
             return FinanceManager;
         }
@@ -56,10 +49,7 @@ public static class FomsRoles
         }
 
         if (string.Equals(trimmed, AssistantFinanceManager, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "Assistant Finance Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "AssistantFinanceManager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "Assistant Financial Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "Assistant of Financial Manager", StringComparison.OrdinalIgnoreCase))
+            string.Equals(trimmed, "AssistantFinanceManager", StringComparison.OrdinalIgnoreCase))
         {
             return AssistantFinanceManager;
         }

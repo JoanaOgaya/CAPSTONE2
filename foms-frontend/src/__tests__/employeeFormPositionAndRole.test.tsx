@@ -197,4 +197,124 @@ describe('Add Employee Form: Position & Role Integration Tests (Phase 13)', () =
       expect(screen.getByText(/The employee must change this password upon their first login/i)).toBeTruthy();
     });
   });
+
+  it('6. Non-finance position derives FOMS role as None and activates DMS operational role dropdown', async () => {
+    render(
+      <ToastProvider>
+        <ProfilePage />
+      </ToastProvider>
+    );
+
+    const addBtn = await screen.findByRole('button', { name: /Add Staff Member/i });
+    fireEvent.click(addBtn);
+
+    const positionSelect = screen.getByRole('combobox') as HTMLSelectElement;
+    const roleInput = screen.getByPlaceholderText('Derived from Position') as HTMLInputElement;
+
+    // Select non-finance position: Courier
+    fireEvent.change(positionSelect, { target: { value: 'Courier' } });
+    expect(positionSelect.value).toBe('Courier');
+    expect(roleInput.value).toBe('None');
+
+    // DMS Operational Role dropdown is now present
+    const dmsSelect = screen.getByLabelText(/DMS Operational Role/i) as HTMLSelectElement;
+    expect(dmsSelect).toBeTruthy();
+
+    const dmsOptions = Array.from(dmsSelect.options).map(o => o.value);
+    expect(dmsOptions).toContain('');
+    expect(dmsOptions).toContain('Admin');
+    expect(dmsOptions).toContain('Encoder');
+    expect(dmsOptions).toContain('Driver');
+    expect(dmsOptions).toContain('None (no DMS access)');
+  });
+
+  it('7. Submitting non-finance position without DMS operational role is blocked', async () => {
+    render(
+      <ToastProvider>
+        <ProfilePage />
+      </ToastProvider>
+    );
+
+    const addBtn = await screen.findByRole('button', { name: /Add Staff Member/i });
+    fireEvent.click(addBtn);
+
+    fireEvent.change(screen.getByPlaceholderText('EMP-006'), { target: { value: 'EMP-010' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. Maria Santos'), { target: { value: 'Courier Staff Test' } });
+    fireEvent.change(screen.getByPlaceholderText('santos@foms.local'), { target: { value: 'courier10@foms.local' } });
+
+    const positionSelect = screen.getByRole('combobox');
+    fireEvent.change(positionSelect, { target: { value: 'Courier' } });
+
+    // Submit button must be disabled because DMS role is not selected
+    const submitBtn = screen.getByRole('button', { name: /Create Employee/i }) as HTMLButtonElement;
+    expect(submitBtn.disabled).toBe(true);
+
+    // Select DMS Role
+    const dmsSelect = screen.getByLabelText(/DMS Operational Role/i) as HTMLSelectElement;
+    fireEvent.change(dmsSelect, { target: { value: 'Driver' } });
+
+    await waitFor(() => expect(submitBtn.disabled).toBe(false));
+  });
+
+  it('8. Submitting non-finance employee passes dmsRole in payload to usersService.create', async () => {
+    vi.mocked(usersService.create).mockResolvedValue({
+      id: 'EMP-011',
+      employeeNumber: 'EMP-011',
+      fullName: 'Dispatcher Staff Test',
+      email: 'disp11@foms.local',
+      position: 'Dispatcher',
+      role: 'None',
+      dmsRole: 'Admin',
+      status: 'Active',
+      temporaryPassword: 'GeneratedRandomPw#14',
+    } as any);
+
+    render(
+      <ToastProvider>
+        <ProfilePage />
+      </ToastProvider>
+    );
+
+    const addBtn = await screen.findByRole('button', { name: /Add Staff Member/i });
+    fireEvent.click(addBtn);
+
+    fireEvent.change(screen.getByPlaceholderText('EMP-006'), { target: { value: 'EMP-011' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. Maria Santos'), { target: { value: 'Dispatcher Staff Test' } });
+    fireEvent.change(screen.getByPlaceholderText('santos@foms.local'), { target: { value: 'disp11@foms.local' } });
+
+    const positionSelect = screen.getByRole('combobox');
+    fireEvent.change(positionSelect, { target: { value: 'Dispatcher' } });
+
+    const dmsSelect = screen.getByLabelText(/DMS Operational Role/i) as HTMLSelectElement;
+    fireEvent.change(dmsSelect, { target: { value: 'Admin' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Create Employee/i }) as HTMLButtonElement;
+    await waitFor(() => expect(submitBtn.disabled).toBe(false));
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(usersService.create).toHaveBeenCalledTimes(1);
+    });
+
+    const createPayload = vi.mocked(usersService.create).mock.calls[0][0] as any;
+    expect(createPayload.employeeId).toBe('EMP-011');
+    expect(createPayload.position).toBe('Dispatcher');
+    expect(createPayload.role).toBe('None');
+    expect(createPayload.dmsRole).toBe('Admin');
+  });
+
+  it('9. Form modal contains strictly NO Department field (R5.6 / FIN-26)', async () => {
+    render(
+      <ToastProvider>
+        <ProfilePage />
+      </ToastProvider>
+    );
+
+    const addBtn = await screen.findByRole('button', { name: /Add Staff Member/i });
+    fireEvent.click(addBtn);
+
+    // Verify there is no department input, label, or select in the modal
+    expect(screen.queryByText(/Department/i)).toBeNull();
+    expect(screen.queryByPlaceholderText(/Department/i)).toBeNull();
+  });
 });

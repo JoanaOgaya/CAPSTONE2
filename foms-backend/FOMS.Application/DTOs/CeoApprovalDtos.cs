@@ -12,6 +12,7 @@ public static class CeoApprovalItemTypes
     public const string Reimbursement = "Reimbursement";
     public const string CashOutflow = "CashOutflow";
     public const string InvoiceDiscount = "InvoiceDiscount";
+    public const string BadDebtWriteOff = "BadDebtWriteOff";
     public const string AnnualFinancialStatement = "AnnualFinancialStatement";
 
     public static readonly HashSet<string> AllowedTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -23,6 +24,7 @@ public static class CeoApprovalItemTypes
         Reimbursement,
         CashOutflow,
         InvoiceDiscount,
+        BadDebtWriteOff,
         AnnualFinancialStatement
     };
 
@@ -32,6 +34,7 @@ public static class CeoApprovalItemTypes
         BudgetTransfer,
         BudgetCarryOver,
         InvoiceDiscount,
+        BadDebtWriteOff,
         AnnualFinancialStatement
     };
 

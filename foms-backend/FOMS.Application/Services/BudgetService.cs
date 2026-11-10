@@ -34,19 +34,11 @@ public class BudgetService : IBudgetService
         }
     }
 
-    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
-    private bool IsCeoOrPresident(string role)
-    {
-        if (string.IsNullOrWhiteSpace(role)) return false;
-        var r = role.ToLowerInvariant();
-        return r.Contains("ceo") || r.Contains("president") || r.Contains("executive") || r.Contains("general manager");
-    }
-
     private bool IsFinanceManager(string role)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
         var r = role.ToLowerInvariant();
-        return r.Contains("finance manager") || r.Contains("admin") || IsCeoOrPresident(role);
+        return r.Contains("finance manager") || r.Contains("admin");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -237,22 +229,16 @@ public class BudgetService : IBudgetService
         if (budget == null)
             throw new KeyNotFoundException($"Annual budget {annualBudgetId} not found.");
 
-        if (!IsCeoOrPresident(userRole))
+        if (!IsFinanceManager(userRole))
         {
-            if (!IsFinanceManager(userRole))
-            {
-                throw new UnauthorizedAccessException("Only Finance Manager (with valid CEO in-person approval record) can approve the annual budget.");
-            }
-
-            await _gateService.EnsureGateSatisfiedAsync(
-                CeoApprovalItemTypes.AnnualBudget,
-                budget.FiscalYear.ToString(),
-                budget.TotalBudget,
-                budget.CreatedAt);
+            throw new UnauthorizedAccessException("Only Finance Manager (with valid in-person approval record) can approve the annual budget.");
         }
 
-        if (budget == null)
-            throw new KeyNotFoundException($"Annual budget {annualBudgetId} not found.");
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.AnnualBudget,
+            budget.FiscalYear.ToString(),
+            budget.TotalBudget,
+            budget.CreatedAt);
 
         if (budget.Status != "Submitted")
         {
@@ -270,16 +256,15 @@ public class BudgetService : IBudgetService
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 6. Reject Annual Budget (Strictly CEO / President with required reason)
+    // 6. Reject Annual Budget
     // ─────────────────────────────────────────────────────────────────────────
-    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<AnnualBudgetDto> RejectAnnualBudgetAsync(int annualBudgetId, string reason, string userId, string userRole)
     {
         EnsureNotHeadAccountant(userRole);
 
-        if (!IsCeoOrPresident(userRole))
+        if (!IsFinanceManager(userRole))
         {
-            throw new UnauthorizedAccessException("Only CEO/President can reject the annual budget.");
+            throw new UnauthorizedAccessException("Only Finance Manager can reject the annual budget.");
         }
 
         if (string.IsNullOrWhiteSpace(reason))
@@ -329,8 +314,14 @@ public class BudgetService : IBudgetService
 
         if (budget.Status != "Approved")
         {
-            throw new InvalidOperationException("Budget can only be allocated once it is Approved by the CEO/President.");
+            throw new InvalidOperationException("Budget can only be allocated once it is Approved.");
         }
+
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.AnnualBudget,
+            budget.FiscalYear.ToString(),
+            budget.TotalBudget,
+            budget.CreatedAt);
 
         foreach (var alloc in request.Allocations)
         {
@@ -490,25 +481,18 @@ public class BudgetService : IBudgetService
         if (budgetOverride.Status != "Pending")
             throw new InvalidOperationException($"Cannot approve override with status '{budgetOverride.Status}'.");
 
-        // Role vs CSH-09 Threshold check:
-        // Finance Manager approves at or below CSH-09 threshold; CEO/president above it.
+        if (!IsFinanceManager(userRole))
+        {
+            throw new UnauthorizedAccessException("Only Finance Manager can approve this budget override.");
+        }
+
         if (budgetOverride.RequiresCeoApproval)
         {
-            if (!IsCeoOrPresident(userRole))
-            {
-                await _gateService.EnsureGateSatisfiedAsync(
-                    CeoApprovalItemTypes.BudgetOverride,
-                    overrideId.ToString(),
-                    budgetOverride.OverBudgetAmount,
-                    budgetOverride.RequestedAt);
-            }
-        }
-        else
-        {
-            if (!IsFinanceManager(userRole))
-            {
-                throw new UnauthorizedAccessException("Only Finance Manager or CEO/President can approve this budget override.");
-            }
+            await _gateService.EnsureGateSatisfiedAsync(
+                CeoApprovalItemTypes.BudgetOverride,
+                overrideId.ToString(),
+                budgetOverride.OverBudgetAmount,
+                budgetOverride.RequestedAt);
         }
 
         budgetOverride.Status = "Approved";
@@ -652,23 +636,20 @@ public class BudgetService : IBudgetService
         if (transfer == null)
             throw new KeyNotFoundException($"Budget transfer {transferId} not found.");
 
-        if (!IsCeoOrPresident(userRole))
+        if (!IsFinanceManager(userRole))
         {
-            if (!IsFinanceManager(userRole))
-            {
-                throw new UnauthorizedAccessException("Only Finance Manager can approve budget transfers.");
-            }
-
-            string gateItemType = string.Equals(transfer.TransferType, "CarryOver", StringComparison.OrdinalIgnoreCase)
-                ? CeoApprovalItemTypes.BudgetCarryOver
-                : CeoApprovalItemTypes.BudgetTransfer;
-
-            await _gateService.EnsureGateSatisfiedAsync(
-                gateItemType,
-                transferId.ToString(),
-                transfer.Amount,
-                transfer.RequestedAt);
+            throw new UnauthorizedAccessException("Only Finance Manager can approve budget transfers.");
         }
+
+        string gateItemType = string.Equals(transfer.TransferType, "CarryOver", StringComparison.OrdinalIgnoreCase)
+            ? CeoApprovalItemTypes.BudgetCarryOver
+            : CeoApprovalItemTypes.BudgetTransfer;
+
+        await _gateService.EnsureGateSatisfiedAsync(
+            gateItemType,
+            transferId.ToString(),
+            transfer.Amount,
+            transfer.RequestedAt);
 
         if (transfer.Status != "Pending")
             throw new InvalidOperationException($"Cannot approve transfer in status '{transfer.Status}'.");
@@ -730,14 +711,13 @@ public class BudgetService : IBudgetService
     // ─────────────────────────────────────────────────────────────────────────
     // 14. Reject Budget Transfer
     // ─────────────────────────────────────────────────────────────────────────
-    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<BudgetTransfer> RejectBudgetTransferAsync(int transferId, string reason, string userId, string userRole)
     {
         EnsureNotHeadAccountant(userRole);
 
-        if (!IsCeoOrPresident(userRole))
+        if (!IsFinanceManager(userRole))
         {
-            throw new UnauthorizedAccessException("Only CEO/President can reject budget transfers.");
+            throw new UnauthorizedAccessException("Only Finance Manager can reject budget transfers.");
         }
 
         if (string.IsNullOrWhiteSpace(reason))
