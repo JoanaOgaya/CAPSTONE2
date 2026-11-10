@@ -446,6 +446,20 @@ export const InvoiceDocument: React.FC<{ invoice: Invoice; compact?: boolean }> 
               <span style={{ fontSize: compact ? '0.85rem' : '0.95rem', color: '#0F172A', fontWeight: 800 }}>Total</span>
               <span style={{ fontSize: compact ? '0.95rem' : '1.1rem', color: hasZeroAmount ? '#EF4444' : '#0F172A', fontWeight: 900 }}>{fmt(totalDue)}</span>
             </div>
+            {Boolean(invoice.creditApplied && invoice.creditApplied > 0) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: compact ? '4px 6px' : '6px 8px', color: '#0369A1' }}>
+                <span style={{ fontSize: compact ? '0.75rem' : '0.85rem', fontWeight: 600 }}>
+                  Applied Client Credit (Pending Finance Confirmation)
+                </span>
+                <span style={{ fontSize: compact ? '0.75rem' : '0.85rem', fontWeight: 700 }}>- {fmt(invoice.creditApplied || 0)}</span>
+              </div>
+            )}
+            {Boolean(invoice.creditApplied && invoice.creditApplied > 0) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: compact ? '8px 6px' : '10px 8px', marginTop: '4px', borderTop: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: compact ? '0.85rem' : '0.95rem', color: '#0F172A', fontWeight: 800 }}>Net Balance Due</span>
+                <span style={{ fontSize: compact ? '0.95rem' : '1.1rem', color: '#0F172A', fontWeight: 900 }}>{fmt(Math.max(0, totalDue - (invoice.creditApplied || 0)))}</span>
+              </div>
+            )}
             {totalMismatch && (
               <p role="alert" style={{ margin: '8px 6px 0', color: '#B45309', fontSize: '0.72rem', lineHeight: 1.4 }}>
                 The current item calculations total {fmt(calculatedTotal)}, which differs from the invoice total saved by the billing system ({fmt(invoice.totalAmount)}). Review the rates and invoice record before issuing.

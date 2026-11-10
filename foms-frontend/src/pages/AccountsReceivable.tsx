@@ -37,7 +37,13 @@ const SharedKPIs = ({ arRecords }: { arRecords: any[] }) => {
     '90+ days': 0,
   };
   
-  const mapBracket = (bracket: string) => bracket === 'Current' ? '0-30 days' : bracket;
+  const mapBracket = (bracket: string) => {
+    if (bracket === 'Current' || bracket === 'Not Yet Due' || bracket === 'Due Soon' || bracket === '1-30') return '0-30 days';
+    if (bracket === '31-60') return '31-60 days';
+    if (bracket === '61-90') return '61-90 days';
+    if (bracket === '90+') return '90+ days';
+    return bracket;
+  };
 
   activeArRecords.forEach(r => {
     if (r.outstandingBalance > 0) {

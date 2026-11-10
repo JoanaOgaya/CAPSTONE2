@@ -356,7 +356,7 @@ export default function LiquidationValidation() {
       doc.setTextColor(100, 116, 139);
       doc.text('Cash Advance Released:', 113, 46);
       doc.text('Actual Liquidated Expenses:', 113, 51);
-      doc.text(leftover > 0 ? 'Leftover Refund to Cashier:' : reimb > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Balance:', 113, 56);
+      doc.text(leftover > 0 ? 'Leftover Cash Return to Cashier:' : reimb > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Balance:', 113, 56);
       doc.text('Audited Receipts:', 113, 61);
 
       doc.setFont('helvetica', 'bold');
@@ -822,7 +822,7 @@ export default function LiquidationValidation() {
       <div class="info-row"><span class="info-label">Cash Advance Released:</span> <span class="info-val">${formatCurrency(cashAdv)}</span></div>
       <div class="info-row"><span class="info-label">Actual Liquidated Expenses:</span> <span class="info-val" style="color: #0D9488;">${formatCurrency(totalExp)}</span></div>
       <div class="info-row" style="border-top: 1px dashed #CBD5E1; margin-top: 4px; padding-top: 4px;">
-        <span class="info-label">${leftover > 0 ? 'Leftover Refund to Cashier:' : reimb > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Variance:'}</span>
+        <span class="info-label">${leftover > 0 ? 'Leftover Cash Return to Cashier:' : reimb > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Variance:'}</span>
         <span class="info-val fin-highlight" style="color: ${leftover > 0 ? '#166534' : reimb > 0 ? '#B45309' : '#0F172A'};">
           ${formatCurrency(leftover || reimb || 0)}
         </span>
@@ -1369,7 +1369,7 @@ export default function LiquidationValidation() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', lineHeight: 2, borderTop: '1px dashed #CBD5E1', marginTop: '4px', paddingTop: '4px' }}>
                       <span style={{ color: (printVoucherRecord.leftoverCash || 0) > 0 ? '#166534' : (printVoucherRecord.reimbursementAmount || 0) > 0 ? '#B45309' : '#64748B', fontWeight: 700 }}>
-                        {(printVoucherRecord.leftoverCash || 0) > 0 ? 'Leftover Refund to Cashier:' : (printVoucherRecord.reimbursementAmount || 0) > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Variance:'}
+                        {(printVoucherRecord.leftoverCash || 0) > 0 ? 'Leftover Cash Return to Cashier:' : (printVoucherRecord.reimbursementAmount || 0) > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Variance:'}
                       </span>
                       <span style={{ fontSize: '15px', fontWeight: 800, color: (printVoucherRecord.leftoverCash || 0) > 0 ? '#166534' : (printVoucherRecord.reimbursementAmount || 0) > 0 ? '#B45309' : '#0F172A' }}>
                         {formatCurrency(printVoucherRecord.leftoverCash || printVoucherRecord.reimbursementAmount || 0)}
