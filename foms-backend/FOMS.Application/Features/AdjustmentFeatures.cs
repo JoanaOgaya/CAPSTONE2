@@ -143,6 +143,15 @@ public static class AdjustmentFeatures
                 throw new InvalidOperationException("A reason is strictly required when creating an adjusting entry (FIN-23).");
             }
 
+            // FIN-23 / R4.2: Closed accounting period blocks creation of adjusting entries
+            var today = DateTime.UtcNow.Date;
+            bool isPeriodClosed = await _context.AccountingPeriodCloses
+                .AnyAsync(p => today >= p.PeriodStart.Date && today <= p.PeriodEnd.Date, cancellationToken);
+            if (isPeriodClosed)
+            {
+                throw new InvalidOperationException("Cannot create an adjusting entry in a closed accounting period (FIN-23 / R4.2).");
+            }
+
             // Guard: amount must be positive
             if (request.Amount <= 0m)
                 throw new InvalidOperationException("Adjustment amount must be greater than zero.");
@@ -218,7 +227,8 @@ public static class AdjustmentFeatures
     // ─────────────────────────────────────────────────────────────────
     public record ApproveAdjustmentCommand(
         string Id,
-        string ApprovedBy
+        string ApprovedBy,
+        string Role = "Head Accountant"
     ) : IRequest<PaymentAdjustment?>;
 
     public class ApproveAdjustmentCommandHandler : IRequestHandler<ApproveAdjustmentCommand, PaymentAdjustment?>
@@ -237,6 +247,28 @@ public static class AdjustmentFeatures
 
             if (adjustment == null || adjustment.Status != "Pending")
                 return null;
+
+            // R5.11 item 1 / R4.11 q4: Proposed approver is Head Accountant
+            if (!string.IsNullOrWhiteSpace(request.Role) && !FOMS.Domain.Constants.FomsRoles.IsHeadAccountant(request.Role))
+            {
+                throw new UnauthorizedAccessException("Adjusting entries strictly require Head Accountant approval before posting (R5.11 item 1 / R4.11 q4).");
+            }
+
+            // Separation of Duties: Creator cannot approve their own entry
+            if (!string.IsNullOrWhiteSpace(request.ApprovedBy) &&
+                string.Equals(adjustment.AdjustedBy, request.ApprovedBy, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("The creator of an adjusting entry cannot approve their own entry (Separation of Duties).");
+            }
+
+            // FIN-23 / R4.2: Closed accounting period blocks approval of adjusting entries
+            var today = DateTime.UtcNow.Date;
+            bool isPeriodClosed = await _context.AccountingPeriodCloses
+                .AnyAsync(p => today >= p.PeriodStart.Date && today <= p.PeriodEnd.Date, cancellationToken);
+            if (isPeriodClosed)
+            {
+                throw new InvalidOperationException("Cannot approve an adjusting entry in a closed accounting period (FIN-23 / R4.2).");
+            }
 
             var invoice = await _context.Invoices
                 .FirstOrDefaultAsync(i => i.InvoiceNo == adjustment.InvoiceNo, cancellationToken);

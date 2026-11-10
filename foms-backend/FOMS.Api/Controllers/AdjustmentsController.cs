@@ -141,12 +141,24 @@ public class AdjustmentsController : ApiControllerBase
     [HttpPost("{id}/approve")]
     public async Task<IActionResult> Approve(string id)
     {
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
-        var result = await Mediator.Send(new AdjustmentFeatures.ApproveAdjustmentCommand(id, user));
-        if (result == null)
-            return NotFound(new { message = "Adjustment not found or is no longer pending." });
+        var user = User.FindFirst("employee_id")?.Value ?? User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
+        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? string.Empty;
+        try
+        {
+            var result = await Mediator.Send(new AdjustmentFeatures.ApproveAdjustmentCommand(id, user, role));
+            if (result == null)
+                return NotFound(new { message = "Adjustment not found or is no longer pending." });
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     /// <summary>
