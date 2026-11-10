@@ -482,14 +482,11 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot approve reimbursement in status '{reim.Status}'. Must be 'Validated'.");
         }
 
-        if (!IsCeoOrPresident(userRole))
-        {
-            await _gateService.EnsureGateSatisfiedAsync(
-                CeoApprovalItemTypes.Reimbursement,
-                reimbursementId.ToString(),
-                reim.Amount,
-                reim.SubmittedAt);
-        }
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.Reimbursement,
+            reimbursementId.ToString(),
+            reim.Amount,
+            reim.SubmittedAt);
 
         // Commit budget amount
         var line = await GetBudgetLineAsync(reim.FiscalYear, reim.DepartmentCode, reim.Category, reim.Month);

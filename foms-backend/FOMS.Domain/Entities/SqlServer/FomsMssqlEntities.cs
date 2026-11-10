@@ -1100,6 +1100,12 @@ public class CashAdvance
     [Column("RejectionReason")]
     public string? RejectionReason { get; set; }
 
+    [Column("IsDepartmentLocked")]
+    public bool IsDepartmentLocked { get; set; } = false;
+
+    [Column("DepartmentChangeReason")]
+    public string? DepartmentChangeReason { get; set; }
+
     [NotMapped]
     public bool IsLate => DueDate.HasValue && DateTime.UtcNow.Date > DueDate.Value.Date;
 }
@@ -1338,6 +1344,12 @@ public class DirectDisbursement
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [Column("is_department_locked")]
+    public bool IsDepartmentLocked { get; set; } = false;
+
+    [Column("department_change_reason")]
+    public string? DepartmentChangeReason { get; set; }
 }
 
 [Table("GoLiveOpeningBalances")]
@@ -1485,6 +1497,12 @@ public class Reimbursement
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [Column("is_department_locked")]
+    public bool IsDepartmentLocked { get; set; } = false;
+
+    [Column("department_change_reason")]
+    public string? DepartmentChangeReason { get; set; }
 }
 
 [Table("LiquidationDocuments")]
@@ -2014,6 +2032,12 @@ public class Department
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    [Column("is_overhead")]
+    public bool IsOverhead { get; set; } = false;
+
+    [Column("is_legacy")]
+    public bool IsLegacy { get; set; } = false;
 }
 
 [Table("AnnualBudgets")]

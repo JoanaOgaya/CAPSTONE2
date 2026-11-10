@@ -75,6 +75,7 @@ public interface IApplicationDbContext
     DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog> CeoApprovalThresholdChangeLogs { get; }
     DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord> CeoApprovalRecords { get; }
     DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation> CeoApprovalConfirmations { get; }
+    DbSet<FOMS.Domain.Entities.SqlServer.DepartmentChangeLog> DepartmentChangeLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

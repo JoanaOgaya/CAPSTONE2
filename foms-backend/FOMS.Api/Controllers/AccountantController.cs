@@ -1,3 +1,5 @@
+using FOMS.Application.Interfaces;
+using FOMS.Application.DTOs;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -28,9 +30,12 @@ public class AccountantController : ControllerBase
 {
     private readonly FomsDbContext _fomsDb;
 
-    public AccountantController(FomsDbContext fomsDb)
+    private readonly ICeoApprovalGateService? _gateService;
+
+    public AccountantController(FomsDbContext fomsDb, ICeoApprovalGateService? gateService = null)
     {
         _fomsDb = fomsDb;
+        _gateService = gateService;
     }
 
     private string CurrentRole() =>
@@ -269,6 +274,17 @@ public class AccountantController : ControllerBase
             {
                 return BadRequest(new { success = false, message = discountError });
             }
+
+            if (_gateService != null)
+            {
+                string discountItemId = (string?)body?.invoiceNumber ?? (string?)body?.clientId ?? "NEW_INVOICE";
+                var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, discountItemId, discountAmount);
+                if (!gateCheck.IsSatisfied)
+                {
+                    return BadRequest(new { success = false, message = $"Invoice discount strictly requires an in-person CEO/President approval record for item '{discountItemId}'." });
+                }
+            }
+
             if (discountRate > 0m && discountAmount == 0m)
             {
                 discountAmount = Math.Round(grossTotal * discountRate, 2);

@@ -7,6 +7,7 @@ using FOMS.Application.DTOs;
 using FOMS.Application.Interfaces;
 using FOMS.Domain.Entities;
 using FOMS.Domain.Entities.SqlServer;
+using FOMS.Domain.Constants;
 
 namespace FOMS.Application.Services;
 
@@ -87,6 +88,19 @@ public class BudgetService : IBudgetService
         CreateOrUpdateDraftBudgetRequest request, string userId, string userRole)
     {
         EnsureNotHeadAccountant(userRole);
+
+        // Normalize department codes and enforce DEP-OVH exclusivity to Finance Manager
+        if (request.Lines != null && request.Lines.Count > 0)
+        {
+            foreach (var lineReq in request.Lines)
+            {
+                lineReq.DepartmentCode = FomsDepartments.Normalize(lineReq.DepartmentCode, userRole, isNewRequest: false);
+                if (string.IsNullOrWhiteSpace(lineReq.DepartmentName) && FomsDepartments.DepartmentNames.TryGetValue(lineReq.DepartmentCode, out var defaultName))
+                {
+                    lineReq.DepartmentName = defaultName;
+                }
+            }
+        }
 
         var budget = await _context.AnnualBudgets
             .Include(b => b.Lines)
@@ -645,8 +659,12 @@ public class BudgetService : IBudgetService
                 throw new UnauthorizedAccessException("Only Finance Manager can approve budget transfers.");
             }
 
+            string gateItemType = string.Equals(transfer.TransferType, "CarryOver", StringComparison.OrdinalIgnoreCase)
+                ? CeoApprovalItemTypes.BudgetCarryOver
+                : CeoApprovalItemTypes.BudgetTransfer;
+
             await _gateService.EnsureGateSatisfiedAsync(
-                CeoApprovalItemTypes.BudgetTransfer,
+                gateItemType,
                 transferId.ToString(),
                 transfer.Amount,
                 transfer.RequestedAt);

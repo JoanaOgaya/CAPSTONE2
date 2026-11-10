@@ -10,6 +10,8 @@ public class DepartmentDto
     public string DepartmentCode { get; set; } = string.Empty;
     public string DepartmentName { get; set; } = string.Empty;
     public bool IsActive { get; set; }
+    public bool IsOverhead { get; set; }
+    public bool IsLegacy { get; set; }
 }
 
 public class MonthlyBudgetLineDto

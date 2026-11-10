@@ -189,3 +189,37 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
 6. **Gate Categorization**:
    - **Always-on Tick Items**: (1) Annual Budget, (2) Budget Transfer, (3) Budget Carry-over, (7) Invoice Discount, (8) Annual Financial Statements.
    - **Threshold-Dependent Items**: (4) Budget Override, (5) Reimbursement, (6) Cash Outflow (governed by Setting B with fail-safe to Limit A when unset).
+
+
+---
+
+## Phase 15 Approvals & Directives (Confirmed 2026-11-10)
+
+1. **Department Codes & Governance**:
+   - Canonical 4+1 departments:
+     - `DEP-FIN` — Finance & Accounting
+     - `DEP-CCS` — Coordinator & Customer Service Team
+     - `DEP-DSP` — Dispatch Team
+     - `DEP-FWD` — Forwarding Team
+     - `DEP-OVH` — Company-wide (Overhead) (5th budget line, FM-only selectable, enforced server-side).
+   - Server-side validation normalizes input and strictly rejects unknown department codes.
+   - Legacy `DEP-OPS` (Operations) is strictly legacy read-only: not selectable for new requests, preserved for historical data and legacy tests.
+   - Rows currently using `DEP-OPS`: 4 rows in `dbo.CashAdvances` (`CA-001`, `CA-002`, `CA-003`, `CA-004`). No remapping without explicit user instruction.
+   - Overhead budget line (`DEP-OVH`): exists per category per month, allocated exclusively by the Finance Manager (`FIN-01`). Zero seeded default amounts.
+
+2. **Last-Used Department Suggestion Chip (FIN-26, Option A)**:
+   - Every cash advance, direct disbursement, and reimbursement request requires a department chosen by the requester.
+   - Form loads with empty department (`placeholder="Select Department"`). No default is ever selected by client or server.
+   - Suggestion chip appears only if the current user has previously submitted a request, showing their own last-used department.
+   - `DEP-OVH` (Company-wide Overhead) is never suggested to non-FM users.
+   - Server rejects any request submitted without an explicit valid department code.
+
+3. **Department Change Audit & Immutability (`dbo.DepartmentChangeLogs`, R5.11 Item 5)**:
+   - Dedicated table `dbo.DepartmentChangeLogs` (`LogId`, `RequestType`, `RequestId`, `OldDepartmentCode`, `NewDepartmentCode`, `Reason`, `ChangedBy`, `ChangedAt`).
+   - Protected by database trigger `TR_DepartmentChangeLogs_Immutable` (insert-only).
+   - Only the Finance Manager can change a department prior to approval.
+   - Changing a department requires a non-empty reason and automatically triggers a budget re-check.
+   - Requests are permanently locked upon approval (`IsDepartmentLocked = true`). Post-approval fixes must use logged correction entries.
+
+4. **CSH-09 Setting (B) Status**:
+   - Limit (B) remains unconfigured (`NULL`) pending Finance confirmation. Fail-safe to Limit (A) (`₱10,000.00`) remains active.

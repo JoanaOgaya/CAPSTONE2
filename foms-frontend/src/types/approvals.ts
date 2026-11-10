@@ -60,6 +60,10 @@ export interface CashAdvance {
   amount: number;
   purpose: string;
   dateNeeded: string;
+  departmentCode?: string;
+  departmentName?: string;
+  isDepartmentLocked?: boolean;
+  departmentChangeReason?: string;
   remarks?: string;
   requestedBy: string;
   requestedById?: string;
@@ -73,5 +77,6 @@ export interface CashAdvanceCreatePayload {
   amount: number;
   purpose: string;
   dateNeeded: string;
+  departmentCode?: string;
   remarks?: string;
 }
