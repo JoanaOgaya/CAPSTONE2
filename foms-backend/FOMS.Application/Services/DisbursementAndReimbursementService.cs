@@ -79,6 +79,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     public async Task<CashAdvanceResponseDto> RequestCashAdvanceAsync(RequestCashAdvanceDto dto, string userId, string userRole)
     {
         EnsureValidCategory(dto.Category);
+        dto.DepartmentCode = FomsDepartments.Normalize(dto.DepartmentCode, userRole, isNewRequest: false);
 
         // Budget check
         var line = await GetBudgetLineAsync(dto.FiscalYear, dto.DepartmentCode, dto.Category, dto.Month);
@@ -265,6 +266,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     public async Task<DirectDisbursementResponseDto> RequestDirectDisbursementAsync(RequestDirectDisbursementDto dto, string userId, string userRole)
     {
         EnsureValidCategory(dto.Category);
+        dto.DepartmentCode = FomsDepartments.Normalize(dto.DepartmentCode, userRole, isNewRequest: false);
 
         var line = await GetBudgetLineAsync(dto.FiscalYear, dto.DepartmentCode, dto.Category, dto.Month);
         if (line != null && line.Available < dto.Amount)
@@ -417,6 +419,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     public async Task<ReimbursementResponseDto> SubmitReimbursementAsync(SubmitReimbursementDto dto, string userId, string userRole)
     {
         EnsureValidCategory(dto.Category);
+        dto.DepartmentCode = FomsDepartments.Normalize(dto.DepartmentCode, userRole, isNewRequest: false);
 
         var refNo = $"REIM-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
 

@@ -223,3 +223,19 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
 
 4. **CSH-09 Setting (B) Status**:
    - Limit (B) remains unconfigured (`NULL`) pending Finance confirmation. Fail-safe to Limit (A) (`₱10,000.00`) remains active.
+
+---
+
+## Phase 16 Approvals & Directives (Confirmed 2026-11-10)
+
+1. **Acceptance of Phase 14 & 15**:
+   - Phase 14 and Phase 15 accepted with verification checks confirmed.
+   - Fail-safe for CSH-09 Setting (B) to Limit (A) (₱10,000.00) remains active until Finance confirmation.
+
+2. **Phase 16 Test Migration & Transition Strategy**:
+   - List ALL tests and code using old statuses across backend, frontend, E2E, and AI gateway.
+   - Replace old tests in a separate dedicated commit. Do not delete them; retain a test for legacy status mapping.
+   - Test 4 assertion: voiding an Approved invoice posts NO journal entry (AR posts strictly at Sent). Void allowed only by Head Accountant prior to Sent. After Sent, adjustments require a credit memo.
+   - Additive, reversible migration for existing dbo.Invoices rows (Pending HA Verification -> For Review, Returned to Creator -> Draft). Show mapping before applying to local dev. Test Down on a copy.
+   - AR and accrual revenue post once at Sent with an idempotency key (invoice_id + event). Payments accepted only for Sent or Received invoices.
+   - Edge case: Head Accountant creating an invoice cannot verify their own invoice (no-self-approval). Awaiting user decision on who verifies.
