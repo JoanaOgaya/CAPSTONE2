@@ -1205,7 +1205,7 @@ export default function LiquidationValidation() {
               )}
 
               {/* Review Decision & Actions */}
-              {viewRecord.status === 'Pending Validation' ? (
+              {(viewRecord.status === 'Pending Validation' || viewRecord.status === 'Endorsed') ? (
                 <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '16px' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '12px', marginBottom: '14px' }}>
                     <div>

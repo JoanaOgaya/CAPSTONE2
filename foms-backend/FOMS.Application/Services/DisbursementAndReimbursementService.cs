@@ -1,3 +1,5 @@
+using FOMS.Application.Services;
+using FOMS.Domain.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -50,12 +52,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
 
     private async Task<decimal> GetCsh09ThresholdAsync()
     {
-        var thresholdSetting = await _context.ApprovalThresholdSettings
-            .Where(t => t.TransactionType == "CashOutflow" && t.IsActive)
-            .OrderByDescending(t => t.MaximumAmount)
-            .FirstOrDefaultAsync();
-
-        return thresholdSetting?.MaximumAmount ?? 10000.00m;
+        return await ApprovalThresholdResolver.ResolveThresholdLimitAsync(_context.ApprovalThresholdSettings);
     }
 
     private async Task<MonthlyBudgetLine?> GetBudgetLineAsync(int fiscalYear, string departmentCode, string category, int month)

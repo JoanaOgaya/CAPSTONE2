@@ -233,9 +233,26 @@ public class LiquidationsController : ControllerBase
             var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
                 ? item.SubmittedByEmployeeId
                 : item.SubmittedByName;
-            if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
+            var (_, currentRole, currentUsername, currentEmpId) = GetCallerInfo();
+            if (FomsRoles.IsSameEmployeeId(submitterEmpId, currentEmpId) ||
+                (!string.IsNullOrWhiteSpace(item.SubmittedByName) && (item.SubmittedByName.Equals(currentUsername, StringComparison.OrdinalIgnoreCase) || item.SubmittedByName.Equals(currentEmpId, StringComparison.OrdinalIgnoreCase))) ||
+                (!string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId) && item.SubmittedByEmployeeId.Equals(currentEmpId, StringComparison.OrdinalIgnoreCase)))
             {
-                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate or approve their own liquidation." });
+                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate, endorse, or approve their own liquidation." });
+            }
+        }
+
+        if (!string.IsNullOrEmpty(dto.Status) &&
+            (dto.Status.Equals("Validated", StringComparison.OrdinalIgnoreCase) ||
+             dto.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (FomsRoles.IsRole(role, FomsRoles.AssistantFinanceManager) && !FomsRoles.IsRole(role, FomsRoles.FinanceManager, FomsRoles.HeadAccountant))
+            {
+                return StatusCode(403, new { message = "Forbidden: Assistant of Finance Manager cannot perform final sign-off. Strict two-tier endorsement requires endorsement to Finance Manager." });
+            }
+            if (FomsRoles.IsRole(role, FomsRoles.FinanceManager) && !string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "Skipped tier: Liquidation must be endorsed by Assistant of Finance Manager before final Finance Manager sign-off." });
             }
         }
 
@@ -283,61 +300,111 @@ public class LiquidationsController : ControllerBase
         if (item == null) return NotFound(new { message = "Liquidation not found" });
 
         var normAction = actionName.ToLowerInvariant();
-        if (normAction is "approve" or "validate" or "endorse" or "reject")
+        var (_, userRole, callerUsername, callerEmpId) = GetCallerInfo();
+
+        // Separation of duties / self-endorsement guard
+        if (normAction is "approve" or "validate" or "endorse" or "reject" or "sign-off" or "signoff")
         {
             var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
                 ? item.SubmittedByEmployeeId
                 : item.SubmittedByName;
-            if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
+            if (FomsRoles.IsSameEmployeeId(submitterEmpId, callerEmpId) ||
+                (!string.IsNullOrWhiteSpace(item.SubmittedByName) && (item.SubmittedByName.Equals(callerUsername, StringComparison.OrdinalIgnoreCase) || item.SubmittedByName.Equals(callerEmpId, StringComparison.OrdinalIgnoreCase))) ||
+                (!string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId) && item.SubmittedByEmployeeId.Equals(callerEmpId, StringComparison.OrdinalIgnoreCase)))
             {
                 return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate, endorse, or approve their own liquidation." });
             }
         }
 
-        item.Status = actionName.ToLowerInvariant() switch
+        if (normAction == "endorse")
         {
-            "approve" or "validate" => "Validated",
-            "endorse" => "Endorsed",
-            "reject" => "Rejected",
-            "return" => "Returned",
-            "for_correction" or "for-correction" => "Returned",
-            "submit" => "Pending Validation",
-            _ => item.Status
-        };
-        item.ValidatedAt = DateTime.UtcNow;
-        item.ValidatedBy = 4;
-
-        if (item.Status == "Validated")
-        {
-            // Post Cash Inflow if leftover cash is returned
-            if ((item.LeftoverCash ?? 0) > 0)
+            if (string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
             {
-                _fomsDb.CashInflows.Add(new CashInflow
-                {
-                    Amount = item.LeftoverCash!.Value,
-                    Source = $"Liquidation {item.ReferenceNumber} Cash Return",
-                    ReferenceNumber = item.ReferenceNumber,
-                    Status = "Completed",
-                    TransactionDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow
-                });
+                return Conflict(new { message = "This liquidation has already been endorsed." });
+            }
+            if (string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase))
+            {
+                return Conflict(new { message = "This liquidation has already been validated and signed off." });
             }
 
-            // Post Cash Outflow if courier is due reimbursement
-            if ((item.ReimbursementAmount ?? 0) > 0)
+            item.Status = "Endorsed";
+
+            _fomsDb.Notifications.Add(new Notification
             {
-                _fomsDb.CashOutflows.Add(new CashOutflow
+                RecipientRole = "Finance Manager",
+                Title = "Liquidation Endorsed for Final Sign-Off",
+                Message = $"Liquidation {item.ReferenceNumber} endorsed by Assistant FM.",
+                Type = "Liquidation_Approval",
+                RelatedRecordType = "Liquidation",
+                RelatedRecordId = id,
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        else if (normAction is "approve" or "validate" or "sign-off" or "signoff")
+        {
+            // Tier 1 Assistant FM CANNOT perform final sign-off
+            if (FomsRoles.IsRole(userRole, FomsRoles.AssistantFinanceManager) && !FomsRoles.IsRole(userRole, FomsRoles.FinanceManager, FomsRoles.HeadAccountant))
+            {
+                return StatusCode(403, new { message = "Forbidden: Assistant of Finance Manager cannot perform final sign-off. Strict two-tier endorsement requires endorsement to Finance Manager." });
+            }
+
+            // TC-015 / Idempotency: Duplicate click prevention
+            if (string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase))
+            {
+                return Conflict(new { message = "This liquidation has already been signed off and validated." });
+            }
+
+            // Skipped Tier: Finance Manager cannot sign off without prior endorsement by Tier 1 Assistant FM
+            if (FomsRoles.IsRole(userRole, FomsRoles.FinanceManager) && !string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "Skipped tier: Liquidation must be endorsed by Assistant of Finance Manager before final Finance Manager sign-off." });
+            }
+
+            item.Status = "Validated";
+            item.ValidatedAt = DateTime.UtcNow;
+            item.ValidatedBy = 1;
+
+            // Cash Inflow recognized only upon final FM sign-off (once only)
+            if ((item.LeftoverCash ?? 0m) > 0m)
+            {
+                var existingInflow = await _fomsDb.CashInflows.FirstOrDefaultAsync(i => i.ReferenceNumber == item.ReferenceNumber);
+                if (existingInflow == null)
                 {
-                    SourceReference = item.ReferenceNumber,
-                    RecordedBy = "Finance Liquidation Audit",
-                    Category = "Courier Expense Reimbursement",
-                    Description = $"Liquidation {item.ReferenceNumber} Reimbursement for {item.SubmittedByName ?? "Courier"}",
-                    Amount = item.ReimbursementAmount!.Value,
-                    Status = "Completed",
-                    OutflowDate = DateTime.UtcNow,
-                    TransactionDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow
-                });
+                    _fomsDb.CashInflows.Add(new CashInflow
+                    {
+                        Amount = item.LeftoverCash!.Value,
+                        Source = $"Liquidation {item.ReferenceNumber} Cash Return",
+                        ReferenceNumber = item.ReferenceNumber,
+                        Status = "Completed",
+                        TransactionDate = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+
+            // Cash Outflow recognized only upon final FM sign-off (once only)
+            if ((item.ReimbursementAmount ?? 0m) > 0m)
+            {
+                var existingOutflow = await _fomsDb.CashOutflows.FirstOrDefaultAsync(o => o.SourceReference == item.ReferenceNumber);
+                if (existingOutflow == null)
+                {
+                    _fomsDb.CashOutflows.Add(new CashOutflow
+                    {
+                        CashOutflowId = $"CO-LIQ-{item.LiquidationId}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}",
+                        SourceReference = item.ReferenceNumber,
+                        RecordedBy = !string.IsNullOrWhiteSpace(callerUsername) ? callerUsername : "Finance Manager",
+                        Category = "Courier Expense Reimbursement",
+                        Description = $"Liquidation {item.ReferenceNumber} Reimbursement for {item.SubmittedByName ?? "Courier"}",
+                        Amount = item.ReimbursementAmount!.Value,
+                        Status = "Completed",
+                        ApprovalLevel = "Level 2",
+                        AssignedApprover = "Finance Manager",
+                        OutflowDate = DateTime.UtcNow,
+                        TransactionDate = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
             }
 
             // Update matching Cash Advance to Liquidated
@@ -357,6 +424,18 @@ public class LiquidationsController : ControllerBase
                     adv.Status = "Liquidated";
                 }
             }
+        }
+        else if (normAction is "reject")
+        {
+            item.Status = "Rejected";
+        }
+        else if (normAction is "return" or "for_correction" or "for-correction")
+        {
+            item.Status = "Returned";
+        }
+        else if (normAction is "submit")
+        {
+            item.Status = "Pending Validation";
         }
 
         await _fomsDb.SaveChangesAsync();

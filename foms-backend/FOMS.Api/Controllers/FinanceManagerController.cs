@@ -780,6 +780,28 @@ public class FinanceManagerController : ControllerBase
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    [HttpPost("liquidations/{id}/approve")]
+    [HttpPost("liquidations/{id}/sign-off")]
+    public async Task<IActionResult> ApproveLiquidation(int id, [FromBody] LiquidationDto? dto)
+    {
+        var ctrl = new LiquidationsController(_fomsDb) { ControllerContext = ControllerContext };
+        return await ctrl.Act(id, "validate", dto);
+    }
+
+    [HttpPost("liquidations/{id}/reject")]
+    public async Task<IActionResult> RejectLiquidation(int id, [FromBody] LiquidationDto? dto)
+    {
+        var ctrl = new LiquidationsController(_fomsDb) { ControllerContext = ControllerContext };
+        return await ctrl.Act(id, "reject", dto);
+    }
+
+    [HttpPost("liquidations/{id}/return")]
+    public async Task<IActionResult> ReturnLiquidation(int id, [FromBody] LiquidationDto? dto)
+    {
+        var ctrl = new LiquidationsController(_fomsDb) { ControllerContext = ControllerContext };
+        return await ctrl.Act(id, "return", dto);
+    }
+
     // 16. Liquidation Reports
     // GET /api/finance-manager/liquidations
     // ─────────────────────────────────────────────────────────────────────────

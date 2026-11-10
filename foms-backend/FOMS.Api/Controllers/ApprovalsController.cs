@@ -1,3 +1,4 @@
+using FOMS.Application.Services;
 using FOMS.Domain.Constants;
 using System;
 using System.Collections.Generic;
@@ -287,18 +288,8 @@ public class ApprovalsController : ControllerBase
                              string.Equals(role, "Assistant of Finance Manager", StringComparison.OrdinalIgnoreCase) ||
                              string.Equals(role, "Assistant of Finance Manager", StringComparison.OrdinalIgnoreCase);
 
-        // Fetch active threshold from MSSQL (Section 6)
-        var activeThreshold = await _fomsDb.ApprovalThresholdSettings
-            .AsNoTracking()
-            .Where(t => t.IsActive && (t.TransactionType == "CashOutflow" || t.TransactionType == "All"))
-            .OrderByDescending(t => t.UpdatedAt)
-            .FirstOrDefaultAsync();
-
-        if (activeThreshold == null)
-        {
-            _logger.LogError("Approval threshold setting missing in MSSQL for CashOutflow approval attempt.");
-            return StatusCode(500, new { success = false, message = "Approval threshold configuration missing in database. Approval blocked per security policy." });
-        }
+        // Fetch active threshold from centralized configuration source
+        decimal thresholdLimit = await ApprovalThresholdResolver.ResolveThresholdLimitAsync(_fomsDb.ApprovalThresholdSettings);
 
         using var transaction = await _fomsDb.Database.BeginTransactionAsync();
         try
@@ -306,15 +297,15 @@ public class ApprovalsController : ControllerBase
             if (isAssistantFm && !isFm)
             {
                 // TC-004: Assistant cannot approve high-value requests exceeding threshold
-                if (req.Amount > activeThreshold.MaximumAmount)
+                if (req.Amount > thresholdLimit)
                 {
                     _logger.LogWarning("Unauthorized approval attempt by Assistant {User}: Amount ₱{Amount} exceeds threshold ₱{Limit}",
-                        username, req.Amount, activeThreshold.MaximumAmount);
+                        username, req.Amount, thresholdLimit);
 
                     return StatusCode(403, new
                     {
                         success = false,
-                        message = $"Transaction amount of ₱{req.Amount:N2} exceeds Assistant of Finance Manager authorization limit (₱{activeThreshold.MaximumAmount:N2}). Escalation to Finance Manager is required."
+                        message = $"Transaction amount of ₱{req.Amount:N2} exceeds Assistant of Finance Manager authorization limit (₱{thresholdLimit:N2}). Escalation to Finance Manager is required."
                     });
                 }
 
@@ -339,7 +330,7 @@ public class ApprovalsController : ControllerBase
                     Action = "Approved",
                     PreviousStatus = oldStatus,
                     NewStatus = req.Status,
-                    Remarks = $"Approved by Assistant of Finance Manager within limit (₱{activeThreshold.MaximumAmount:N2}). Cash outflow posted.",
+                    Remarks = $"Approved by Assistant of Finance Manager within limit (₱{thresholdLimit:N2}). Cash outflow posted.",
                     CreatedAt = DateTime.UtcNow
                 });
 
@@ -369,6 +360,16 @@ public class ApprovalsController : ControllerBase
             }
             else if (isFm)
             {
+                // Skipped Tier: High-value / escalated request requires Level 1 Assistant review & endorsement before FM approval
+                if (req.IsEscalated && (req.Status == "Pending Assistant Review" || req.Status == "Submitted"))
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "Skipped tier: High-value transaction requires Assistant of Finance Manager endorsement/escalation prior to Finance Manager approval."
+                    });
+                }
+
                 // TC-007: Finance Manager Approval
                 var oldStatus = req.Status;
                 req.Status = "Approved by Finance Manager";
@@ -476,6 +477,18 @@ public class ApprovalsController : ControllerBase
         if (req == null)
         {
             return NotFound(new { success = false, message = $"Approval request '{id}' not found." });
+        }
+
+        // Separation of Duties: Submitter cannot endorse or escalate their own request
+        if ((!string.IsNullOrWhiteSpace(req.SubmittedBy) && (req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase) || req.SubmittedBy.Equals(employeeId, StringComparison.OrdinalIgnoreCase))) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && (req.SubmittedById.Equals(employeeId, StringComparison.OrdinalIgnoreCase) || req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase))))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
+        }
+
+        if (req.IsPosted || req.Status == "Approved by Assistant" || req.Status == "Approved by Finance Manager")
+        {
+            return Conflict(new { success = false, message = "This transaction has already been approved." });
         }
 
         var oldStatus = req.Status;
@@ -600,6 +613,18 @@ public class ApprovalsController : ControllerBase
             return NotFound(new { success = false, message = $"Approval request '{id}' not found." });
         }
 
+        // Separation of Duties: Submitter cannot endorse or escalate their own request
+        if ((!string.IsNullOrWhiteSpace(req.SubmittedBy) && (req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase) || req.SubmittedBy.Equals(employeeId, StringComparison.OrdinalIgnoreCase))) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && (req.SubmittedById.Equals(employeeId, StringComparison.OrdinalIgnoreCase) || req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase))))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
+        }
+
+        if (req.IsPosted || req.Status == "Approved by Assistant" || req.Status == "Approved by Finance Manager")
+        {
+            return Conflict(new { success = false, message = "This transaction has already been approved." });
+        }
+
         var oldStatus = req.Status;
         req.Status = "Returned for Correction";
         req.Remarks = remarks.Trim();
@@ -700,6 +725,18 @@ public class ApprovalsController : ControllerBase
             return NotFound(new { success = false, message = $"Approval request '{id}' not found." });
         }
 
+        // Separation of Duties: Submitter cannot endorse or escalate their own request
+        if ((!string.IsNullOrWhiteSpace(req.SubmittedBy) && (req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase) || req.SubmittedBy.Equals(employeeId, StringComparison.OrdinalIgnoreCase))) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && (req.SubmittedById.Equals(employeeId, StringComparison.OrdinalIgnoreCase) || req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase))))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
+        }
+
+        if (req.IsPosted || req.Status == "Approved by Assistant" || req.Status == "Approved by Finance Manager")
+        {
+            return Conflict(new { success = false, message = "This transaction has already been approved." });
+        }
+
         var oldStatus = req.Status;
         req.Status = "Pending Finance Manager Approval";
         req.ApprovalLevel = "Level 2";
@@ -780,13 +817,7 @@ public class ApprovalsController : ControllerBase
     {
         var (userId, username, role, employeeId) = GetCurrentUserInfo();
 
-        var activeThreshold = await _fomsDb.ApprovalThresholdSettings
-            .AsNoTracking()
-            .Where(t => t.IsActive && (t.TransactionType == "CashOutflow" || t.TransactionType == "All"))
-            .OrderByDescending(t => t.UpdatedAt)
-            .FirstOrDefaultAsync();
-
-        var maxLimit = activeThreshold?.MaximumAmount ?? 50000m;
+        var maxLimit = await ApprovalThresholdResolver.ResolveThresholdLimitAsync(_fomsDb.ApprovalThresholdSettings);
 
         if (string.Equals(entityType, "CashAdvance", StringComparison.OrdinalIgnoreCase))
         {
