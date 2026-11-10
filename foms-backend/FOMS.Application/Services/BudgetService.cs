@@ -27,6 +27,7 @@ public class BudgetService : IBudgetService
         }
     }
 
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     private bool IsCeoOrPresident(string role)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
@@ -204,6 +205,7 @@ public class BudgetService : IBudgetService
     // ─────────────────────────────────────────────────────────────────────────
     // 5. Approve Annual Budget (Strictly CEO / President)
     // ─────────────────────────────────────────────────────────────────────────
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<AnnualBudgetDto> ApproveAnnualBudgetAsync(int annualBudgetId, string userId, string userRole)
     {
         EnsureNotHeadAccountant(userRole);
@@ -238,6 +240,7 @@ public class BudgetService : IBudgetService
     // ─────────────────────────────────────────────────────────────────────────
     // 6. Reject Annual Budget (Strictly CEO / President with required reason)
     // ─────────────────────────────────────────────────────────────────────────
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<AnnualBudgetDto> RejectAnnualBudgetAsync(int annualBudgetId, string reason, string userId, string userRole)
     {
         EnsureNotHeadAccountant(userRole);
@@ -457,6 +460,7 @@ public class BudgetService : IBudgetService
     // ─────────────────────────────────────────────────────────────────────────
     // 10. Approve Budget Override (FM <= Threshold, CEO > Threshold)
     // ─────────────────────────────────────────────────────────────────────────
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<BudgetOverride> ApproveBudgetOverrideAsync(int overrideId, string userId, string userRole)
     {
         EnsureNotHeadAccountant(userRole);
@@ -618,6 +622,7 @@ public class BudgetService : IBudgetService
     // ─────────────────────────────────────────────────────────────────────────
     // 13. Approve Budget Transfer / Carry-Over (Strictly CEO / President approves)
     // ─────────────────────────────────────────────────────────────────────────
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<BudgetTransfer> ApproveBudgetTransferAsync(int transferId, string userId, string userRole)
     {
         EnsureNotHeadAccountant(userRole);
@@ -693,6 +698,7 @@ public class BudgetService : IBudgetService
     // ─────────────────────────────────────────────────────────────────────────
     // 14. Reject Budget Transfer
     // ─────────────────────────────────────────────────────────────────────────
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<BudgetTransfer> RejectBudgetTransferAsync(int transferId, string reason, string userId, string userRole)
     {
         EnsureNotHeadAccountant(userRole);

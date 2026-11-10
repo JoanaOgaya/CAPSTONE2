@@ -22,6 +22,7 @@ public class FinancialStatementService : IFinancialStatementService
         _context = context;
     }
 
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     private bool IsCeoOrPresident(string role)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
@@ -518,6 +519,7 @@ public class FinancialStatementService : IFinancialStatementService
         return await GenerateAfsPackageAsync(fiscalYear, periodType, periodNumber);
     }
 
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<AfsPackageDto> ApproveAfsPackageAsync(int fiscalYear, string periodType, int periodNumber, string userId, string userRole)
     {
         if (!IsCeoOrPresident(userRole))

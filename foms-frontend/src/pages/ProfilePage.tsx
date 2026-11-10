@@ -18,7 +18,7 @@ const ROLE_LABEL_MAP: Record<string, string> = {
 };
 const getRoleLabel = (r?: string) => (r && ROLE_LABEL_MAP[r]) || r || 'User';
 
-const ALLOWED_ROLES = [
+const FINANCE_POSITIONS = [
   'Finance Manager',
   'Head Accountant',
   'Accountant',
@@ -29,6 +29,7 @@ interface EmployeeFormData {
   employeeId: string;
   fullName: string;
   email: string;
+  position: string;
   role: string;
   phone: string;
   salaryRate: string;
@@ -40,6 +41,7 @@ interface FormFieldErrors {
   employeeId?: string;
   fullName?: string;
   email?: string;
+  position?: string;
   role?: string;
   phone?: string;
   salaryRate?: string;
@@ -79,12 +81,18 @@ export const ProfilePage: React.FC = () => {
     employeeId: '',
     fullName: '',
     email: '',
-    role: 'Accountant',
+    position: '',
+    role: '',
     phone: '',
     salaryRate: '',
     dateHired: '',
     status: 'Active',
   });
+  const [createdAccountModal, setCreatedAccountModal] = useState<{
+    employeeId: string;
+    fullName: string;
+    tempPassword: string;
+  } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -117,6 +125,9 @@ export const ProfilePage: React.FC = () => {
         if (emailExists) return 'This email is already in use.';
         return undefined;
       }
+      case 'position':
+        if (!trimmed) return 'Position is required.';
+        return undefined;
       case 'role':
         if (!trimmed) return 'Role is required.';
         return undefined;
@@ -146,12 +157,13 @@ export const ProfilePage: React.FC = () => {
     const errId = validateField('employeeId', formData.employeeId);
     const errName = validateField('fullName', formData.fullName);
     const errEmail = validateField('email', formData.email);
+    const errPos = validateField('position', formData.position);
     const errRole = validateField('role', formData.role);
     const errPhone = validateField('phone', formData.phone);
     const errSalary = validateField('salaryRate', formData.salaryRate);
     const errDate = validateField('dateHired', formData.dateHired);
 
-    return !errId && !errName && !errEmail && !errRole && !errPhone && !errSalary && !errDate;
+    return !errId && !errName && !errEmail && !errPos && !errRole && !errPhone && !errSalary && !errDate;
   }, [formData, editingEmployee, staffList]);
 
   const handleOpenAddModal = () => {
@@ -160,7 +172,8 @@ export const ProfilePage: React.FC = () => {
       employeeId: '',
       fullName: '',
       email: '',
-      role: 'Accountant',
+      position: '',
+      role: '',
       phone: '',
       salaryRate: '',
       dateHired: new Date().toISOString().split('T')[0],
@@ -172,11 +185,14 @@ export const ProfilePage: React.FC = () => {
 
   const handleOpenEditModal = (emp: AppUserRecord) => {
     setEditingEmployee(emp);
+    const initialRole = emp.role || '';
+    const initialPosition = emp.position || initialRole;
     setFormData({
       employeeId: emp.employeeNumber || emp.id,
       fullName: emp.fullName || '',
       email: emp.email || '',
-      role: emp.role || 'Accountant',
+      position: initialPosition,
+      role: initialRole,
       phone: emp.phone || '',
       salaryRate: emp.salaryRate ? String(emp.salaryRate) : '',
       dateHired: emp.dateHired ? emp.dateHired.split('T')[0] : '',
@@ -203,8 +219,8 @@ export const ProfilePage: React.FC = () => {
         username: formData.employeeId.trim().toUpperCase(),
         fullName: formData.fullName.trim(),
         email: formData.email.trim().toLowerCase(),
+        position: formData.position.trim(),
         role: formData.role.trim(),
-        password: 'Password@123',
         phone: formData.phone.trim() || undefined,
         salaryRate: formData.salaryRate ? parseFloat(formData.salaryRate) : undefined,
         dateHired: formData.dateHired ? new Date(formData.dateHired).toISOString() : undefined,
@@ -215,6 +231,7 @@ export const ProfilePage: React.FC = () => {
         await usersService.update(editingEmployee.id, {
           fullName: payload.fullName,
           email: payload.email,
+          position: payload.position,
           role: payload.role,
           phone: payload.phone,
           salaryRate: payload.salaryRate,
@@ -222,8 +239,15 @@ export const ProfilePage: React.FC = () => {
         });
         toast.success(`Employee ${formData.employeeId} updated successfully.`);
       } else {
-        await usersService.create(payload);
+        const createdUser: any = await usersService.create(payload as any);
         toast.success(`Employee ${formData.employeeId} registered successfully.`);
+        if (createdUser?.temporaryPassword) {
+          setCreatedAccountModal({
+            employeeId: payload.employeeId,
+            fullName: payload.fullName,
+            tempPassword: createdUser.temporaryPassword,
+          });
+        }
       }
 
       setIsModalOpen(false);
@@ -492,6 +516,93 @@ export const ProfilePage: React.FC = () => {
         </div>
       </Card>
 
+
+      {/* TEMPORARY PASSWORD SECURE MODAL */}
+      {createdAccountModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '20px' }}>
+          <div style={{ background: '#FFF', borderRadius: '14px', width: '100%', maxWidth: '480px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D97706', fontSize: '1.25rem' }}>
+                <i className="ti ti-key" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#0F172A' }}>Personnel Created</h3>
+                <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#64748B' }}>Account registered with temporary credentials</p>
+              </div>
+            </div>
+
+            <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
+              <div style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '4px' }}>Employee</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1E293B', marginBottom: '12px' }}>
+                {createdAccountModal.fullName} ({createdAccountModal.employeeId})
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '4px' }}>Temporary Password</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={createdAccountModal.tempPassword}
+                  style={{
+                    flex: 1,
+                    fontFamily: 'monospace',
+                    fontSize: '1rem',
+                    fontWeight: 700,
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #CBD5E1',
+                    background: '#FFF',
+                    color: '#0F172A'
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdAccountModal.tempPassword);
+                    toast.success('Temporary password copied to clipboard.');
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '6px',
+                    border: '1px solid #CBD5E1',
+                    background: '#FFF',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.85rem',
+                    color: '#334155'
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+
+            <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '12px', marginBottom: '24px' }}>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#92400E', lineHeight: 1.4 }}>
+                <strong>Important:</strong> The employee must change this password upon their first login. This temporary password will expire in 72 hours.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCreatedAccountModal(null)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                border: 'none',
+                background: '#0284C7',
+                color: '#FFF',
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                cursor: 'pointer'
+              }}
+            >
+              Done &amp; Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ADD / EDIT EMPLOYEE MODAL */}
       {isModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
@@ -545,24 +656,64 @@ export const ProfilePage: React.FC = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    Assigned Role <span style={{ color: '#EF4444' }}>*</span>
+                    Position <span style={{ color: '#EF4444' }}>*</span>
                   </label>
                   <select
+                    value={formData.position}
+                    onChange={e => {
+                      const pos = e.target.value;
+                      handleFormChange('position', pos);
+                      if (FINANCE_POSITIONS.includes(pos)) {
+                        handleFormChange('role', pos);
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: `1px solid ${fieldErrors.position ? '#EF4444' : '#CBD5E1'}`,
+                      fontSize: '0.9rem',
+                      background: '#FFF'
+                    }}
+                  >
+                    <option value="">-- Select Position --</option>
+                    {FINANCE_POSITIONS.map(p => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                  {fieldErrors.position && (
+                    <span style={{ color: '#EF4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                      {fieldErrors.position}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    FOMS Role (Derived) <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    disabled
                     value={formData.role}
-                    onChange={e => handleFormChange('role', e.target.value)}
+                    placeholder="Derived from Position"
                     style={{
                       width: '100%',
                       padding: '10px 12px',
                       borderRadius: '8px',
                       border: `1px solid ${fieldErrors.role ? '#EF4444' : '#CBD5E1'}`,
+                      background: '#F1F5F9',
+                      color: '#334155',
                       fontSize: '0.9rem',
-                      background: '#FFF'
+                      fontWeight: 600
                     }}
-                  >
-                    {ALLOWED_ROLES.map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
+                  />
+                  {fieldErrors.role && (
+                    <span style={{ color: '#EF4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                      {fieldErrors.role}
+                    </span>
+                  )}
                 </div>
               </div>
 

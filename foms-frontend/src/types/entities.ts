@@ -486,6 +486,7 @@ export interface AppUserRecord {
   username?: string;
   fullName: string;
   email?: string;
+  position?: string;
   role: string;
   roleId?: string;
   phone?: string;
@@ -493,6 +494,9 @@ export interface AppUserRecord {
   dateHired?: string;
   status: 'Active' | 'Inactive' | 'Locked' | 'Pending';
   isActive?: boolean;
+  mustChangePassword?: boolean;
+  isTemporaryPassword?: boolean;
+  temporaryPassword?: string;
   createdAt?: string;
 }
 

@@ -339,6 +339,7 @@ using (var scope = app.Services.CreateScope())
     var context = services.GetRequiredService<ApplicationDbContext>();
 
     await FOMS.Infrastructure.Persistence.DatabaseMigrationRunner.ApplyMigrationsAsync(context, logger);
+    await FOMS.Infrastructure.Persistence.ApplicationDbContextSeed.ValidateNoDemoAccountsInNonDevelopmentAsync(context, app.Environment.IsDevelopment());
 
     logger.LogInformation("Database connected. Mock/seeded data disabled - running 100% on live database.");
 }

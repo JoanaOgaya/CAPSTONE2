@@ -11,6 +11,12 @@ public static class FomsRoles
     public const string Accountant = "Accountant";
     public const string AssistantFinanceManager = "Assistant of Finance Manager";
 
+    [Obsolete("Use FinanceManager instead. Legacy Financial Manager role is deprecated.")]
+    public const string LegacyFinancialManager = "Financial Manager";
+
+    [Obsolete("Use AssistantFinanceManager instead. Legacy Assistant Financial Manager role is deprecated.")]
+    public const string LegacyAssistantFinancialManager = "Assistant Financial Manager";
+
     public const string EmpFinanceManager = "EMP-001";
     public const string EmpHeadAccountant = "EMP-002";
     public const string EmpAccountant = "EMP-003";

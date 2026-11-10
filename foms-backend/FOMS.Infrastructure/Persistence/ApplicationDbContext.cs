@@ -120,6 +120,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.PasswordHash).HasMaxLength(500).IsRequired();
             entity.Property(e => e.Phone).HasMaxLength(20);
             entity.Property(e => e.SalaryRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Position).HasMaxLength(100);
+            entity.Property(e => e.MustChangePassword).HasDefaultValue(false);
+            entity.Property(e => e.IsTemporaryPassword).HasDefaultValue(false);
+            entity.Property(e => e.TemporaryPasswordExpiresAt);
 
             entity.HasIndex(e => e.Email).IsUnique();
             entity.HasIndex(e => e.Username).IsUnique();

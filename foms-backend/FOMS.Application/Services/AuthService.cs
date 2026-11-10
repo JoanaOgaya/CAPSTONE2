@@ -99,6 +99,14 @@ public class AuthService : IAuthService
                 "Your account has been locked after too many failed attempts. Contact an Accountant to unlock it.");
         }
 
+        // Step 3.5: Reject expired temporary passwords
+        if (user.IsTemporaryPassword && user.TemporaryPasswordExpiresAt.HasValue && user.TemporaryPasswordExpiresAt.Value < DateTime.UtcNow)
+        {
+            await WriteAuditAsync(user.Id, user.Id, "Login Denied",
+                $"Login denied for expired temporary password: {employeeNumber}.");
+            throw new UnauthorizedAccessException("Temporary password has expired. Please contact an administrator to reset your password.");
+        }
+
 
         if (!isPasswordValid)
         {
@@ -247,6 +255,9 @@ public class AuthService : IAuthService
 
         user.PasswordHash = HashPassword(newPassword);
         user.FailedLoginCount = 0;
+        user.MustChangePassword = false;
+        user.IsTemporaryPassword = false;
+        user.TemporaryPasswordExpiresAt = null;
 
         await WriteAuditAsync(userId, userId, "Change Password",
             $"User {user.Username} successfully changed their password.");
@@ -431,6 +442,9 @@ public class AuthService : IAuthService
         FullName = user.Name,
         Email = user.Email,
         Role = user.Role,
+        Position = user.Position,
+        MustChangePassword = user.MustChangePassword,
+        IsTemporaryPassword = user.IsTemporaryPassword,
         IsActive = user.IsActive,
         CreatedAt = user.CreatedAt
     };

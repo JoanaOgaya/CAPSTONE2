@@ -29,6 +29,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         }
     }
 
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     private bool IsCeoOrPresident(string role)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
@@ -154,6 +155,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         return MapToAdvanceDto(advance);
     }
 
+    [Obsolete("TODO(Phase 14): Replace with CEO/President in-person approval record")]
     public async Task<CashAdvanceResponseDto> ReleaseCashAdvanceAsync(string advanceId, string userId, string userRole)
     {
         var advance = await _context.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == advanceId);
@@ -164,6 +166,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot release advance in status '{advance.Status}'. Must be 'Approved'.");
         }
 
+        // TODO(Phase 14): Replace with CEO/President in-person approval record
         // Above CSH-09 threshold needs CEO/President approval first before release
         if (advance.RequiresCeoApproval)
         {
