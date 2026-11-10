@@ -18,10 +18,12 @@ public class CeoApprovalGateService : ICeoApprovalGateService
 {
     private readonly IApplicationDbContext _context;
     private readonly string _attachmentStoragePath;
+    private readonly Func<DateTime> _utcNowProvider;
 
-    public CeoApprovalGateService(IApplicationDbContext context)
+    public CeoApprovalGateService(IApplicationDbContext context, Func<DateTime>? utcNowProvider = null)
     {
         _context = context;
+        _utcNowProvider = utcNowProvider ?? (() => DateTime.UtcNow);
         // Secure path outside wwwroot
         _attachmentStoragePath = Path.Combine(Directory.GetCurrentDirectory(), "Storage", "SecureAttachments", "CeoApprovals");
         if (!Directory.Exists(_attachmentStoragePath))
@@ -30,9 +32,9 @@ public class CeoApprovalGateService : ICeoApprovalGateService
         }
     }
 
-    private static DateTime GetManilaToday()
+    private DateTime GetManilaToday()
     {
-        var utcNow = DateTime.UtcNow;
+        var utcNow = _utcNowProvider();
         var tz = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "Singapore Standard Time" : "Asia/Manila");
         return TimeZoneInfo.ConvertTimeFromUtc(utcNow, tz).Date;
     }
