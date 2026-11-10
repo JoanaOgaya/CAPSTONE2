@@ -376,6 +376,7 @@ public class Phase20Rev5ApprovalsAndEmployeesTests
     [InlineData(CeoApprovalItemTypes.CashOutflow, "CA-2026-001")] // Cash advance outflow
     [InlineData(CeoApprovalItemTypes.CashOutflow, "10")] // Direct disbursement outflow
     [InlineData(CeoApprovalItemTypes.CashOutflow, "REIM-2026-001")] // Reimbursement outflow
+    [InlineData(CeoApprovalItemTypes.AnnualFinancialStatement, "2026")] // Item 8 AFS (attachment optional per R5.3 revert)
     public async Task CreateCeoApprovalRecord_OptionalAttachmentItems_SucceedWithOrWithoutAttachment(string itemType, string itemId)
     {
         using var context = CreateInMemoryDbContext();

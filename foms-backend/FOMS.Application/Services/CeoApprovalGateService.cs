@@ -329,6 +329,16 @@ public class CeoApprovalGateService : ICeoApprovalGateService
 
         if (latestRecord == null)
         {
+            string message;
+            if (!thresholdDto.ThresholdAmount.HasValue && !CeoApprovalItemTypes.AlwaysRequiredTypes.Contains(itemType))
+            {
+                message = $"Gate blocked: Setting (B) (CSH-09 CEO threshold) is not configured in Go-Live setup. Under PO Decision E, every cash outflow requires an in-person CEO/President approval record until a threshold is configured in System Settings by the Finance Manager. Transaction strictly requires CEO/President approval record for {itemType} '{itemId}'.";
+            }
+            else
+            {
+                message = $"Gate blocked: Transaction strictly requires CEO/President approval record for {itemType} '{itemId}'.";
+            }
+
             return new CeoApprovalGateCheckResult
             {
                 IsRequired = true,
@@ -338,7 +348,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 EvaluatedAmount = amount,
                 ThresholdInForce = thresholdInForce,
                 UsedFailSafeLimit = usedFailSafe,
-                Message = $"Gate blocked: Transaction strictly requires CEO/President approval record for {itemType} '{itemId}'."
+                Message = message
             };
         }
 
@@ -484,10 +494,6 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             attachmentFileName = saved.FileName;
             hasAttachment = true;
         }
-        else if (request.Status == "Approved" && CeoApprovalItemTypes.AttachmentMandatoryTypes.Contains(request.ItemType))
-        {
-            throw new ArgumentException($"Item 8 ({request.ItemType}) strictly requires an attachment.");
-        }
 
         var record = new CeoApprovalRecord
         {
@@ -571,10 +577,6 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             attachmentPath = saved.Path;
             attachmentFileName = saved.FileName;
             hasAttachment = true;
-        }
-        else if (request.Status == "Approved" && CeoApprovalItemTypes.AttachmentMandatoryTypes.Contains(request.ItemType))
-        {
-            throw new ArgumentException($"Item 8 ({request.ItemType}) strictly requires an attachment.");
         }
 
         var correctionRecord = new CeoApprovalRecord

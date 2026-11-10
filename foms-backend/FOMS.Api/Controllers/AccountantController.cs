@@ -13,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using FOMS.Application.Services;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
+using FOMS.Domain.Constants;
 
 namespace FOMS.Api.Controllers;
 
@@ -704,6 +705,11 @@ public class AccountantController : ControllerBase
     [HttpPost("financial-adjustments")]
     public async Task<IActionResult> CreateFinancialAdjustment([FromBody] dynamic body)
     {
+        var role = FomsRoles.GetClaimRole(User);
+        if (!FomsRoles.IsFinanceManager(role))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Only the Finance Manager can create adjusting entries (FIN-23)." });
+        }
         int invId = (int?)body?.invoiceId ?? 1;
         var adj = new FinancialAdjustment
         {

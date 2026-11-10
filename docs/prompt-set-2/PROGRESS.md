@@ -1,22 +1,22 @@
 # Prompt Set 2: Progress Tracker
 
 ## Current State
-- **Current Phase**: Phase 22 — Correct the Phase 21 Findings (R5.1 to R5.11, PO Decisions C and E, FIN-26, EMP-005 migration, 8-item matrix, ClosedXML Excel exports) -> Completed
-- **Step**: Phase 22 Corrections Completed; all 4 test suites passing (707 passed across all suites)
+- **Current Phase**: Phase 22 Accepted Fixes — Corrected Revision 5 Addendum (R5.3 Item 8 attachment optional, FIN-23 adjusting entries restricted to Finance Manager with required reason and approval before posting, unset CSH-09 threshold fail-safe message & Go-Live setup step, raw task-3244.log frontend 18 vs 16 verification, 5 CEO approval security tests, IAM-11 & IAM-12 department tracing in DECISIONS.md) -> Completed
+- **Step**: Phase 22 Fixes Completed; all 4 test suites passing (720 passed across all suites)
 - **Branch**: `phase-22-rev5-corrections`
-- **Last Tag**: `phase-22-done`
+- **Last Tag**: `phase-22-fixes-done`
 - **Regression Baseline**: `phase11-complete` (`8eed0bf`)
 
-## Test Counts (phase-22-done)
+## Test Counts (phase-22-fixes-done)
 - **Frontend Build**: Success (Vite clean, 3.11s, 0 errors)
 - **Frontend Tests**: 16 test files passed, 170 tests passed, 0 failed, 0 skipped
 - **Backend Build**: 0 errors
 - **Backend Tests**:
-  - `FOMS.Tests.dll`: 466 passed (+35 tests: G1 8-item full matrix, blocked roles 5/6, HA confirmation maker-checker, CSH-09 threshold governance & Decision E, FIN-26 Decision C, ClosedXML Excel workbook assertions), 0 failed, 0 skipped
+  - `FOMS.Tests.dll`: 479 passed (+48 tests vs phase-21: G1 8-item matrix, blocked roles 5/6, HA confirmation maker-checker, CSH-09 threshold governance & Decision E fail-safe message, FIN-26 Decision C, ClosedXML Excel workbook assertions, FIN-23 adjusting entries FM-only restriction, non-empty reason, create-pending-approve lifecycle, approval date not later than today, PDF/JPG/PNG genuine magic bytes, rejection reason & reservation release, in-person approver label), 0 failed, 0 skipped
   - `foms-ai-gateway.Tests.dll`: 40 passed, 0 failed, 0 skipped
-  - **Total Backend Tests**: 506 passed, 0 failed, 0 skipped
+  - **Total Backend Tests**: 519 passed, 0 failed, 0 skipped
 - **AI-Service Tests**: 31 passed, 0 failed, 0 skipped (pytest 9.2.0 on Python 3.11.9)
-- **Total Suite**: 707 passed, 0 failed, 0 skipped (baseline 672 exceeded by +35)
+- **Total Suite**: 720 passed, 0 failed, 0 skipped (baseline 672 exceeded by +48)
 
 ## Phase History
 - **Phase 12**: Audit, conflict reconciliation, baseline tag `phase11-complete` (Done)

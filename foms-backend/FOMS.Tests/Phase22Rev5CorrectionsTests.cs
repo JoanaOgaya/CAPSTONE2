@@ -10,6 +10,7 @@ using ClosedXML.Excel;
 using FOMS.Application.Configuration;
 using FOMS.Application.Contracts;
 using FOMS.Application.DTOs;
+using FOMS.Application.Features;
 using FOMS.Application.Interfaces;
 using FOMS.Application.Services;
 using FOMS.Domain.Constants;
@@ -209,7 +210,7 @@ public class Phase22Rev5CorrectionsTests
     }
 
     [Fact]
-    public async Task G1_Matrix_Item8_Afs_WithoutAttachment_ThrowsArgumentException()
+    public async Task G1_Matrix_Item8_Afs_WithoutAttachment_Succeeds_OptionalAttachment()
     {
         using var context = CreateInMemoryDbContext();
         var gateService = new CeoApprovalGateService(context);
@@ -223,9 +224,10 @@ public class Phase22Rev5CorrectionsTests
             AttachmentBytes = null
         };
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            gateService.RecordApprovalAsync(req, "EMP-001", "Finance Manager"));
-        Assert.Contains("strictly requires an attachment", ex.Message);
+        var record = await gateService.RecordApprovalAsync(req, "EMP-001", "Finance Manager");
+        Assert.NotNull(record);
+        Assert.False(record.HasAttachment);
+        Assert.Equal("No attachment", record.AttachmentFlag);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -590,5 +592,265 @@ public class Phase22Rev5CorrectionsTests
         Assert.Equal("DEP-CCS", worksheet.Cell(2, 6).GetString());
         Assert.Equal("EMP-001", worksheet.Cell(2, 8).GetString());
         Assert.Equal("Reassigned to Customer Care", worksheet.Cell(2, 10).GetString());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 7. FIN-23 Adjusting Entries (Created by Finance Manager Only, Reason Required, Approved Before Posting)
+    // ─────────────────────────────────────────────────────────────────────────
+    [Theory]
+    [InlineData("Accountant")]
+    [InlineData("Head Accountant")]
+    [InlineData("Assistant of Finance Manager")]
+    [InlineData("Encoder")]
+    [InlineData("Staff")]
+    public async Task Fin23_AdjustingEntries_NonFinanceManager_CannotCreate(string role)
+    {
+        using var context = CreateInMemoryDbContext();
+        var invoice = new DomainInvoice
+        {
+            Id = "INV-2026-FIN23",
+            InvoiceNo = "INV-2026-FIN23",
+            ClientId = "CLI-001",
+            FreightCharges = 50000m
+        };
+        BillingComputationService.RecalculateInvoice(invoice);
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+
+        var handler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(context);
+        var cmd = new AdjustmentFeatures.CreateAdjustmentCommand(
+            InvoiceNo: "INV-2026-FIN23",
+            AdjustmentType: "Credit",
+            Amount: 5000m,
+            Reason: "Volume rebate",
+            AdjustedBy: "EMP-003",
+            Role: role
+        );
+
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() => handler.Handle(cmd, default));
+        Assert.Contains("Only the Finance Manager can create adjusting entries", ex.Message);
+    }
+
+    [Fact]
+    public async Task Fin23_AdjustingEntries_FinanceManager_EmptyReason_ThrowsInvalidOperationException()
+    {
+        using var context = CreateInMemoryDbContext();
+        var invoice = new DomainInvoice
+        {
+            Id = "INV-2026-FIN23-2",
+            InvoiceNo = "INV-2026-FIN23-2",
+            ClientId = "CLI-001",
+            FreightCharges = 50000m
+        };
+        BillingComputationService.RecalculateInvoice(invoice);
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+
+        var handler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(context);
+        var cmd = new AdjustmentFeatures.CreateAdjustmentCommand(
+            InvoiceNo: "INV-2026-FIN23-2",
+            AdjustmentType: "Credit",
+            Amount: 5000m,
+            Reason: "", // Empty reason
+            AdjustedBy: "EMP-001",
+            Role: "Finance Manager"
+        );
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(cmd, default));
+        Assert.Contains("reason is strictly required", ex.Message);
+    }
+
+    [Fact]
+    public async Task Fin23_AdjustingEntries_FinanceManagerCreates_StaysPendingUntilApprovedBeforePosting()
+    {
+        using var context = CreateInMemoryDbContext();
+        var invoice = new DomainInvoice
+        {
+            Id = "INV-2026-FIN23-3",
+            InvoiceNo = "INV-2026-FIN23-3",
+            ClientId = "CLI-001",
+            FreightCharges = 50000m
+        };
+        BillingComputationService.RecalculateInvoice(invoice);
+        context.Invoices.Add(invoice);
+        await context.SaveChangesAsync();
+
+        var createHandler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(context);
+        var cmd = new AdjustmentFeatures.CreateAdjustmentCommand(
+            InvoiceNo: "INV-2026-FIN23-3",
+            AdjustmentType: "Credit",
+            Amount: 5000m,
+            Reason: "Volume tier discount correction for Q3 shipments",
+            AdjustedBy: "EMP-001",
+            Role: "Finance Manager"
+        );
+
+        var created = await createHandler.Handle(cmd, default);
+        Assert.NotNull(created);
+        Assert.Equal("Pending", created.Status);
+        Assert.Equal("Volume tier discount correction for Q3 shipments", created.Reason);
+        Assert.Equal("EMP-001", created.AdjustedBy);
+
+        // In Pending status, invoice balance is NOT yet modified
+        decimal initialBalance = invoice.Balance;
+        var invoiceBeforeApprove = await context.Invoices.FirstAsync(i => i.InvoiceNo == "INV-2026-FIN23-3");
+        Assert.Equal(initialBalance, invoiceBeforeApprove.Balance);
+        Assert.Equal(0m, invoiceBeforeApprove.CreditMemoAmount);
+
+        // Approve adjustment -> balance is applied and posted
+        var approveHandler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(context);
+        var approved = await approveHandler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand(created.Id, "EMP-001"), default);
+        Assert.NotNull(approved);
+        Assert.Equal("Approved", approved.Status);
+
+        var invoiceAfterApprove = await context.Invoices.FirstAsync(i => i.InvoiceNo == "INV-2026-FIN23-3");
+        Assert.Equal(initialBalance - 5000m, invoiceAfterApprove.Balance);
+        Assert.Equal(5000m, invoiceAfterApprove.CreditMemoAmount);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 8. In-Person CEO Approval Verification Suite
+    // ─────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task CeoApproval_ApprovalDate_CannotBeLaterThanToday()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        var req = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualBudget,
+            ItemId = "2026",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.AddDays(2).Date // Future date
+        };
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            gateService.RecordApprovalAsync(req, "EMP-001", "Finance Manager"));
+        Assert.Contains("cannot be in the future", ex.Message);
+    }
+
+    [Fact]
+    public async Task CeoApproval_AttachmentTypes_GenuinePdfJpgPngOnly()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        // 1. Text payload claiming to be .pdf -> Rejected
+        var fakePdfReq = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualBudget,
+            ItemId = "2026",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow,
+            AttachmentBytes = Encoding.UTF8.GetBytes("Not a real PDF stream"),
+            AttachmentFileName = "fake.pdf"
+        };
+        var ex1 = await Assert.ThrowsAsync<ArgumentException>(() =>
+            gateService.RecordApprovalAsync(fakePdfReq, "EMP-001", "Finance Manager"));
+        Assert.Contains("Real file format must be genuine PDF, JPG, or PNG", ex1.Message);
+
+        // 2. Genuine PNG magic bytes -> Accepted
+        byte[] pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00 };
+        var validPngReq = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualBudget,
+            ItemId = "2026",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow,
+            AttachmentBytes = pngBytes,
+            AttachmentFileName = "board_signoff.png"
+        };
+        var record = await gateService.RecordApprovalAsync(validPngReq, "EMP-001", "Finance Manager");
+        Assert.True(record.HasAttachment);
+        Assert.Equal("board_signoff.png", record.AttachmentFileName);
+    }
+
+    [Fact]
+    public async Task CeoApproval_Rejection_RequiresReason_AndReleasesReservation()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        // 1. Rejection without reason throws ArgumentException
+        var noReasonReq = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.CashOutflow,
+            ItemId = "CA-2026-001",
+            Status = "Rejected",
+            ApprovalDate = DateTime.UtcNow,
+            RejectionReason = "" // Missing reason
+        };
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            gateService.RecordApprovalAsync(noReasonReq, "EMP-001", "Finance Manager"));
+        Assert.Contains("RejectionReason is strictly mandatory", ex.Message);
+
+        // 2. Rejection with reason releases committed reservation
+        var lineBefore = await context.MonthlyBudgetLines.FirstAsync(l => l.BudgetLineId == 1);
+        Assert.Equal(25000m, lineBefore.CommittedAmount);
+
+        var validRejectionReq = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.CashOutflow,
+            ItemId = "CA-2026-001",
+            Status = "Rejected",
+            ApprovalDate = DateTime.UtcNow,
+            RejectionReason = "Exceeds monthly cash outflow limit"
+        };
+        await gateService.RecordApprovalAsync(validRejectionReq, "EMP-001", "Finance Manager");
+
+        var lineAfter = await context.MonthlyBudgetLines.FirstAsync(l => l.BudgetLineId == 1);
+        Assert.Equal(0m, lineAfter.CommittedAmount);
+
+        var advance = await context.CashAdvances.FirstAsync(a => a.AdvanceId == "CA-2026-001");
+        Assert.Equal("Rejected", advance.Status);
+        Assert.Equal("Exceeds monthly cash outflow limit", advance.RejectionReason);
+    }
+
+    [Fact]
+    public async Task CeoApproval_NeverShowsCeoAsLoggedIn_ApproverLabelIsInPerson()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        var req = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualBudget,
+            ItemId = "2026",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        };
+
+        var record = await gateService.RecordApprovalAsync(req, "EMP-001", "Finance Manager");
+        Assert.Equal("CEO/President (in person)", record.ApproverLabel);
+        Assert.Equal("EMP-001", record.EnteredBy);
+        Assert.NotEqual("CEO", record.EnteredBy);
+        Assert.NotEqual("President", record.EnteredBy);
+
+        // Assert CEO role does not exist in canonical FOMS roles
+        Assert.DoesNotContain("CEO", FomsRoles.AllCanonicalRoles);
+        Assert.DoesNotContain("President", FomsRoles.AllCanonicalRoles);
+    }
+
+    [Fact]
+    public async Task UnsetThreshold_GateCheck_ReturnsClearActionableMessage()
+    {
+        using var context = CreateInMemoryDbContext();
+        // Remove configured CSH-09 setting
+        var setting = await context.CeoApprovalThresholdSettings.FirstOrDefaultAsync();
+        if (setting != null)
+        {
+            context.CeoApprovalThresholdSettings.Remove(setting);
+            await context.SaveChangesAsync();
+        }
+
+        var gateService = new CeoApprovalGateService(context);
+        var result = await gateService.CheckGateAsync(CeoApprovalItemTypes.CashOutflow, "CA-2026-UNSET", 500m);
+
+        Assert.True(result.IsRequired);
+        Assert.False(result.IsSatisfied);
+        Assert.Contains("Go-Live setup", result.Message);
+        Assert.Contains("PO Decision E", result.Message);
+        Assert.Contains("every cash outflow requires an in-person CEO/President approval record", result.Message);
     }
 }

@@ -108,7 +108,7 @@ public static class AdjustmentFeatures
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // CREATE ADJUSTMENT REQUEST — stays Pending until Accountant approves
+    // CREATE ADJUSTMENT REQUEST — stays Pending until approved before posting (FIN-23)
     // ─────────────────────────────────────────────────────────────────
     public record CreateAdjustmentCommand(
         string InvoiceNo,
@@ -116,7 +116,8 @@ public static class AdjustmentFeatures
         decimal Amount,
         string Reason,
         string AdjustedBy = "",  // Submitter
-        string ApprovedBy = ""   // Approver (if pre-assigned)
+        string ApprovedBy = "",  // Approver (if pre-assigned)
+        string Role = ""         // Creator role (must be Finance Manager per FIN-23)
     ) : IRequest<PaymentAdjustment?>;
 
     public class CreateAdjustmentCommandHandler : IRequestHandler<CreateAdjustmentCommand, PaymentAdjustment?>
@@ -130,6 +131,18 @@ public static class AdjustmentFeatures
 
         public async Task<PaymentAdjustment?> Handle(CreateAdjustmentCommand request, CancellationToken cancellationToken)
         {
+            // FIN-23: Adjusting entries created by the Finance Manager only
+            if (!string.IsNullOrWhiteSpace(request.Role) && !FOMS.Domain.Constants.FomsRoles.IsFinanceManager(request.Role))
+            {
+                throw new UnauthorizedAccessException("Only the Finance Manager can create adjusting entries (FIN-23).");
+            }
+
+            // FIN-23: Reason is strictly mandatory
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                throw new InvalidOperationException("A reason is strictly required when creating an adjusting entry (FIN-23).");
+            }
+
             // Guard: amount must be positive
             if (request.Amount <= 0m)
                 throw new InvalidOperationException("Adjustment amount must be greater than zero.");

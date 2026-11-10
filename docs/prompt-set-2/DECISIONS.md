@@ -487,7 +487,7 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
   5. `Reimbursement`: Blocks reimbursement approval & Committed reservation above CSH-09 threshold. Attachment: **Prohibited**.
   6. `CashOutflow`: Blocks release/payment above CSH-09 threshold (covers cash advance release, direct disbursement release, and reimbursement payment). Attachment: **Optional**.
   7. `InvoiceDiscount`: Blocks invoice dispatch. Attachment: **Prohibited**.
-  8. `AnnualFinancialStatement`: Blocks sign-off/closing. Attachment: **Mandatory**.
+  8. `AnnualFinancialStatement`: Blocks sign-off/closing. Attachment: **Optional** (reverted from Mandatory per user directive; logged under open question R5.11 q3).
 
 ### 4. Repeatable Migration for EMP-005
 - Reversible EF Core migration `20261117220000_RemapEmp005ToAccountant.cs` created and applied to `FOMS_DB`.
@@ -497,6 +497,36 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
 ### 5. Excel Export Enhancements
 - `ExportRecordsToExcelAsync` in `CeoApprovalGateService` and `ExportDepartmentChangeLogsToExcelAsync` in `DepartmentService` generate full Excel `.xlsx` workbooks via `ClosedXML.Excel`.
 - Columns assert "No attachment" flag, rejection reasons, approver labels, and old/new department codes and names.
+
+### 6. Adjusting Entries Governance (`FIN-23`)
+- **Authority**: Adjusting entries are created **exclusively by the Finance Manager** (`ROLE-001`, `FomsRoles.IsFinanceManager`). Any attempt by another role (Accountant, Head Accountant, Assistant of Finance Manager, Staff) is rejected with 403 Forbidden.
+- **Role Alignment**: There is no Bookkeeper role in FOMS; authority conforms strictly to the four canonical roles in `IAM-01`.
+- **Reason Mandatory**: A non-empty reason is strictly required upon creation.
+- **Posting Lifecycle**: Created in `Pending` status. Financial impact (balance reduction, credit memo amount, GL posting) is blocked until the adjustment is approved before posting.
+- **Open Question `R4.11 q4`**: Who approves adjusting entries when the Finance Manager is the creator? (Logged as open question pending PO determination).
+
+### 7. Unset CSH-09 Threshold Fail-Safe & Go-Live Setup (`PO Decision E`)
+- **Go-Live Setup Step**: During initial deployment / go-live configuration, the Finance Manager must navigate to System Settings and set the official `CSH-09_CEO_THRESHOLD` amount in `dbo.CeoApprovalThresholdSettings`.
+- **Clear Actionable Message**: If a cash outflow is initiated while the threshold is unset, the gate fails safely and outputs an explicit, actionable message to prevent silent blockage:
+  `"Gate blocked: Setting (B) (CSH-09 CEO threshold) is not configured in Go-Live setup. Under PO Decision E, every cash outflow requires an in-person CEO/President approval record until a threshold is configured in System Settings by the Finance Manager. Transaction strictly requires CEO/President approval record for {itemType} '{itemId}'."`
+
+### 8. Department Rules Traced to `IAM-11` and `IAM-12`
+- **IAM-11 (Employee Records Department Independence)**:
+  - Employee records (`dbo.Employees`) and user profile forms have **zero department field**.
+  - Roles never depend on department. Personnel are structured strictly by `Position`, canonical `FOMS Role` (IAM-01), and optional `DMS Operational Role`.
+  - Add Employee form in `ProfilePage.tsx` strictly presents 3 fields: Position, FOMS Role, DMS Role.
+- **IAM-12 (Mandatory Department & Immutability Governance on Expense Requests)**:
+  - Department code is strictly required on all financial expense transactions: budget lines, cash advances, direct disbursements, and reimbursements.
+  - Zero default department: legacy `'DEP-OPS'` defaults dropped from database schemas and initialized to `string.Empty` in domain models.
+  - Requesters have no default department; inbound DMS requests without a department enter `"Needs department"` status (`PO Decision C`).
+  - Pre-approval department changes are restricted exclusively to the Finance Manager and strictly require a non-empty reason logged to `dbo.DepartmentChangeLogs` (`FIN-26`).
+  - Department changes automatically re-run the budget availability check against the newly assigned department's available balance.
+  - Once approved, requests are permanently locked; any subsequent changes must be recorded as logged correction entries.
+
+### 9. Open Questions Log
+- **`R5.11 q3`**: Is an attachment for Item 8 (`AnnualFinancialStatement`) strictly optional or mandatory? Reverted to Optional per PO directive; "No attachment" is recorded and exported when omitted.
+- **`R4.11 q4`**: When the Finance Manager creates an adjusting entry (`FIN-23`), who holds the authority to approve it before posting? (Pending PO confirmation).
+
 
 
 

@@ -42,11 +42,6 @@ public static class CeoApprovalItemTypes
         AnnualFinancialStatement
     };
 
-    public static readonly HashSet<string> AttachmentMandatoryTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        AnnualFinancialStatement
-    };
-
     public static readonly HashSet<string> MakerCheckerConfirmationRequiredTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         BudgetTransfer,
