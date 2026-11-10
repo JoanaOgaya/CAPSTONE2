@@ -160,8 +160,8 @@ public class CashAdvancesController : ControllerBase
         string rawDept = dto.DepartmentCode ?? Request.Headers["X-Department"].FirstOrDefault() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(rawDept))
         {
-            // Fallback for legacy payloads without department
-            rawDept = FomsDepartments.Finance;
+            bool isDms = Request.Headers.ContainsKey("X-DMS-Inbound") || Request.Headers.ContainsKey("X-DMS-API-Key");
+            rawDept = isDms ? FomsDepartments.Dispatch : FomsDepartments.Finance;
         }
         string normDept;
         try

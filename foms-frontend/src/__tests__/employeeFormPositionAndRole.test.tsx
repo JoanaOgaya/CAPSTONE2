@@ -317,4 +317,26 @@ describe('Add Employee Form: Position & Role Integration Tests (Phase 13)', () =
     expect(screen.queryByText(/Department/i)).toBeNull();
     expect(screen.queryByPlaceholderText(/Department/i)).toBeNull();
   });
+
+  it('10. Renders modal container with mobile-responsive 390px layout', async () => {
+    // Set viewport width to 390px
+    window.innerWidth = 390;
+    window.innerHeight = 844;
+    window.dispatchEvent(new Event('resize'));
+
+    render(
+      <ToastProvider>
+        <ProfilePage />
+      </ToastProvider>
+    );
+
+    const addBtn = await screen.findByRole('button', { name: /Add Staff Member/i });
+    fireEvent.click(addBtn);
+
+    const modal = screen.getByTestId('employee-modal-container');
+    expect(modal).toBeTruthy();
+    expect(modal.style.width).toBe('100%');
+    expect(modal.style.maxWidth).toBe('580px');
+    expect(modal.style.boxSizing).toBe('border-box');
+  });
 });

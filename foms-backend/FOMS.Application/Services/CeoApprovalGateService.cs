@@ -96,7 +96,8 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 bool caExists = await _context.CashAdvances.AnyAsync(a => a.AdvanceId == itemId, ct);
                 bool coExists = int.TryParse(itemId, out int coId) && await _context.CashOutflows.AnyAsync(c => c.OutflowId == coId, ct);
                 bool ddExists = int.TryParse(itemId, out int ddId) && await _context.DirectDisbursements.AnyAsync(d => d.DisbursementId == ddId, ct);
-                exists = caExists || coExists || ddExists;
+                bool reimExists = await _context.Reimbursements.AnyAsync(r => r.ReferenceNumber == itemId || r.ReimbursementId.ToString() == itemId, ct);
+                exists = caExists || coExists || ddExists || reimExists;
                 break;
 
             case CeoApprovalItemTypes.InvoiceDiscount:
@@ -467,16 +468,6 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 throw new ArgumentException($"Attachments are permitted only on items 1, 6, and 8 ({string.Join(", ", CeoApprovalItemTypes.AttachmentAllowedTypes)}).");
             }
 
-            if (request.ItemType == CeoApprovalItemTypes.CashOutflow)
-            {
-                // Item 4 (Cash Advance): attachment not allowed. Item 6 (Direct Disbursement): attachment allowed.
-                bool isCashAdvance = await _context.CashAdvances.AnyAsync(a => a.AdvanceId == request.ItemId, ct);
-                if (isCashAdvance)
-                {
-                    throw new ArgumentException("Attachments are not permitted for Cash Advance approval records (Item 4). Attachments are allowed only on items 1, 6 (Direct Disbursement), and 8.");
-                }
-            }
-
             var saved = await ValidateAndSaveAttachmentAsync(request.AttachmentBytes, request.AttachmentFileName ?? "attachment", ct);
             attachmentPath = saved.Path;
             attachmentFileName = saved.FileName;
@@ -559,15 +550,6 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             if (!CeoApprovalItemTypes.AttachmentAllowedTypes.Contains(request.ItemType))
             {
                 throw new ArgumentException($"Attachments are permitted only on items 1, 6, and 8.");
-            }
-
-            if (request.ItemType == CeoApprovalItemTypes.CashOutflow)
-            {
-                bool isCashAdvance = await _context.CashAdvances.AnyAsync(a => a.AdvanceId == request.ItemId, ct);
-                if (isCashAdvance)
-                {
-                    throw new ArgumentException("Attachments are not permitted for Cash Advance approval records (Item 4). Attachments are allowed only on items 1, 6 (Direct Disbursement), and 8.");
-                }
             }
 
             var saved = await ValidateAndSaveAttachmentAsync(request.AttachmentBytes, request.AttachmentFileName ?? "attachment", ct);

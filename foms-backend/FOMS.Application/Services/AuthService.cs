@@ -565,6 +565,15 @@ public class AuthService : IAuthService
             throw new UnauthorizedAccessException("Account is not active in FOMS. Contact your system administrator.");
         }
 
+        var normalizedRole = NormalizeStaffRole(user.Role);
+        if (normalizedRole == null)
+        {
+            await WriteAuditAsync(user.Id, user.Id, "Login Denied",
+                $"SSO exchange denied for unauthorized role '{user.Role}'. Only the four approved staff roles receive FOMS sessions.");
+            throw new UnauthorizedAccessException("User is not assigned an authorized FOMS staff role.");
+        }
+        user.Role = normalizedRole;
+
         user.FailedLoginCount = 0;
         user.LockedAt = null;
 

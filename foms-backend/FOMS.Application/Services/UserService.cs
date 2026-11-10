@@ -300,6 +300,14 @@ public class UserService : IUserService
             throw new InvalidOperationException("Client role is forbidden and not offered in FOMS (IAM-06, IAM-11).");
         }
 
+        if (string.Equals(trimmedPosition, "Billing & Collection Coordinator", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmedRole, "Billing & Collection Coordinator", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmedRole, "ROLE-005", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmedRole, "ROLE-006", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Roles ROLE-005 and ROLE-006 are retained for historical audit only; assignment is blocked (IAM-01).");
+        }
+
         var normPosition = FomsRoles.NormalizeRole(trimmedPosition);
         bool isFinancePosition = !string.IsNullOrEmpty(normPosition) && FinancePositions.Contains(normPosition);
 

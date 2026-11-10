@@ -315,54 +315,130 @@ public class Phase20Rev5ApprovalsAndEmployeesTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 6. Attachment Rejected on Tick-Only Items
+    // 6. G1: Attachment Gating Matrix for All 8 Items (R5.3)
+    //    Items 1, 6, 8 allow attachments (8 mandatory, 1 & 6 optional).
+    //    Items 2, 3, 4, 5, 7 strictly forbid attachments.
     // ─────────────────────────────────────────────────────────────────────────
     [Theory]
-    [InlineData(CeoApprovalItemTypes.BudgetOverride, "1")]
-    [InlineData(CeoApprovalItemTypes.BudgetTransfer, "1")]
-    [InlineData(CeoApprovalItemTypes.Reimbursement, "1")]
-    [InlineData(CeoApprovalItemTypes.BadDebtWriteOff, "INV-2026-001")]
-    public async Task CreateCeoApprovalRecord_AttachmentOnTickOnlyItems_ThrowsArgumentException(string itemType, string itemId)
+    [InlineData(CeoApprovalItemTypes.BudgetTransfer, "101")]
+    [InlineData(CeoApprovalItemTypes.BudgetCarryOver, "102")]
+    [InlineData(CeoApprovalItemTypes.BudgetOverride, "103")]
+    [InlineData(CeoApprovalItemTypes.InvoiceDiscount, "INV-001")]
+    [InlineData(CeoApprovalItemTypes.BadDebtWriteOff, "INV-002")]
+    public async Task CreateCeoApprovalRecord_TickOnlyItems_RejectAttachment_And_SucceedWithoutAttachment(string itemType, string itemId)
     {
         using var context = CreateInMemoryDbContext();
         var gateService = new CeoApprovalGateService(context);
 
-        var request = new CreateCeoApprovalRecordRequest
+        // Seed referenced entity for existence validation
+        if (itemType == CeoApprovalItemTypes.BudgetTransfer || itemType == CeoApprovalItemTypes.BudgetCarryOver)
+            context.BudgetTransfers.Add(new BudgetTransfer { TransferId = int.Parse(itemId), Status = "Pending", Amount = 5000 });
+        else if (itemType == CeoApprovalItemTypes.BudgetOverride)
+            context.BudgetOverrides.Add(new BudgetOverride { OverrideId = int.Parse(itemId), Status = "Pending", RequestedAmount = 5000 });
+
+        await context.SaveChangesAsync();
+
+        // A. With attachment -> Throws ArgumentException
+        var reqWithAttach = new CreateCeoApprovalRecordRequest
         {
             ItemType = itemType,
             ItemId = itemId,
             Status = "Approved",
             ApprovalDate = DateTime.UtcNow.Date,
-            AttachmentBytes = new byte[] { 0x25, 0x50, 0x44, 0x46 }, // %PDF
+            AttachmentBytes = new byte[] { 0x25, 0x50, 0x44, 0x46 },
             AttachmentFileName = "doc.pdf"
         };
 
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            gateService.RecordApprovalAsync(request, "EMP-001", "Finance Manager"));
-
+            gateService.RecordApprovalAsync(reqWithAttach, "EMP-001", "Finance Manager"));
         Assert.Contains("Attachments are permitted only on items 1, 6, and 8", ex.Message);
+
+        // B. Without attachment -> Succeeds
+        var reqWithoutAttach = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = itemType,
+            ItemId = itemId,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        };
+
+        var result = await gateService.RecordApprovalAsync(reqWithoutAttach, "EMP-001", "Finance Manager");
+        Assert.NotNull(result);
+        Assert.Equal("Approved", result.Status);
+        Assert.False(result.HasAttachment);
+        Assert.Equal("N/A", result.AttachmentFlag);
     }
 
-    [Fact]
-    public async Task CreateCeoApprovalRecord_AttachmentOnCashAdvance_ThrowsArgumentException()
+    [Theory]
+    [InlineData(CeoApprovalItemTypes.AnnualBudget, "2026")]
+    [InlineData(CeoApprovalItemTypes.CashOutflow, "CA-2026-001")] // Cash advance outflow
+    [InlineData(CeoApprovalItemTypes.CashOutflow, "10")] // Direct disbursement outflow
+    [InlineData(CeoApprovalItemTypes.CashOutflow, "REIM-2026-001")] // Reimbursement outflow
+    [InlineData(CeoApprovalItemTypes.AnnualFinancialStatement, "2026")] // Item 8 AFS
+    public async Task CreateCeoApprovalRecord_OptionalAttachmentItems_SucceedWithOrWithoutAttachment(string itemType, string itemId)
     {
         using var context = CreateInMemoryDbContext();
         var gateService = new CeoApprovalGateService(context);
 
-        var request = new CreateCeoApprovalRecordRequest
+        string itemIdWithoutAttach;
+        if (itemId == "CA-2026-001")
         {
-            ItemType = CeoApprovalItemTypes.CashOutflow,
-            ItemId = "CA-2026-001", // Cash advance
+            context.CashAdvances.Add(new CashAdvance { AdvanceId = "CA-2026-001-NOATTACH", AmountGiven = 15000, Status = "Submitted", DepartmentCode = "DEP-FIN" });
+            itemIdWithoutAttach = "CA-2026-001-NOATTACH";
+        }
+        else if (itemId == "10")
+        {
+            context.DirectDisbursements.Add(new DirectDisbursement { DisbursementId = 10, Amount = 15000, Status = "Pending", DepartmentCode = "DEP-FIN" });
+            context.DirectDisbursements.Add(new DirectDisbursement { DisbursementId = 11, Amount = 15000, Status = "Pending", DepartmentCode = "DEP-FIN" });
+            itemIdWithoutAttach = "11";
+        }
+        else if (itemId == "REIM-2026-001")
+        {
+            var reim1 = await context.Reimbursements.FirstAsync(r => r.ReimbursementId == 1);
+            reim1.ReferenceNumber = "REIM-2026-001";
+            context.Reimbursements.Add(new Reimbursement { ReimbursementId = 2, ReferenceNumber = "REIM-2026-001-NOATTACH", Amount = 15000, Status = "Approved", DepartmentCode = "DEP-FIN" });
+            itemIdWithoutAttach = "REIM-2026-001-NOATTACH";
+        }
+        else if (itemType == CeoApprovalItemTypes.AnnualFinancialStatement)
+        {
+            itemIdWithoutAttach = "2027";
+        }
+        else // AnnualBudget "2026"
+        {
+            context.AnnualBudgets.Add(new AnnualBudget { AnnualBudgetId = 2, FiscalYear = 2027, Status = "Draft", TotalBudget = 1000000m, PreparedBy = "EMP-001" });
+            itemIdWithoutAttach = "2027";
+        }
+        await context.SaveChangesAsync();
+
+        // A. With attachment -> Succeeds
+        var reqWithAttach = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = itemType,
+            ItemId = itemId,
             Status = "Approved",
             ApprovalDate = DateTime.UtcNow.Date,
             AttachmentBytes = new byte[] { 0x25, 0x50, 0x44, 0x46 },
-            AttachmentFileName = "ca_receipt.pdf"
+            AttachmentFileName = "voucher.pdf"
         };
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
-            gateService.RecordApprovalAsync(request, "EMP-001", "Finance Manager"));
+        var resWith = await gateService.RecordApprovalAsync(reqWithAttach, "EMP-001", "Finance Manager");
+        Assert.NotNull(resWith);
+        Assert.True(resWith.HasAttachment);
+        Assert.Equal("Attached", resWith.AttachmentFlag);
 
-        Assert.Contains("Attachments are not permitted for Cash Advance", ex.Message);
+        // B. Without attachment -> Succeeds (optional)
+        var reqWithoutAttach = new CreateCeoApprovalRecordRequest
+        {
+            ItemType = itemType,
+            ItemId = itemIdWithoutAttach,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        };
+
+        var resWithout = await gateService.RecordApprovalAsync(reqWithoutAttach, "EMP-001", "Finance Manager");
+        Assert.NotNull(resWithout);
+        Assert.False(resWithout.HasAttachment);
+        Assert.Equal("No attachment", resWithout.AttachmentFlag);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

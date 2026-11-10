@@ -418,6 +418,41 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
   - `dbo.Users` row 8 (`CLIENT-001`) deactivated (`is_active = 0`).
   - `dbo.Users` row 5 (`EMP-005`, "Billing Staff", `role_id = 1`) kept untouched and flagged for user review.
 
+---
+
+## Phase 21 Revision 5 Verification & Gap Closure Decisions (2026-11-11)
+
+### 1. Product Owner Decisions
+- **PO Decision A (`EMP-005`, `user_id = 5`)**:
+  - Remapped from `role_id = 1` (misassigned Finance Manager) to `role_id = 3` (`Accountant`).
+  - Applied via database script [`scripts/Phase21_Remap_Emp005_To_Accountant.sql`](file:///c:/Users/Joana/Downloads/another%20one/CAPSTONE2/scripts/Phase21_Remap_Emp005_To_Accountant.sql) to `FOMS_DB`.
+  - Verified only one user account (`EMP-001`) holds `role_id = 1`.
+- **PO Decision B (`ROLE-005` & `ROLE-006`)**:
+  - Kept in `dbo.Roles` for referential integrity and historical audit; login and role assignment are strictly blocked (`IAM-01`).
+  - Only the 4 approved roles (`Finance Manager`, `Head Accountant`, `Accountant`, `Assistant of Finance Manager`) can authenticate or be assigned.
+  - Omitted from Add Employee form dropdowns; blocked at server-level in `AuthService` (direct and SSO) and `UserService`.
+
+### 2. Item 6 Cash Outflow Attachment Coverage (`G1`, `R5.3`)
+- Cash Outflow above CSH-09 threshold (Item 6) covers Cash Advance release, Direct Disbursement release, and Reimbursement payment.
+- Attachments are optional on all three outflow types under Item 6.
+- The 8 items attachment matrix:
+  - Items 1, 6, 8 allow attachments (8 mandatory, 1 & 6 optional).
+  - Items 2, 3, 4, 5, 7 strictly forbid attachments (tick-only).
+- Attachment flag renders `"Attached"`, `"No attachment"`, or `"N/A"` across DTOs and Excel exports.
+
+### 3. Department Requirements on Requests (`G4`, `FIN-26`)
+- All new expense requests require an explicit department with zero defaulting; legacy `DEP-OPS` is non-selectable and throws `ArgumentException`.
+- DMS inbound cash advances missing department are automatically routed to Dispatch Team (`DEP-DSP`), subject to pre-approval department review and audit logging by the Finance Manager.
+
+### 4. Governance Confirmations (`G5`, `R5.11`)
+- Head Accountant recording confirmation is maker-checker verification only, blocking transfers/carry-overs from proceeding until confirmed. Head Accountant has zero budget-approval permissions.
+- CSH-09 threshold is FM-only, audited in `dbo.CeoApprovalThresholdChangeLogs`, evaluated as of request date, and fails safe to Limit A (₱10,000) when unset.
+
+### 5. Mobile Layout & External DMS Handoff (`G6`, `G7`)
+- Add Employee modal supports 390px mobile viewports with responsive padding and flexible grid columns (`add-employee-390px.png`).
+- Check 9 remains `UNVERIFIED (handoff doc only)`. Documented removal of pre-selected Encoder, addition of `None (no DMS access)`, and open question R5.11 Item 7 in `docs/prompt-set-2/dms-handoff.md`.
+
+
 
 
 

@@ -104,6 +104,9 @@ public class CeoApprovalRecordDto
     public string? RejectionReason { get; set; }
     public bool HasAttachment { get; set; }
     public string? AttachmentFileName { get; set; }
+    public string AttachmentFlag => HasAttachment
+        ? "Attached"
+        : (CeoApprovalItemTypes.AttachmentAllowedTypes.Contains(ItemType) ? "No attachment" : "N/A");
     public bool IsCorrection { get; set; }
     public int? OriginalRecordId { get; set; }
     public string? CorrectionReason { get; set; }

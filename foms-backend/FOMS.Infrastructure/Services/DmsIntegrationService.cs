@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 using FOMS.Application.Configuration;
 using FOMS.Application.Contracts;
 using FOMS.Application.Interfaces;
+using FOMS.Domain.Constants;
 using FOMS.Domain.Entities;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
@@ -503,6 +504,7 @@ public class DmsIntegrationService : IDmsIntegrationService
             ReleaseDate = DateTime.UtcNow,
             ReleasedBy = "DMS Operations Dispatch",
             Status = "Approved",
+            DepartmentCode = FomsDepartments.Dispatch,
             Notes = $"[DMS {dto.RequestId}] {dto.Purpose} (Requester: {dto.RequesterName})",
             ApprovedBy = "Finance Manager",
             ApprovedAt = now,
