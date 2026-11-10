@@ -117,7 +117,8 @@ public static class AdjustmentFeatures
         string Reason,
         string AdjustedBy = "",  // Submitter
         string ApprovedBy = "",  // Approver (if pre-assigned)
-        string Role = ""         // Creator role (must be Finance Manager per FIN-23)
+        string Role = "",        // Creator role (must be Finance Manager per FIN-23)
+        DateTime? AdjustmentDate = null
     ) : IRequest<PaymentAdjustment?>;
 
     public class CreateAdjustmentCommandHandler : IRequestHandler<CreateAdjustmentCommand, PaymentAdjustment?>
@@ -144,9 +145,9 @@ public static class AdjustmentFeatures
             }
 
             // FIN-23 / R4.2: Closed accounting period blocks creation of adjusting entries
-            var today = DateTime.UtcNow.Date;
+            var effectiveDate = (request.AdjustmentDate ?? DateTime.UtcNow).Date;
             bool isPeriodClosed = await _context.AccountingPeriodCloses
-                .AnyAsync(p => today >= p.PeriodStart.Date && today <= p.PeriodEnd.Date, cancellationToken);
+                .AnyAsync(p => effectiveDate >= p.PeriodStart.Date && effectiveDate <= p.PeriodEnd.Date, cancellationToken);
             if (isPeriodClosed)
             {
                 throw new InvalidOperationException("Cannot create an adjusting entry in a closed accounting period (FIN-23 / R4.2).");
@@ -197,7 +198,7 @@ public static class AdjustmentFeatures
                 Reason       = request.Reason,
                 AdjustedBy   = request.AdjustedBy,
                 ApprovedBy   = string.Empty,   // Not yet approved — populated on Approve
-                DateRequested = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                DateRequested = (request.AdjustmentDate ?? DateTime.UtcNow).ToString("yyyy-MM-dd"),
                 DateApproved = string.Empty,   // Not yet approved
                 Status       = "Pending"
             };
@@ -262,9 +263,9 @@ public static class AdjustmentFeatures
             }
 
             // FIN-23 / R4.2: Closed accounting period blocks approval of adjusting entries
-            var today = DateTime.UtcNow.Date;
+            var adjDate = DateTime.TryParse(adjustment.DateRequested, out var parsedDate) ? parsedDate.Date : DateTime.UtcNow.Date;
             bool isPeriodClosed = await _context.AccountingPeriodCloses
-                .AnyAsync(p => today >= p.PeriodStart.Date && today <= p.PeriodEnd.Date, cancellationToken);
+                .AnyAsync(p => adjDate >= p.PeriodStart.Date && adjDate <= p.PeriodEnd.Date, cancellationToken);
             if (isPeriodClosed)
             {
                 throw new InvalidOperationException("Cannot approve an adjusting entry in a closed accounting period (FIN-23 / R4.2).");
