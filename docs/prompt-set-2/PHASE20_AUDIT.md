@@ -184,13 +184,37 @@ Key takeaways:
 ---
 
 ### 9. DMS Audit: Pre-selected Encoder, Missing "None (no DMS access)", and Consignor Registration
+> [!WARNING]
+> **Status: UNVERIFIED, HANDOFF DOC ONLY.**
+> The external DMS repository was not audited (sibling directory search was cancelled). Findings below reflect specifications documented in [dms-handoff.md](file:///c:/Users/Joana/Downloads/another%20one/CAPSTONE2/docs/prompt-set-2/dms-handoff.md) only and are NOT verified against live DMS code.
 
 - **Pre-selected Encoder**:
   - Documented in `docs/prompt-set-2/dms-handoff.md`. DMS must remove the pre-selected `Encoder` role.
 - **Missing "None (no DMS access)"**:
   - Documented in `docs/prompt-set-2/dms-handoff.md`. DMS operational role dropdown must include explicit `None (no DMS access)`.
 - **DMS Client / Consignor Registration**:
-  - Verified: FOMS has no client portal or login (IAM-06). If DMS registers external consignor users, the `Client (Consignor / Order Creator)` role belongs strictly to DMS, completely omitted from FOMS forms and operations. Tracked under R5.11 item 7.
+  - Unverified in DMS. In FOMS: FOMS has no client portal or login (IAM-06). If DMS registers external consignor users, the `Client (Consignor / Order Creator)` role belongs strictly to DMS, completely omitted from FOMS forms and operations. Tracked under R5.11 item 7.
+
+---
+
+## Review List & Blocked Rows
+
+### EMP-005 Review Item (STOPPED — Not Changed in Migration)
+- **Account Details**: `user_id = 5`, `employee_number = 'EMP-005'`, `full_name = 'Billing Staff Test User'`, `username = 'joana'`, `role_id = 1` (`Finance Manager`).
+- **Current Assigned Role**: `Finance Manager` (`role_id = 1`).
+- **Title Mismatch**: Full name indicates "Billing Staff", but role provides full `Finance Manager` privileges.
+- **Current Capabilities in System**:
+  - Can approve client payments and payment exceptions (`POST /api/payments/{id}/approve`).
+  - Can allocate and adjust annual budgets and monthly budget lines (`POST /api/budget/allocate`).
+  - Can request and execute budget transfers and carry-overs.
+  - Can change request departments on cash advances, disbursements, and reimbursements (`POST /api/departments/change-request-department`).
+  - Can view, allocate, and manage Company-wide Overhead (`DEP-OVH`) budget lines.
+  - Can record in-person CEO approval records (`POST /api/ceo-approvals/record`).
+  - Can manage CSH-09 approval threshold settings.
+  - Can perform Client CRUD operations.
+  - Can sign off on high-value cash advances and liquidations.
+- **Migration Status**: **STOPPED / EXCLUDED**. Left completely unchanged in database migration pending user instruction on its correct role.
+- **Question for User**: What is the correct role for EMP-005 ("Billing Staff Test User")? (e.g., should it be mapped to `Billing & Collection Coordinator` (`role_id = 5`), `Accountant` (`role_id = 3`), or another role?)
 
 ---
 
