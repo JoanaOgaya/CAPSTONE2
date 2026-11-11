@@ -182,4 +182,56 @@ describe('R5.11 Item 1: Head Accountant Maker-Checker CEO Approval Confirmation'
     const confirmButton = screen.queryByRole('button', { name: /Confirm Recording/i });
     expect(confirmButton).toBeNull();
   });
+
+  it('displays "Correction" badge on corrected records and Head Accountant confirms with Kind Recording', async () => {
+    mockAuth(haUser);
+
+    const correctedItem = {
+      recordId: 205,
+      itemType: 'BudgetTransfer',
+      itemId: 'TR-CORR-01',
+      status: 'Approved',
+      approverLabel: 'CEO / President',
+      enteredBy: 'EMP-001',
+      enteredAt: '2026-11-10T12:00:00Z',
+      approvalDate: '2026-11-10T11:00:00Z',
+      isCorrection: true,
+      correctionReason: 'Corrected transfer amount and department code',
+      confirmations: [],
+    };
+
+    let confirmRequestBody: any = null;
+    server.use(
+      http.post(/.*\/ceo-approvals\/205\/confirm/, async ({ request }) => {
+        confirmRequestBody = await request.json();
+        return HttpResponse.json({
+          confirmationId: 99,
+          recordId: 205,
+          kind: 'Recording',
+          confirmedBy: 'EMP-002',
+          confirmedAt: new Date().toISOString(),
+        });
+      })
+    );
+
+    render(<CeoApprovalConfirmationSection initialItems={[correctedItem]} />);
+
+    // 1. Correction badge is displayed
+    const badge = screen.getByTestId('correction-badge-205');
+    expect(badge).toBeDefined();
+    expect(badge.textContent).toBe('Correction');
+
+    // 2. Head Accountant clicks Confirm Recording
+    const confirmBtn = screen.getByTestId('confirm-btn-205');
+    fireEvent.click(confirmBtn);
+
+    // 3. Modal opens and confirms
+    const submitBtn = screen.getByTestId('submit-confirm-btn');
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(confirmRequestBody).not.toBeNull();
+      expect(confirmRequestBody.kind).toBe('Recording');
+    });
+  });
 });

@@ -14,6 +14,8 @@ export interface CeoApprovalItem {
   enteredAt: string;
   approvalDate: string;
   notes?: string;
+  isCorrection?: boolean;
+  correctionReason?: string;
   hasAttachment?: boolean;
   attachmentFileName?: string;
   confirmations?: Array<{
@@ -165,6 +167,14 @@ export const CeoApprovalConfirmationSection: React.FC<CeoApprovalConfirmationSec
                   <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
                     Record #{item.recordId}
                   </span>
+                  {item.isCorrection && (
+                    <span
+                      data-testid={`correction-badge-${item.recordId}`}
+                      style={{ fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, background: '#FEF3C7', color: '#92400E' }}
+                    >
+                      Correction
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#475569' }}>
                   Entered by: <strong>{item.enteredBy}</strong> | Approval Date: {formatDateTime(item.approvalDate)}
