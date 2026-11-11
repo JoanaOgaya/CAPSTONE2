@@ -30,10 +30,10 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
    - Limit: **10 MB** maximum per file (PDF, JPG, PNG) on approval record items 1, 6, and 8.
 
 4. **R4.11 Items 1 to 4**:
-   - **Item 1**: Gross expenses, no input VAT, no account 1200. Pending Finance confirmation. Keep implementation switchable.
-   - **Item 2**: Revision 4, section R4.6 Chart of Accounts adopted as a draft. Pending Finance confirmation.
-   - **Item 3**: Credit memo on a Paid invoice is recorded when approved and held as a client credit balance applied to next invoice. Pending Finance confirmation.
-   - **Item 4**: Head Accountant approves adjusting entries created by the Finance Manager (FIN-23).
+   - **Item 1**: Gross expenses, no input VAT, no account 1200. OPEN — awaiting Finance confirmation (Rev 4 gives no proposed answer). Keep implementation switchable.
+   - **Item 2**: Revision 4, section R4.6 Chart of Accounts adopted as a draft. OPEN — awaiting Finance confirmation (Rev 4 gives no proposed answer).
+   - **Item 3**: Credit memo on a Paid invoice is recorded when approved and held as a client credit balance applied to next invoice. OPEN — awaiting Finance confirmation (Rev 4 gives no proposed answer).
+   - **Item 4**: Head Accountant approves adjusting entries created by the Finance Manager (FIN-23). PROPOSED, pending Finance confirmation (R4.11 q4). Creator self-approval strictly forbidden.
 
 5. **R5.11 Items 1 to 7 (Decisions Proposed to Confirm with Finance)**:
    - **Item 1 (Maker-Checker)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. (Historical audit correction: The earlier "NOT IMPLEMENTED" label in commit 82b96c8 was inaccurate; the maker-checker gate check, database table, and service method were originally introduced in Phase 14 commit a265e4b, though Phase 14 lacked the "Approved" status guard, idempotency guard, requester SoD, audit log entries, Excel export columns, and frontend UI, which were completed in Phase 22 commits ad11057, 3b97b75, df306cb). The Finance Manager requests budget transfers and carry-overs and also records the CEO/President's approval of them. The Head Accountant confirms the recording of that entry (`Kind = "Recording"`). Head Accountant confirms the recording only. Not a budget approval (the Head Accountant stays out of the budget approval chain). It keeps the person who asks separate from the person who records the approval. Applied strictly to Item 2 (`BudgetTransfer`) and Item 3 (`BudgetCarryOver`). Note the link to `R4.11 q4` (where Head Accountant approves adjustments created by FM; adjusting-entry approver path is not changed in this pass).
@@ -44,9 +44,9 @@ Per the Global Rules: *Never assume an answer for the user. Record each confirma
      - **Frontend tests**: Covered in [`ceoApprovalConfirmation.test.tsx`](file:///CAPSTONE2/foms-frontend/src/__tests__/ceoApprovalConfirmation.test.tsx#L1-L150).
    - **Item 2 (CSH-09 Setting)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. CSH-09 is a setting changeable only by FM, logged with date, evaluated against the threshold in force on the request creation date.
    - **Item 3 (Attachment Optional)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. Attachments are optional on items 1, 6, and 8; show "No attachment" flag in record and Excel export.
-   - **Item 4 (Non-Finance Positions)**: PROPOSED (per Rev 5) - ASSUMED / PROPOSED, pending external DMS schema confirmation. Operational positions (Courier, Dispatcher, Driver, Hub Supervisor, Sorter) labeled ASSUMED.
-   - **Item 5 (Department Changes & Locks)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. FM may change department before approval with a logged reason in FIN-26 (re-checking budget). Locked after approval; fixes via logged correction entries.
-   - **Item 6 (Company-wide Budget Line)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. 5th budget line "Company-wide (Overhead)" selectable by the Finance Manager only.
+   - **Item 4 (Non-Finance Positions)**: PROPOSED (per Rev 5) - ASSUMED / PROPOSED, pending external DMS schema confirmation. Operational positions (Courier, Dispatcher, Driver, Hub Supervisor, Sorter) labeled ASSUMED. These positions are NOT sourced from DMS schema; they are assumptions introduced in Phase 20 commit `bb4d0ee`. Implementation: [`ProfilePage.tsx:22-37`](file:///CAPSTONE2/foms-frontend/src/pages/ProfilePage.tsx#L22-L37) (non-finance position list), [`dms-handoff.md`](file:///CAPSTONE2/docs/prompt-set-2/dms-handoff.md) (open question for DMS team). Open design question for DMS schema confirmation.
+   - **Item 5 (Department Changes & Locks)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. FM may change department before approval with a logged reason in FIN-26 (re-checking budget). Locked after approval; fixes via logged correction entries. Implementation: [`DisbursementAndReimbursementService.cs:77,267,435`](file:///CAPSTONE2/foms-backend/FOMS.Application/Services/DisbursementAndReimbursementService.cs#L77) (department lock check on approval), [`DepartmentChangeLog.cs`](file:///CAPSTONE2/foms-backend/FOMS.Domain/Entities/DepartmentChangeLog.cs) (immutable audit entity). Database trigger `TR_DepartmentChangeLogs_Immutable` on `dbo.DepartmentChangeLogs`.
+   - **Item 6 (Company-wide Budget Line)**: PROPOSED (per Rev 5) - IMPLEMENTED, pending Finance confirmation. 5th budget line "Company-wide (Overhead)" selectable by the Finance Manager only. Implementation: [`CeoApprovalGateService.cs:95-101`](file:///CAPSTONE2/foms-backend/FOMS.Application/Services/CeoApprovalGateService.cs#L95-L101) (DEP-OVH FM-only server guard), [`CeoApprovalGateService.cs:464-475`](file:///CAPSTONE2/foms-backend/FOMS.Application/Services/CeoApprovalGateService.cs#L464-L475) (budget line evaluation including DEP-OVH). Frontend filters DEP-OVH from non-FM dropdowns.
    - **Item 7 (DMS Client Option)**: PROPOSED - NOT IMPLEMENTED. Open / deferred to external DMS.
 
 6. **AR Aging Bucket Names**:
@@ -509,7 +509,15 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
 - **Reason Mandatory**: A non-empty reason is strictly required upon creation.
 - **Posting Lifecycle**: Created in `Pending` status. Financial impact (balance reduction, credit memo amount, GL posting) is blocked until the adjustment is approved before posting.
 - **Status Lifecycle Deviation**: Spec R4.4 specifies adjusting entry statuses as `Draft`, `Approved`, `Posted`, `Rejected`. Current FOMS implementation uses `Pending`, `Approved`, `Rejected` (where `Pending` represents unapproved draft/review state, and `Approved` immediately posts journal entries to General Ledger and applies invoice balance deductions). Logged as an active deviation.
-- **Approver Role**: PROPOSED (R5.11 item 1 applied to R4.11 q4), pending Finance confirmation: Head Accountant approves adjusting entries created by the Finance Manager, and creator self-approval is strictly forbidden (Separation of Duties).
+- **Approver Role**: PROPOSED (R5.11 item 1 applied to R4.11 q4), pending Finance confirmation: **Head Accountant** approves adjusting entries created by the Finance Manager, and creator self-approval is strictly forbidden (Separation of Duties). Decided: 2026-11-11.
+- **Bypass Routes Found and Closed (Commit `495cff9`, 2026-11-11)**:
+  - `FinanceManagerController.ApproveAdjustment` (old `foms-backend/FOMS.Api/Controllers/FinanceManagerController.cs:738-763`) was a direct database bypass that applied approval without any role, creator, or closed-period check. Now delegates to `AdjustmentFeatures.ApproveAdjustmentCommandHandler` via `HttpContext.RequestServices`; FM role gets 403.
+  - `HeadAccountantController.ValidateAdjustment` (old `foms-backend/FOMS.Api/Controllers/HeadAccountantController.cs:573-583`) was a direct database bypass with no balance change or period lock. Now delegates to same handler; HA succeeds through all guards.
+  - Both routes are kept for backward-compat; no frontend or existing tests call them. Single approval path now enforced.
+  - TC015 updated: `TC015_ApproveAdjustment_FinanceManager_IsRejectedWith403` (was: FM approval succeeds). Evidence: `tc015_tcadj_run.log` SHA-256: `34E9DC3E1F8F6B8E501FFF807C7B8BFB3258675E6545377384681400351794A9`.
+- **Correction-Kind Role Rules for Other Item Types**: The Correction confirmation kind remains unchanged for the six non-BudgetTransfer/BudgetCarryOver item types. Correction-kind role governance for adjusting entries is an open design question (noted per R5.11 item 1 bypass closure in commit `daf08e2`).
+- **Manila Date Enforcement (Commit `aa87f4a`, 2026-11-11)**: All `DateTime.UtcNow` fallbacks in `AdjustmentFeatures.cs` replaced with `GetManilaToday()` / `GetManilaTodayString()` helpers (Asia/Manila, "Singapore Standard Time" on Windows). Applies to: create handler date defaults (lines 161, 215), approve handler closed-period check (line 282), `DateApproved` (line 303), `invoice.LastUpdated` (line 337), `PostCreditMemoJournalEntryAsync` journal entry date (line 405). Tests TCADJ001-008 verify this behavior.
+- **Frontend Role Enforcement (Commit `9b5cddf`, 2026-11-11)**: `FinancialAdjustments.tsx` restricts `isReviewer` to `HEAD_ACCOUNTANT` only (was `FINANCE_MANAGER || HEAD_ACCOUNTANT`). `roleAccess.ts` adjustments key: HA has `['view', 'verify', 'return', 'approve']`; FM has `['view']` only.
 - **Closed Period Lock**: Creation and approval of adjusting entries are strictly blocked if transaction date falls within a closed accounting period (`FIN-23 / R4.2`).
 - **Open Question `R4.11 q4`**: Who approves adjusting entries when the Finance Manager is the creator? PROPOSED: Head Accountant (per R5.11 item 1), pending Finance confirmation.
 
@@ -532,8 +540,11 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
   - Once approved, requests are permanently locked; any subsequent changes must be recorded as logged correction entries.
 
 ### 9. Open Questions Log
+- **`R4.11 q1`**: OPEN — awaiting Finance confirmation. Rev 4 poses but does not answer: should gross expenses exclude input VAT and account 1200? Implementation is switchable until confirmed.
+- **`R4.11 q2`**: OPEN — awaiting Finance confirmation. Rev 4 poses but does not answer: is the R4.6 Chart of Accounts adopted as the definitive standard or still a draft?
+- **`R4.11 q3`**: OPEN — awaiting Finance confirmation. Rev 4 poses but does not answer: should a credit memo on a Paid invoice be held as a client credit balance applied to the next invoice?
+- **`R4.11 q4`**: Who approves adjusting entries when the Finance Manager is the creator? PROPOSED: Head Accountant (per R5.11 item 1 applied to FIN-23), pending Finance confirmation. Implemented in commit `495cff9` (2026-11-11); bypass routes found and closed.
 - **`R5.11 q3`**: Is an attachment for Item 8 (`AnnualFinancialStatement`) strictly optional or mandatory? Reverted to Optional per PO directive; "No attachment" is recorded and exported when omitted.
-- **`R4.11 q4`**: When the Finance Manager creates an adjusting entry (`FIN-23`), who holds the authority to approve it before posting? (Pending PO confirmation).
 
 
 
