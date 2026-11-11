@@ -2220,4 +2220,250 @@ public class Phase22Rev5CorrectionsTests
         var checkAfter = await gateService.CheckGateAsync(CeoApprovalItemTypes.Reimbursement, "550", 25000m);
         Assert.True(checkAfter.IsSatisfied);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PART 2 — Adjusting Entries Governance (R4.11 q4 / FIN-23)
+    // Handler: AdjustmentFeatures.ApproveAdjustmentCommand
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private ApplicationDbContext CreateAdjustmentDbContext(
+        string invoiceId       = "INV-ADJ-001",
+        decimal invoiceBalance = 10000m,
+        bool    invoicePaid    = false,
+        string  adjId          = "ADJ-T001",
+        decimal adjAmount      = 500m,
+        string  adjType        = "Credit",
+        string  adjBy          = "EMP-001",          // Finance Manager
+        string? adjDate        = null,
+        bool    closedPeriod   = false)
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        var ctx = new ApplicationDbContext(options);
+
+        ctx.Invoices.Add(new DomainInvoice
+        {
+            Id           = invoiceId,
+            InvoiceNo    = invoiceId,
+            ClientId     = "CLI-ADJ",
+            TotalAmount  = invoicePaid ? 10000m : 10000m,
+            Balance      = invoiceBalance,
+            PaymentStatus = invoicePaid ? "Paid" : "Unpaid",
+            DocumentStatus = InvoiceDocumentStatus.ForReview
+        });
+
+        ctx.PaymentAdjustments.Add(new DomainAdjustment
+        {
+            Id             = adjId,
+            InvoiceNo      = invoiceId,
+            AdjustmentType = adjType,
+            Amount         = adjAmount,
+            Reason         = "Test adjustment reason",
+            AdjustedBy     = adjBy,
+            ApprovedBy     = string.Empty,
+            DateRequested  = adjDate ?? "2026-11-05",
+            DateApproved   = string.Empty,
+            Status         = "Pending"
+        });
+
+        if (closedPeriod)
+        {
+            ctx.AccountingPeriodCloses.Add(new DomainPeriodClose
+            {
+                PeriodStart = new DateTime(2026, 11, 1),
+                PeriodEnd   = new DateTime(2026, 11, 30),
+                ClosedAt    = DateTime.UtcNow,
+                ClosedBy    = "EMP-001"
+            });
+        }
+
+        ctx.SaveChanges();
+        return ctx;
+    }
+
+    // TC-ADJ-001: Finance Manager trying to approve → UnauthorizedAccessException
+    [Fact]
+    public async Task TCADJ001_FinanceManager_ApproveAdjustment_IsRejected()
+    {
+        using var ctx = CreateAdjustmentDbContext();
+        var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(ctx);
+
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            handler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand("ADJ-T001", "EMP-001", "Finance Manager"), default));
+
+        Assert.Contains("Head Accountant", ex.Message);
+    }
+
+    // TC-ADJ-002: Accountant trying to approve → UnauthorizedAccessException
+    [Fact]
+    public async Task TCADJ002_Accountant_ApproveAdjustment_IsRejected()
+    {
+        using var ctx = CreateAdjustmentDbContext();
+        var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(ctx);
+
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            handler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand("ADJ-T001", "EMP-003", "Accountant"), default));
+
+        Assert.Contains("Head Accountant", ex.Message);
+    }
+
+    // TC-ADJ-003: Assistant of Finance Manager trying to approve → UnauthorizedAccessException
+    [Fact]
+    public async Task TCADJ003_AssistantFM_ApproveAdjustment_IsRejected()
+    {
+        using var ctx = CreateAdjustmentDbContext();
+        var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(ctx);
+
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            handler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand("ADJ-T001", "EMP-004", "Assistant of Finance Manager"), default));
+
+        Assert.Contains("Head Accountant", ex.Message);
+    }
+
+    // TC-ADJ-004: Head Accountant approves FM's adjustment → succeeds; DateApproved is a valid date;
+    //             invoice balance decreases by the adjustment amount
+    [Fact]
+    public async Task TCADJ004_HeadAccountant_ApproveAdjustment_Succeeds_BalanceDecreases()
+    {
+        using var ctx = CreateAdjustmentDbContext(invoiceBalance: 10000m, adjAmount: 500m, adjType: "Credit", adjBy: "EMP-001");
+        var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(ctx);
+
+        var result = await handler.Handle(
+            new AdjustmentFeatures.ApproveAdjustmentCommand("ADJ-T001", "EMP-002", "Head Accountant"), default);
+
+        Assert.NotNull(result);
+        Assert.Equal("Approved", result!.Status);
+        Assert.Equal("EMP-002", result.ApprovedBy);
+        Assert.False(string.IsNullOrEmpty(result.DateApproved), "DateApproved must be set on approval");
+        Assert.True(DateTime.TryParse(result.DateApproved, out _), "DateApproved must be a parseable date");
+
+        // Invoice balance should decrease: credit is applied
+        var inv = await ctx.Invoices.FirstAsync(i => i.InvoiceNo == "INV-ADJ-001");
+        // CreditMemoAmount increased → RecalculateInvoice reduces Balance
+        Assert.True(inv.Balance < 10000m, $"Balance should decrease from 10000; got {inv.Balance}");
+    }
+
+    // TC-ADJ-005: Separation of Duties — HA approves their own adjustment → InvalidOperationException
+    [Fact]
+    public async Task TCADJ005_HeadAccountant_ApprovesOwnAdjustment_IsRejected()
+    {
+        // adjBy = EMP-002 (HA), approver = EMP-002 (HA) — same person
+        using var ctx = CreateAdjustmentDbContext(adjBy: "EMP-002");
+        var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(ctx);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            handler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand("ADJ-T001", "EMP-002", "Head Accountant"), default));
+
+        Assert.Contains("cannot approve their own", ex.Message);
+    }
+
+    // TC-ADJ-006: Creating an adjustment in a closed period → InvalidOperationException
+    [Fact]
+    public async Task TCADJ006_Create_AdjustmentInClosedPeriod_IsRejected()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        var ctx = new ApplicationDbContext(options);
+
+        ctx.Invoices.Add(new DomainInvoice
+        {
+            Id = "INV-CLOSED", InvoiceNo = "INV-CLOSED", ClientId = "CLI-C", TotalAmount = 5000m,
+            Balance = 5000m, DocumentStatus = InvoiceDocumentStatus.ForReview
+        });
+        ctx.AccountingPeriodCloses.Add(new DomainPeriodClose
+        {
+            PeriodStart = new DateTime(2026, 10, 1),
+            PeriodEnd   = new DateTime(2026, 10, 31),
+            ClosedAt    = DateTime.UtcNow,
+            ClosedBy    = "EMP-001"
+        });
+        await ctx.SaveChangesAsync();
+
+        var handler = new AdjustmentFeatures.CreateAdjustmentCommandHandler(ctx);
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            handler.Handle(new AdjustmentFeatures.CreateAdjustmentCommand(
+                InvoiceNo:      "INV-CLOSED",
+                AdjustmentType: "Credit",
+                Amount:         200m,
+                Reason:         "Test closed-period block",
+                AdjustedBy:     "EMP-001",
+                ApprovedBy:     string.Empty,
+                Role:           "Finance Manager",
+                AdjustmentDate: new DateTime(2026, 10, 15)   // ← inside closed period
+            ), default));
+
+        Assert.Contains("closed accounting period", ex.Message);
+    }
+
+    // TC-ADJ-007: Approving an adjustment whose date is in a closed period → InvalidOperationException
+    [Fact]
+    public async Task TCADJ007_Approve_AdjustmentInClosedPeriod_IsRejected()
+    {
+        // adjDate = Nov 10 is inside the closed Nov period
+        using var ctx = CreateAdjustmentDbContext(adjDate: "2026-11-10", closedPeriod: true);
+        var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(ctx);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            handler.Handle(new AdjustmentFeatures.ApproveAdjustmentCommand("ADJ-T001", "EMP-002", "Head Accountant"), default));
+
+        Assert.Contains("closed accounting period", ex.Message);
+    }
+
+    // TC-ADJ-008: Credit memo on paid invoice posts balanced journal entry (debit = credit = amount)
+    [Fact]
+    public async Task TCADJ008_PaidInvoiceCreditMemo_PostsBalancedJournalEntry()
+    {
+        // balance = 0 (paid invoice) triggers PostCreditMemoJournalEntryAsync
+        // Use a BI- invoice number so SyncBillingInvoiceAndReceivableAsync skips the
+        // "create billing mirror" branch (invoice.InvoiceNo == billingInvoiceNo → guard is false).
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        await using var ctx = new ApplicationDbContext(options);
+        ctx.Clients.Add(new FOMS.Domain.Entities.Client
+        {
+            Id = "CLI-ADJ",
+            Name = "Test Client ADJ",
+            Status = "Active",
+            IsActive = true
+        });
+        ctx.Invoices.Add(new DomainInvoice
+        {
+            Id            = "BI-ADJ-001",
+            InvoiceNo     = "BI-ADJ-001",
+            ClientId      = "CLI-ADJ",
+            TotalAmount   = 10000m,
+            Balance       = 0m,            // paid — triggers credit memo JE path
+            PaymentStatus = "Paid",
+            DocumentStatus = InvoiceDocumentStatus.ForReview
+        });
+        ctx.PaymentAdjustments.Add(new DomainAdjustment
+        {
+            Id             = "ADJ-T001",
+            InvoiceNo      = "BI-ADJ-001",
+            AdjustmentType = "Credit",
+            Amount         = 300m,
+            Reason         = "Paid invoice credit memo test",
+            AdjustedBy     = "EMP-001",
+            ApprovedBy     = string.Empty,
+            DateRequested  = "2026-11-05",
+            DateApproved   = string.Empty,
+            Status         = "Pending"
+        });
+        await ctx.SaveChangesAsync();
+        var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(ctx);
+
+        await handler.Handle(
+            new AdjustmentFeatures.ApproveAdjustmentCommand("ADJ-T001", "EMP-002", "Head Accountant"), default);
+
+        var entries = await ctx.GeneralLedgerEntries.ToListAsync();
+        Assert.Equal(2, entries.Count);
+
+        var totalDebit  = entries.Sum(e => e.Debit);
+        var totalCredit = entries.Sum(e => e.Credit);
+        Assert.Equal(300m, totalDebit);
+        Assert.Equal(300m, totalCredit);
+    }
 }

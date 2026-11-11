@@ -14,6 +14,19 @@ namespace FOMS.Application.Features;
 public static class AdjustmentFeatures
 {
     // ─────────────────────────────────────────────────────────────────
+    // Manila timezone helper (R4.11 q4 / FIN-23)
+    // Mirrors CeoApprovalGateService.GetManilaToday().
+    // ─────────────────────────────────────────────────────────────────
+    internal static DateTime GetManilaToday()
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(
+            OperatingSystem.IsWindows() ? "Singapore Standard Time" : "Asia/Manila");
+        return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz).Date;
+    }
+
+    internal static string GetManilaTodayString() => GetManilaToday().ToString("yyyy-MM-dd");
+
+    // ─────────────────────────────────────────────────────────────────
     // GET ADJUSTMENTS — newest first
     // ─────────────────────────────────────────────────────────────────
     public record GetAdjustmentsQuery : IRequest<List<PaymentAdjustment>>;
@@ -145,7 +158,8 @@ public static class AdjustmentFeatures
             }
 
             // FIN-23 / R4.2: Closed accounting period blocks creation of adjusting entries
-            var effectiveDate = (request.AdjustmentDate ?? DateTime.UtcNow).Date;
+            // R4.11 q4: Use the caller-supplied adjustment date (Manila calendar date), not DateTime.UtcNow.
+            var effectiveDate = (request.AdjustmentDate ?? GetManilaToday()).Date;
             bool isPeriodClosed = await _context.AccountingPeriodCloses
                 .AnyAsync(p => effectiveDate >= p.PeriodStart.Date && effectiveDate <= p.PeriodEnd.Date, cancellationToken);
             if (isPeriodClosed)
@@ -198,7 +212,8 @@ public static class AdjustmentFeatures
                 Reason       = request.Reason,
                 AdjustedBy   = request.AdjustedBy,
                 ApprovedBy   = string.Empty,   // Not yet approved — populated on Approve
-                DateRequested = (request.AdjustmentDate ?? DateTime.UtcNow).ToString("yyyy-MM-dd"),
+                // R4.11 q4: Store the caller-supplied date (Manila calendar date), falling back to Manila today.
+                DateRequested = (request.AdjustmentDate ?? GetManilaToday()).ToString("yyyy-MM-dd"),
                 DateApproved = string.Empty,   // Not yet approved
                 Status       = "Pending"
             };
@@ -263,7 +278,8 @@ public static class AdjustmentFeatures
             }
 
             // FIN-23 / R4.2: Closed accounting period blocks approval of adjusting entries
-            var adjDate = DateTime.TryParse(adjustment.DateRequested, out var parsedDate) ? parsedDate.Date : DateTime.UtcNow.Date;
+            // R4.11 q4: Use the adjustment's own date for the period check; fall back to Manila today.
+            var adjDate = DateTime.TryParse(adjustment.DateRequested, out var parsedDate) ? parsedDate.Date : GetManilaToday();
             bool isPeriodClosed = await _context.AccountingPeriodCloses
                 .AnyAsync(p => adjDate >= p.PeriodStart.Date && adjDate <= p.PeriodEnd.Date, cancellationToken);
             if (isPeriodClosed)
@@ -283,7 +299,8 @@ public static class AdjustmentFeatures
             // Mark adjustment as approved
             adjustment.Status       = "Approved";
             adjustment.ApprovedBy   = request.ApprovedBy;
-            adjustment.DateApproved = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            // R4.11 q4: DateApproved is Manila today (the date the HA approves), not UTC.
+            adjustment.DateApproved = GetManilaTodayString();
 
             var adjType = adjustment.AdjustmentType.ToLower();
 
@@ -316,7 +333,8 @@ public static class AdjustmentFeatures
             // Fully recalculate all derived fields using the authoritative service
             BillingComputationService.RecalculateInvoice(invoice);
             invoice.UpdatedBy   = request.ApprovedBy;
-            invoice.LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            // R4.11 q4: LastUpdated uses Manila today for consistency.
+            invoice.LastUpdated = GetManilaTodayString();
 
             var audit = new AuditLog
             {
@@ -384,7 +402,11 @@ public static class AdjustmentFeatures
                 Id = jeId,
                 EntryNumber = $"JE-CREDITMEMO-{invoice.InvoiceNo}-{jeId[..8]}",
                 InvoiceId = invoice.Id,
-                Date = DateTime.UtcNow,
+                // R4.11 q4: Journal entry date = adjustment's own date, never DateTime.UtcNow.
+                // Parse DateRequested (a Manila calendar date string "yyyy-MM-dd"); fall back to Manila today.
+                Date = DateTime.TryParse(adjustment.DateRequested, out var jeDate)
+                    ? jeDate.Date
+                    : GetManilaToday(),
                 Description = $"Credit Memo on Paid Invoice {invoice.InvoiceNo}: Dr Cargo Claims (Sales Allowances) / Cr Unapplied Client Credits",
                 Posted = true
             };
@@ -437,7 +459,8 @@ public static class AdjustmentFeatures
 
             adjustment.Status       = "Rejected";
             adjustment.ApprovedBy   = request.RejectedBy; // Records who rejected it
-            adjustment.DateApproved = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            // R4.11 q4: DateApproved is Manila today (the date the HA approves), not UTC.
+            adjustment.DateApproved = GetManilaTodayString();
 
             var audit = new AuditLog
             {
