@@ -39,6 +39,7 @@ public interface ICeoApprovalGateService
         string kind, 
         string confirmedByEmployeeId, 
         string userRole, 
+        string? note = null,
         CancellationToken ct = default);
 
     Task<CeoApprovalThresholdDto> GetCurrentThresholdAsync(

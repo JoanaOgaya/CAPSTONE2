@@ -78,6 +78,7 @@ public class CreateCeoApprovalCorrectionRequest
 public class ConfirmCeoApprovalRequest
 {
     public string Kind { get; set; } = "Recording"; // "Recording" or "Correction"
+    public string? Note { get; set; }
 }
 
 public class UpdateCeoThresholdRequest
@@ -119,6 +120,7 @@ public class CeoApprovalConfirmationDto
     public string Kind { get; set; } = string.Empty;
     public string ConfirmedBy { get; set; } = string.Empty;
     public DateTime ConfirmedAt { get; set; }
+    public string? Note { get; set; }
 }
 
 public class CeoApprovalThresholdDto

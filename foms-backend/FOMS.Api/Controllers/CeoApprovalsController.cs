@@ -179,7 +179,7 @@ public class CeoApprovalsController : ControllerBase
         var (employeeId, role) = GetUserInfo();
         try
         {
-            var conf = await _gateService.ConfirmRecordAsync(recordId, request.Kind, employeeId, role);
+            var conf = await _gateService.ConfirmRecordAsync(recordId, request.Kind, employeeId, role, request.Note);
             return Ok(conf);
         }
         catch (UnauthorizedAccessException ex)

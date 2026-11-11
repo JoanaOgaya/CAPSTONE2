@@ -390,7 +390,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
                 if (haConfirmation == null)
                 {
                     isEffective = false;
-                    detailMessage = $"Gate blocked: {itemType} '{itemId}' requires Head Accountant maker-checker recording confirmation.";
+                    detailMessage = $"Gate blocked: {itemType} '{itemId}' requires Head Accountant maker-checker recording confirmation before budget can take effect (R5.11 item 1).";
                 }
                 else
                 {
@@ -611,7 +611,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
     // 6. Confirm Record (Head Accountant or Second Person)
     // ─────────────────────────────────────────────────────────────────────────
     public async Task<CeoApprovalConfirmationDto> ConfirmRecordAsync(
-        int recordId, string kind, string confirmedByEmployeeId, string userRole, CancellationToken ct = default)
+        int recordId, string kind, string confirmedByEmployeeId, string userRole, string? note = null, CancellationToken ct = default)
     {
         var record = await _context.CeoApprovalRecords
             .FirstOrDefaultAsync(r => r.RecordId == recordId, ct);
@@ -619,6 +619,11 @@ public class CeoApprovalGateService : ICeoApprovalGateService
         if (record == null)
         {
             throw new KeyNotFoundException($"CEO approval record with ID {recordId} not found.");
+        }
+
+        if (!string.Equals(record.Status, "Approved", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Only 'Approved' CEO approval records can be confirmed. Current status is '{record.Status}'.");
         }
 
         if (string.Equals(confirmedByEmployeeId, record.EnteredBy, StringComparison.OrdinalIgnoreCase))
@@ -639,7 +644,7 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             }
 
             // Verify Head Accountant is not the requester of the transfer/carryover
-            if (record.ItemType == CeoApprovalItemTypes.BudgetTransfer)
+            if (record.ItemType == CeoApprovalItemTypes.BudgetTransfer || record.ItemType == CeoApprovalItemTypes.BudgetCarryOver)
             {
                 if (int.TryParse(record.ItemId, out int transferId))
                 {
@@ -663,15 +668,41 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             throw new ArgumentException("Kind must be strictly 'Recording' or 'Correction'.");
         }
 
+        var normalizedKind = kind.Equals("Recording", StringComparison.OrdinalIgnoreCase) ? "Recording" : "Correction";
+
+        // Idempotency check: A second attempt is rejected
+        var alreadyConfirmed = await _context.CeoApprovalConfirmations
+            .AnyAsync(c => c.RecordId == recordId && c.Kind == normalizedKind, ct);
+        if (alreadyConfirmed)
+        {
+            throw new InvalidOperationException($"A {normalizedKind} confirmation has already been recorded for CEO approval record {recordId}.");
+        }
+
         var confirmation = new CeoApprovalConfirmation
         {
             RecordId = recordId,
-            Kind = kind.Equals("Recording", StringComparison.OrdinalIgnoreCase) ? "Recording" : "Correction",
+            Kind = normalizedKind,
             ConfirmedBy = confirmedByEmployeeId,
             ConfirmedAt = DateTime.UtcNow
         };
 
         _context.CeoApprovalConfirmations.Add(confirmation);
+
+        // Audit log entry
+        var audit = new FOMS.Domain.Entities.AuditLog
+        {
+            UserId = confirmedByEmployeeId,
+            EntityName = "CeoApprovalRecord",
+            EntityId = recordId.ToString(),
+            Action = $"Confirm CEO Approval {normalizedKind}",
+            Details = string.IsNullOrWhiteSpace(note)
+                ? $"Head Accountant confirmed {normalizedKind.ToLowerInvariant()} of CEO approval record {recordId} for {record.ItemType} '{record.ItemId}'."
+                : $"Head Accountant confirmed {normalizedKind.ToLowerInvariant()} of CEO approval record {recordId} for {record.ItemType} '{record.ItemId}'. Note: {note.Trim()}.",
+            BeforeValue = "Unconfirmed",
+            AfterValue = $"Confirmed by {confirmedByEmployeeId} at {confirmation.ConfirmedAt:O}"
+        };
+        _context.AuditLogs.Add(audit);
+
         await _context.SaveChangesAsync(ct);
 
         return new CeoApprovalConfirmationDto
@@ -680,7 +711,8 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             RecordId = confirmation.RecordId,
             Kind = confirmation.Kind,
             ConfirmedBy = confirmation.ConfirmedBy,
-            ConfirmedAt = confirmation.ConfirmedAt
+            ConfirmedAt = confirmation.ConfirmedAt,
+            Note = note
         };
     }
 
@@ -894,7 +926,8 @@ public class CeoApprovalGateService : ICeoApprovalGateService
         {
             "Record ID", "Item Type", "Item ID", "Status", "Approver Label",
             "Entered By", "Entered At (UTC)", "Approval Date", "Attachment Flag",
-            "File Name", "Rejection Reason", "Notes", "Is Correction", "Original Record ID", "Effective"
+            "File Name", "Rejection Reason", "Notes", "Is Correction", "Original Record ID", "Effective",
+            "Confirmed By", "Confirmed At (UTC)"
         };
 
         for (int i = 0; i < headers.Length; i++)
@@ -924,6 +957,10 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             worksheet.Cell(row, 13).Value = r.IsCorrection;
             worksheet.Cell(row, 14).Value = r.OriginalRecordId?.ToString() ?? string.Empty;
             worksheet.Cell(row, 15).Value = r.IsEffective;
+
+            var haConf = r.Confirmations?.FirstOrDefault(c => c.Kind == "Recording") ?? r.Confirmations?.LastOrDefault();
+            worksheet.Cell(row, 16).Value = haConf?.ConfirmedBy ?? string.Empty;
+            worksheet.Cell(row, 17).Value = haConf != null ? haConf.ConfirmedAt.ToString("yyyy-MM-dd HH:mm:ss") : string.Empty;
         }
 
         worksheet.Columns().AdjustToContents();
