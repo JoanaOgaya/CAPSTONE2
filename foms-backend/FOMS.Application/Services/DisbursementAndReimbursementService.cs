@@ -97,7 +97,8 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             dueDate = reqDate.AddDays(1);
         }
 
-        decimal threshold = await GetCsh09ThresholdAsync();
+        // CSH-09 threshold evaluated as of request creation date (reqDate)
+        decimal threshold = await GetCsh09ThresholdAsync(reqDate);
         bool requiresCeo = dto.Amount > threshold;
 
         var advanceId = $"CA-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";

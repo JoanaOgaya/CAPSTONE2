@@ -451,7 +451,7 @@ The general ledger strictly adopts the R4.6 account codes without collision or r
 
 ### 4. Governance Confirmations (`G5`, `R5.11`)
 - Head Accountant recording confirmation is maker-checker verification only, blocking transfers/carry-overs from proceeding until confirmed. Head Accountant has zero budget-approval permissions.
-- CSH-09 threshold is FM-only, audited in `dbo.CeoApprovalThresholdChangeLogs`, evaluated as of request date, and fails safe to Limit A (₱10,000) when unset.
+- CSH-09 threshold is FM-only, audited in `dbo.CeoApprovalThresholdChangeLogs`, evaluated as of request creation date (`CreatedAt` / `SubmittedAt`), and fails safe to CEO approval for all outflows (`EffectiveCeoLimit = 0m`) when unset per PO Decision E.
 
 ### 5. Mobile Layout & External DMS Handoff (`G6`, `G7`)
 - Add Employee modal supports 390px mobile viewports with responsive padding and flexible grid columns (`add-employee-390px.png`).
