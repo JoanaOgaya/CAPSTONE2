@@ -195,7 +195,9 @@ export default function FinancialAdjustments() {
   const totalCreditMemos = filteredAdjustments.filter(a => a.type === 'Credit Memo').reduce((sum, a) => sum + a.amount, 0);
   const pendingCount = filteredAdjustments.filter(a => a.status === 'Pending Approval').length;
 
-  const isReviewer = user?.role === 'FINANCE_MANAGER' || user?.role === 'HEAD_ACCOUNTANT';
+  // R4.11 q4 / FIN-23: Only the Head Accountant may approve adjusting entries.
+  // Finance Manager creates; Head Accountant approves. Creator cannot approve their own entry.
+  const isReviewer = user?.role === 'HEAD_ACCOUNTANT';
 
   const columns = [
     { key: 'id', label: 'ID', sortable: true },

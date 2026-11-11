@@ -830,7 +830,7 @@ describe('EMP-001 (Finance Manager) — Complete Page-by-Page Workflow & Verific
   // ── Page 12: Adjustment Approval ──────────────────────────────────────────
   describe('Page 12: /adjustments (Adjustment Approval)', () => {
     it('loads adjustments and approves adjustment calling act endpoint', async () => {
-      mockAuthUser();
+      mockAuthUser({ role: ROLES.HEAD_ACCOUNTANT }); // R4.11 q4: only HA sees Approve
       renderWithContext(<FinancialAdjustments />, '/adjustments');
 
       await waitFor(() => {
