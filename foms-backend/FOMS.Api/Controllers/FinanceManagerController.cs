@@ -6,6 +6,10 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using FOMS.Application.Features;
+using FOMS.Application.Interfaces;
+using FOMS.Domain.Constants;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
@@ -738,28 +742,39 @@ public class FinanceManagerController : ControllerBase
     [HttpPost("adjustments/{id}/approve")]
     public async Task<IActionResult> ApproveAdjustment(int id)
     {
-        var adj = await _fomsDb.FinancialAdjustments.FindAsync(id);
-        if (adj == null)
-            return NotFound(new { success = false, message = "Adjustment not found." });
+        // R4.11 q4 / FIN-23: All adjustment approvals go through the single authoritative handler.
+        // The handler enforces HA-only, SoD, closed-period, and balance-posting rules.
+        // This endpoint is kept for backward-compat; FM role will receive 403 from the handler.
+        var approvedBy = User.FindFirst(ClaimTypes.Name)?.Value
+                      ?? User.FindFirst("name")?.Value
+                      ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                      ?? "Unknown";
+        var role = User.FindFirst(ClaimTypes.Role)?.Value
+                ?? User.FindFirst("role")?.Value
+                ?? string.Empty;
 
-        adj.Status = "Approved";
-        adj.ApprovedBy = 1;
-        adj.ApprovedAt = DateTime.UtcNow;
-
-        if (adj.InvoiceId.HasValue)
+        try
         {
-            var ar = await _fomsDb.AccountsReceivable.FirstOrDefaultAsync(a => a.InvoiceId == adj.InvoiceId.Value);
-            if (ar != null && (ar.OutstandingBalance ?? 0) > 0)
-            {
-                ar.OutstandingBalance = Math.Max(0m, (ar.OutstandingBalance ?? 0) - adj.Amount);
-                if (ar.OutstandingBalance == 0) ar.ArStatus = "Fully Paid";
-            }
+            var appDb = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
+            var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(appDb);
+            var result = await handler.Handle(
+                new AdjustmentFeatures.ApproveAdjustmentCommand(id.ToString(), approvedBy, role),
+                HttpContext.RequestAborted);
+
+            if (result == null)
+                return NotFound(new { success = false, message = "Adjustment not found or is no longer pending." });
+
+            await LogAuditAsync("APPROVE_ADJUSTMENT", "PaymentAdjustments", id.ToString(), $"Adjustment {id} approved via FM route.");
+            return Ok(new { success = true, message = "Adjustment approved successfully.", data = result });
         }
-
-        await _fomsDb.SaveChangesAsync();
-        await LogAuditAsync("APPROVE_ADJUSTMENT", "FinancialAdjustments", id.ToString(), $"Adjustment #{id} approved.");
-
-        return Ok(new { success = true, message = "Adjustment approved successfully.", data = adj });
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { success = false, message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { success = false, message = ex.Message });
+        }
     }
 
     [HttpPost("adjustments/{id}/reject")]

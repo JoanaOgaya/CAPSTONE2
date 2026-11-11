@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using FOMS.Application.Features;
+using FOMS.Application.Interfaces;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
@@ -573,13 +576,34 @@ public class HeadAccountantController : ControllerBase
     [HttpPost("adjustments/{adjustmentId}/validate")]
     public async Task<IActionResult> ValidateAdjustment(int adjustmentId)
     {
-        var adj = await _fomsDb.FinancialAdjustments.FindAsync(adjustmentId);
-        if (adj == null) return NotFound(new { success = false, message = "Adjustment not found." });
+        // R4.11 q4 / FIN-23: Delegate to ApproveAdjustmentCommandHandler (the single authority).
+        // "validate" is the HA-facing label; the handler enforces HA-only, SoD, closed-period.
+        var approvedBy = CurrentUser();
+        var role       = CurrentRole();
 
-        adj.Status = "Approved";
-        await _fomsDb.SaveChangesAsync();
-        await LogAuditAsync("VALIDATE_ADJUSTMENT", "Financial Adjustments", "FinancialAdjustment", adjustmentId, "Pending", "Approved", "Adjustment validated by Head Accountant.");
-        return Ok(new { success = true, message = "Adjustment validated." });
+        try
+        {
+            var appDb = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
+            var handler = new AdjustmentFeatures.ApproveAdjustmentCommandHandler(appDb);
+            var result = await handler.Handle(
+                new AdjustmentFeatures.ApproveAdjustmentCommand(adjustmentId.ToString(), approvedBy, role),
+                HttpContext.RequestAborted);
+
+            if (result == null)
+                return NotFound(new { success = false, message = "Adjustment not found or is no longer pending." });
+
+            await LogAuditAsync("VALIDATE_ADJUSTMENT", "Financial Adjustments", "FinancialAdjustment", adjustmentId,
+                "Pending", "Approved", "Adjustment validated (approved) by Head Accountant.");
+            return Ok(new { success = true, message = "Adjustment validated." });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { success = false, message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { success = false, message = ex.Message });
+        }
     }
 
     [HttpPost("adjustments/{adjustmentId}/reject")]
