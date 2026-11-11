@@ -328,4 +328,102 @@ public class InvoiceDiscountGateRealControllerTests
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.True((bool)(GetProp(okResult.Value, "success") ?? false));
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3. InvoicesController Transition Re-checks (lines 1027 and 1050)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task InvoicesController_TransitionRechecks_AtVerifyAndApprove_ThresholdChangeInBetween_DoesNotAffectOutcome()
+    {
+        // Arrange
+        var appDb = CreateAppDb();
+        var fomsDb = CreateFomsDb();
+        SeedInvoiceClient(appDb, fomsDb);
+
+        var gateService = new CeoApprovalGateService(appDb);
+
+        // Seed an invoice already in ForReview status with a discount
+        string invNo = "INV-2026-DISC-TRANS-01";
+        var invoice = new FOMS.Domain.Entities.Invoice
+        {
+            Id = invNo,
+            InvoiceNo = invNo,
+            ClientId = "CL-DISC",
+            ClientName = "Discount Test Client",
+            FreightCharges = 600m,
+            TotalAmount = 672.68m,
+            Balance = 672.68m,
+            DiscountAmount = 77.32m,
+            DiscountRate = 0.10m,
+            DiscountApprovedBy = "President and CEO",
+            DiscountReason = "Executive Discount",
+            DocumentStatus = InvoiceDocumentStatus.ForReview,
+            EncodedBy = "EMP-003",
+            DateEncoded = "2026-11-01",
+            BillingDate = "2026-11-01"
+        };
+        appDb.Invoices.Add(invoice);
+        await appDb.SaveChangesAsync();
+
+        var controller = new InvoicesController(appDb, fomsDb, gateService)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { User = CreatePrincipal("Head Accountant", "Alex HA", "EMP-002") }
+            }
+        };
+
+        // 1. Initial State: Setting threshold very high (₱1,000,000).
+        // Since no CEO approval record is recorded for this invoice number,
+        // transition "verify" must be BLOCKED with 400 Bad Request despite high threshold.
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 1_000_000m,
+            EffectiveFrom = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Reason = "Very high threshold"
+        }, "EMP-001", "Finance Manager");
+
+        var verifyBlocked = await controller.TransitionInvoice(invoice.Id, "verify", new InvoiceTransitionRequest());
+        var bad = Assert.IsType<BadRequestObjectResult>(verifyBlocked);
+        Assert.Contains("strictly requires an in-person CEO/President approval record", bad.Value?.ToString() ?? "");
+
+        // 2. Now record the CEO approval record for this invoice
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.InvoiceDiscount,
+            ItemId = invNo,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        // 3. Lower the threshold to ₱10,000.00 (the minimum allowed Limit A boundary)
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 10000m,
+            EffectiveFrom = DateTime.UtcNow,
+            Reason = "Threshold lowered to Limit A minimum"
+        }, "EMP-001", "Finance Manager");
+
+        // 4. Verify succeeds now that the CEO record exists, regardless of the threshold in force
+        var verifySuccess = await controller.TransitionInvoice(invoice.Id, "verify", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(verifySuccess);
+
+        var updatedInv = await appDb.Invoices.FindAsync(invoice.Id);
+        Assert.Equal(InvoiceDocumentStatus.Approved, updatedInv!.DocumentStatus);
+    }
+
+    private static ClaimsPrincipal CreatePrincipal(string role, string name, string id)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, id),
+            new(ClaimTypes.Name, name),
+            new(ClaimTypes.Role, role),
+            new("role", role),
+            new("employee_id", id),
+            new("name", name)
+        };
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
+    }
 }
