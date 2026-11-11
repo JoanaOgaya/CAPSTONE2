@@ -1538,4 +1538,448 @@ public class Phase22Rev5CorrectionsTests
         Assert.NotNull(approved);
         Assert.Equal("Approved", approved.Status);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 8. R5.11 Item 1: Maker-Checker on Recorded CEO/President Approvals
+    // ─────────────────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("Transfer")]
+    [InlineData("CarryOver")]
+    public async Task R511_Item1_Scenario1_NoApprovalRecord_Blocked(string transferType)
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+        var budgetService = new BudgetService(context, gateService);
+
+        int transferId = transferType == "Transfer" ? 1201 : 1202;
+        context.MonthlyBudgetLines.AddRange(
+            new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 1, FiscalYear = 2026, DepartmentCode = "DEP-FIN", Category = "Supplies", Month = 1, BudgetAmount = 50000m },
+            new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 2, FiscalYear = 2026, DepartmentCode = "DEP-DSP", Category = "Fuel", Month = 1, BudgetAmount = 50000m }
+        );
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = transferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        // 1. No approval record: blocked
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            budgetService.ApproveBudgetTransferAsync(transferId, "EMP-001", "Finance Manager"));
+        Assert.Contains("CEO/President approval record", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("Transfer")]
+    [InlineData("CarryOver")]
+    public async Task R511_Item1_Scenario2_ApprovalRecorded_NotConfirmed_Blocked_WithItem1Message(string transferType)
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+        var budgetService = new BudgetService(context, gateService);
+
+        int transferId = transferType == "Transfer" ? 1203 : 1204;
+        string gateItemType = transferType == "CarryOver" ? CeoApprovalItemTypes.BudgetCarryOver : CeoApprovalItemTypes.BudgetTransfer;
+
+        context.MonthlyBudgetLines.AddRange(
+            new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 1, FiscalYear = 2026, DepartmentCode = "DEP-FIN", Category = "Supplies", Month = 1, BudgetAmount = 50000m },
+            new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 2, FiscalYear = 2026, DepartmentCode = "DEP-DSP", Category = "Fuel", Month = 1, BudgetAmount = 50000m }
+        );
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = transferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = gateItemType,
+            ItemId = transferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // 2. Approval recorded, not confirmed: blocked with item 1 message
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            budgetService.ApproveBudgetTransferAsync(transferId, "EMP-001", "Finance Manager"));
+        Assert.Contains("requires Head Accountant maker-checker recording confirmation before budget can take effect (R5.11 item 1)", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("Transfer")]
+    [InlineData("CarryOver")]
+    public async Task R511_Item1_Scenario3_ApprovalRecorded_AndConfirmedByHA_Succeeds_BudgetAmountsChangeOnce(string transferType)
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+        var budgetService = new BudgetService(context, gateService);
+
+        int transferId = transferType == "Transfer" ? 1205 : 1206;
+        string gateItemType = transferType == "CarryOver" ? CeoApprovalItemTypes.BudgetCarryOver : CeoApprovalItemTypes.BudgetTransfer;
+
+        var fromLine = new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 1, FiscalYear = 2026, DepartmentCode = "DEP-FIN", Category = "Supplies", Month = 1, BudgetAmount = 50000m };
+        var toLine = new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 2, FiscalYear = 2026, DepartmentCode = "DEP-DSP", Category = "Fuel", Month = 1, BudgetAmount = 50000m };
+        context.MonthlyBudgetLines.AddRange(fromLine, toLine);
+
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = transferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = gateItemType,
+            ItemId = transferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // Head Accountant confirms recording
+        var conf = await gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant", "Confirmed against board resolution");
+        Assert.NotNull(conf);
+        Assert.Equal("EMP-002", conf.ConfirmedBy);
+
+        // 3. Approval recorded and confirmed by HA: succeeds
+        var approved = await budgetService.ApproveBudgetTransferAsync(transferId, "EMP-001", "Finance Manager");
+        Assert.NotNull(approved);
+        Assert.Equal("Approved", approved.Status);
+
+        // Budget amounts changed once
+        Assert.Equal(40000m, fromLine.BudgetAmount);
+        Assert.Equal(60000m, toLine.BudgetAmount);
+
+        // Calling again throws InvalidOperationException because transfer is already Approved
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            budgetService.ApproveBudgetTransferAsync(transferId, "EMP-001", "Finance Manager"));
+        // Amounts unchanged
+        Assert.Equal(40000m, fromLine.BudgetAmount);
+        Assert.Equal(60000m, toLine.BudgetAmount);
+    }
+
+    [Theory]
+    [InlineData("Transfer")]
+    [InlineData("CarryOver")]
+    public async Task R511_Item1_Scenario4_ConfirmationByFM_ACC_AFM_Unauthorized(string transferType)
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        int transferId = transferType == "Transfer" ? 1207 : 1208;
+        string gateItemType = transferType == "CarryOver" ? CeoApprovalItemTypes.BudgetCarryOver : CeoApprovalItemTypes.BudgetTransfer;
+
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = transferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = gateItemType,
+            ItemId = transferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // 4. Confirmation by FM, ACC, AFM throws UnauthorizedAccessException
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-005", "Finance Manager"));
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-003", "Accountant"));
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-004", "Assistant of Finance Manager"));
+    }
+
+    [Theory]
+    [InlineData("Transfer")]
+    [InlineData("CarryOver")]
+    public async Task R511_Item1_Scenario5_ConfirmationByEnteredBy_OrRequester_Rejected(string transferType)
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        int transferId = transferType == "Transfer" ? 1209 : 1210;
+        string gateItemType = transferType == "CarryOver" ? CeoApprovalItemTypes.BudgetCarryOver : CeoApprovalItemTypes.BudgetTransfer;
+
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = transferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-002", // Requested by EMP-002 (Head Accountant)
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = gateItemType,
+            ItemId = transferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // Confirmer is requester: rejected
+        var exReq = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant"));
+        Assert.Contains("cannot be the employee who requested it", exReq.Message);
+
+        // Confirmer is EnteredBy: rejected (even if role is HA)
+        var exEntered = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-001", "Head Accountant"));
+        Assert.Contains("must strictly differ from the person who entered", exEntered.Message);
+    }
+
+    [Fact]
+    public async Task R511_Item1_Scenario6_SecondConfirmationOfSameRecord_Rejected()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = 1211,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = "Transfer",
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetTransfer,
+            ItemId = "1211",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // First confirmation succeeds
+        await gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant");
+
+        // Second confirmation rejected
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant"));
+        Assert.Contains("already been recorded", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("Transfer")]
+    [InlineData("CarryOver")]
+    public async Task R511_Item1_Scenario7_RejectedApprovalRecord_NoConfirmationNeeded_TransferStillBlocked(string transferType)
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+        var budgetService = new BudgetService(context, gateService);
+
+        int transferId = transferType == "Transfer" ? 1212 : 1213;
+        string gateItemType = transferType == "CarryOver" ? CeoApprovalItemTypes.BudgetCarryOver : CeoApprovalItemTypes.BudgetTransfer;
+
+        context.MonthlyBudgetLines.AddRange(
+            new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 1, FiscalYear = 2026, DepartmentCode = "DEP-FIN", Category = "Supplies", Month = 1, BudgetAmount = 50000m },
+            new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 2, FiscalYear = 2026, DepartmentCode = "DEP-DSP", Category = "Fuel", Month = 1, BudgetAmount = 50000m }
+        );
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = transferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = gateItemType,
+            ItemId = transferId.ToString(),
+            Status = "Rejected",
+            RejectionReason = "Budget cut mandated by board",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // Confirmation cannot even be performed on a Rejected record
+        var confEx = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant"));
+        Assert.Contains("Only 'Approved' CEO approval records can be confirmed", confEx.Message);
+
+        // Real service call is still blocked
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            budgetService.ApproveBudgetTransferAsync(transferId, "EMP-001", "Finance Manager"));
+        Assert.Contains("CEO/President rejected", ex.Message);
+    }
+
+    [Fact]
+    public async Task R511_Item1_Scenario8_ConfirmationRowWritten_AuditLogWritten_ExcelExportContainsConfirmation()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = 1214,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = "Transfer",
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetTransfer,
+            ItemId = "1214",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // Confirm with note
+        await gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant", "Confirmed with Board Minute #45");
+
+        // 1. Confirmation row written
+        var confRow = await context.CeoApprovalConfirmations.FirstOrDefaultAsync(c => c.RecordId == rec.RecordId);
+        Assert.NotNull(confRow);
+        Assert.Equal("EMP-002", confRow.ConfirmedBy);
+        Assert.Equal("Recording", confRow.Kind);
+
+        // 2. Audit log entry written
+        var audit = await context.AuditLogs.FirstOrDefaultAsync(a => a.EntityName == "CeoApprovalRecord" && a.EntityId == rec.RecordId.ToString());
+        Assert.NotNull(audit);
+        Assert.Equal("EMP-002", audit.UserId);
+        Assert.Equal("Confirm CEO Approval Recording", audit.Action);
+        Assert.Contains("Confirmed with Board Minute #45", audit.Details);
+
+        // 3. Excel export contains confirmation
+        var excelBytes = await gateService.ExportRecordsToExcelAsync();
+        Assert.NotNull(excelBytes);
+        using var ms = new MemoryStream(excelBytes);
+        using var workbook = new XLWorkbook(ms);
+        var worksheet = workbook.Worksheet("CEO Approval Records");
+        Assert.NotNull(worksheet);
+
+        // Check header columns 16 & 17
+        Assert.Equal("Confirmed By", worksheet.Cell(1, 16).GetString());
+        Assert.Equal("Confirmed At (UTC)", worksheet.Cell(1, 17).GetString());
+
+        // Check row has confirmation info
+        var row2ConfirmedBy = worksheet.Cell(2, 16).GetString();
+        Assert.Equal("EMP-002", row2ConfirmedBy);
+        Assert.False(string.IsNullOrEmpty(worksheet.Cell(2, 17).GetString()));
+    }
+
+    [Fact]
+    public async Task R511_Item1_Scenario9_Regression_OtherItemTypes_DoNotNeedConfirmation()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        var itemsToTest = new (string ItemType, string ItemId)[]
+        {
+            (CeoApprovalItemTypes.AnnualBudget, "2026"),
+            (CeoApprovalItemTypes.BudgetOverride, "1"),
+            (CeoApprovalItemTypes.Reimbursement, "1"),
+            (CeoApprovalItemTypes.CashOutflow, "CA-2026-001"),
+            (CeoApprovalItemTypes.InvoiceDiscount, "INV-2026-001"),
+            (CeoApprovalItemTypes.AnnualFinancialStatement, "2026")
+        };
+
+        foreach (var (itemType, itemId) in itemsToTest)
+        {
+            var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+            {
+                ItemType = itemType,
+                ItemId = itemId,
+                Status = "Approved",
+                ApprovalDate = DateTime.UtcNow
+            }, "EMP-001", "Finance Manager");
+
+            var check = await gateService.CheckGateAsync(itemType, itemId, 50000m);
+            Assert.True(check.IsSatisfied, $"Item type {itemType} should be satisfied immediately without confirmation.");
+            Assert.NotNull(check.EffectiveRecord);
+            Assert.True(check.EffectiveRecord.IsEffective);
+        }
+    }
 }
