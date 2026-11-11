@@ -19,6 +19,7 @@ import type { Invoice, Payment, ARRecord, FinancialAdjustment, Client, AuditLog 
 import {
   DashboardBanner, WorkQueue, QuickActions, peso, QueueItem,
 } from '../components/DashboardWidgets';
+import { CeoApprovalConfirmationSection } from '../components/approvals/CeoApprovalConfirmationSection';
 
 /**
  * HEAD ACCOUNTANT DASHBOARD — "Review & Approval Center"
@@ -175,6 +176,8 @@ export const HeadAccountantDashboard: React.FC = () => {
             emptyText="Queue is clear — no pending approvals."
             maxItems={7}
           />
+
+          <CeoApprovalConfirmationSection />
 
           <Card>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>

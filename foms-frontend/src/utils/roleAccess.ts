@@ -173,6 +173,14 @@ export function canReassignFollowUp(role: Role | undefined | null): boolean {
   return role === ROLES.FINANCE_MANAGER || role === ROLES.HEAD_ACCOUNTANT;
 }
 
+/**
+ * Head Accountant maker-checker recording confirmation for CEO approval records (R5.11 item 1).
+ * Strictly restricted to Head Accountant role.
+ */
+export function canConfirmCeoApproval(role: Role | undefined | null): boolean {
+  return role === ROLES.HEAD_ACCOUNTANT;
+}
+
 /** Sidebar structure for a role: only allowed, nav-visible modules, grouped in declaration order with key deduplication. */
 export function getNavGroups(role: Role | undefined | null): NavGroup[] {
   const groups: NavGroup[] = [];

@@ -134,4 +134,29 @@ export const approvalsService = {
   async updateCashAdvance(id: string, payload: Partial<CashAdvanceCreatePayload>): Promise<CashAdvance> {
     return http.put<CashAdvance>(`/cash-advances/${id}`, payload);
   },
+
+  /**
+   * Confirm CEO approval recording (Head Accountant maker-checker, R5.11 item 1)
+   */
+  async confirmCeoApproval(
+    recordId: number,
+    note?: string
+  ): Promise<{ confirmationId: number; recordId: number; kind: string; confirmedBy: string; confirmedAt: string }> {
+    return http.post<{ confirmationId: number; recordId: number; kind: string; confirmedBy: string; confirmedAt: string }>(
+      `/ceo-approvals/${recordId}/confirm`,
+      { kind: 'Recording', note: note?.trim() || null }
+    );
+  },
+
+  /**
+   * Fetch approved CEO approval records awaiting maker-checker recording confirmation
+   */
+  async getUnconfirmedCeoApprovals(): Promise<any[]> {
+    const res = await http.get<any[]>('/ceo-approvals', { status: 'Approved' });
+    const records = Array.isArray(res) ? res : ((res as any)?.items || []);
+    return records.filter((r: any) =>
+      (r.itemType === 'BudgetTransfer' || r.itemType === 'BudgetCarryOver') &&
+      (!r.confirmations || !r.confirmations.some((c: any) => c.kind === 'Recording'))
+    );
+  },
 };
