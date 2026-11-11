@@ -369,28 +369,28 @@ public class CeoApprovalGateService : ICeoApprovalGateService
         }
         else if (latestRecord.Status == "Approved")
         {
-            if (latestRecord.IsCorrection)
+            if (CeoApprovalItemTypes.MakerCheckerConfirmationRequiredTypes.Contains(itemType))
             {
-                // Correction requires confirmation by a second person
-                var correctionConfirmation = confirmations.FirstOrDefault(c => c.Kind == "Correction");
-                if (correctionConfirmation == null)
+                // Items 2 & 3 require Head Accountant recording confirmation on latest approved record, even if it is a correction (R5.11 item 1)
+                var haConfirmation = confirmations.FirstOrDefault(c => c.Kind == "Recording");
+                if (haConfirmation == null)
                 {
                     isEffective = false;
-                    detailMessage = $"Gate blocked: Correction record {latestRecord.RecordId} requires confirmation by a second authorized employee.";
+                    detailMessage = $"Gate blocked: {itemType} '{itemId}' requires Head Accountant maker-checker recording confirmation before budget can take effect (R5.11 item 1).";
                 }
                 else
                 {
                     isEffective = true;
                 }
             }
-            else if (CeoApprovalItemTypes.MakerCheckerConfirmationRequiredTypes.Contains(itemType))
+            else if (latestRecord.IsCorrection)
             {
-                // Items 2 & 3 require Head Accountant recording confirmation
-                var haConfirmation = confirmations.FirstOrDefault(c => c.Kind == "Recording");
-                if (haConfirmation == null)
+                // Correction requires confirmation by a second person for other item types
+                var correctionConfirmation = confirmations.FirstOrDefault(c => c.Kind == "Correction");
+                if (correctionConfirmation == null)
                 {
                     isEffective = false;
-                    detailMessage = $"Gate blocked: {itemType} '{itemId}' requires Head Accountant maker-checker recording confirmation before budget can take effect (R5.11 item 1).";
+                    detailMessage = $"Gate blocked: Correction record {latestRecord.RecordId} requires confirmation by a second authorized employee.";
                 }
                 else
                 {
@@ -626,6 +626,12 @@ public class CeoApprovalGateService : ICeoApprovalGateService
             throw new InvalidOperationException($"Only 'Approved' CEO approval records can be confirmed. Current status is '{record.Status}'.");
         }
 
+        if (kind.Equals("Correction", StringComparison.OrdinalIgnoreCase) &&
+            CeoApprovalItemTypes.MakerCheckerConfirmationRequiredTypes.Contains(record.ItemType))
+        {
+            throw new InvalidOperationException($"Correction confirmation (Kind 'Correction') is not permitted for {record.ItemType}. Use Recording confirmation instead (R5.11 item 1).");
+        }
+
         if (string.Equals(confirmedByEmployeeId, record.EnteredBy, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("The confirmer must strictly differ from the person who entered the approval record (EnteredBy).");
@@ -658,6 +664,11 @@ public class CeoApprovalGateService : ICeoApprovalGateService
         }
         else if (kind.Equals("Correction", StringComparison.OrdinalIgnoreCase))
         {
+            if (CeoApprovalItemTypes.MakerCheckerConfirmationRequiredTypes.Contains(record.ItemType))
+            {
+                throw new InvalidOperationException($"Correction confirmation (Kind 'Correction') is not permitted for {record.ItemType}. Use Recording confirmation instead (R5.11 item 1).");
+            }
+
             if (!record.IsCorrection)
             {
                 throw new InvalidOperationException("Correction confirmation applies only to correction records.");

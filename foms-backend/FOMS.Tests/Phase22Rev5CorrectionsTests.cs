@@ -1982,4 +1982,242 @@ public class Phase22Rev5CorrectionsTests
             Assert.True(check.EffectiveRecord.IsEffective);
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 12. R5.11 Item 1 Correction Record Maker-Checker Tests (Bypass Fix)
+    // ─────────────────────────────────────────────────────────────────────────
+    [Theory]
+    [InlineData("Transfer")]
+    [InlineData("CarryOver")]
+    public async Task R511_Item1_CorrectionRecord_BudgetTransferAndCarryOver_RequiresRecordingConfirmationByHeadAccountant(string transferType)
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+        var budgetService = new BudgetService(context, gateService);
+
+        int transferId = transferType == "Transfer" ? 2201 : 2202;
+        string gateItemType = transferType == "CarryOver"
+            ? CeoApprovalItemTypes.BudgetCarryOver
+            : CeoApprovalItemTypes.BudgetTransfer;
+
+        context.MonthlyBudgetLines.AddRange(
+            new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 1, FiscalYear = 2026, DepartmentCode = "DEP-FIN", Category = "Supplies", Month = 1, BudgetAmount = 50000m },
+            new MonthlyBudgetLine { BudgetLineId = transferId * 10 + 2, FiscalYear = 2026, DepartmentCode = "DEP-DSP", Category = "Fuel", Month = 1, BudgetAmount = 50000m }
+        );
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = transferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 10000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-003", // Accountant requested
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        // 1. Initial CEO approval recorded by FM (EMP-001) and confirmed by HA (EMP-002)
+        var rec1 = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = gateItemType,
+            ItemId = transferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        await gateService.ConfirmRecordAsync(rec1.RecordId, "Recording", "EMP-002", "Head Accountant");
+
+        // 2. Finance Manager records correction
+        var correctionRec = await gateService.RecordCorrectionAsync(new CreateCeoApprovalCorrectionRequest
+        {
+            OriginalRecordId = rec1.RecordId,
+            ItemType = gateItemType,
+            ItemId = transferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow,
+            CorrectionReason = "Corrected resolution date and revised budget note"
+        }, "EMP-001", "Finance Manager");
+
+        // (a) Correction record does NOT inherit confirmation -> transfer is blocked
+        var checkBefore = await gateService.CheckGateAsync(gateItemType, transferId.ToString());
+        Assert.False(checkBefore.IsSatisfied);
+        Assert.Contains("requires Head Accountant maker-checker recording confirmation before budget can take effect (R5.11 item 1)", checkBefore.Message);
+
+        var exBlock = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            budgetService.ApproveBudgetTransferAsync(transferId, "EMP-001", "Finance Manager"));
+        Assert.Contains("requires Head Accountant maker-checker recording confirmation before budget can take effect (R5.11 item 1)", exBlock.Message);
+
+        // (b) ConfirmRecordAsync must REJECT Kind "Correction" for transfers and carry-overs
+        var rolesToTest = new[]
+        {
+            ("EMP-001", "Finance Manager"),
+            ("EMP-003", "Accountant"),
+            ("EMP-004", "Assistant of Finance Manager"),
+            ("EMP-002", "Head Accountant")
+        };
+        foreach (var (empId, role) in rolesToTest)
+        {
+            var exKind = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                gateService.ConfirmRecordAsync(correctionRec.RecordId, "Correction", empId, role));
+            Assert.Contains("R5.11 item 1", exKind.Message);
+            Assert.Contains("Recording", exKind.Message);
+        }
+
+        // (d) The Head Accountant cannot confirm a correction they entered or a transfer they requested
+        // Case d1: HA entered the correction -> cannot confirm it
+        int d1TransferId = transferType == "Transfer" ? 2205 : 2206;
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = d1TransferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 5000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-003",
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        var recD1Orig = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = gateItemType,
+            ItemId = d1TransferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        var haEnteredCorrection = await gateService.RecordCorrectionAsync(new CreateCeoApprovalCorrectionRequest
+        {
+            OriginalRecordId = recD1Orig.RecordId,
+            ItemType = gateItemType,
+            ItemId = d1TransferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow,
+            CorrectionReason = "Entered by EMP-002 during FM delegation"
+        }, "EMP-002", "Finance Manager");
+
+        var exSelf = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gateService.ConfirmRecordAsync(haEnteredCorrection.RecordId, "Recording", "EMP-002", "Head Accountant"));
+        Assert.Contains("The confirmer must strictly differ from the person who entered the approval record", exSelf.Message);
+
+        // Case d2: HA requested the transfer -> cannot confirm it
+        int haTransferId = transferType == "Transfer" ? 2203 : 2204;
+        context.BudgetTransfers.Add(new BudgetTransfer
+        {
+            TransferId = haTransferId,
+            FiscalYear = 2026,
+            FromDepartmentCode = "DEP-FIN",
+            FromCategory = "Supplies",
+            FromMonth = 1,
+            ToDepartmentCode = "DEP-DSP",
+            ToCategory = "Fuel",
+            ToMonth = 1,
+            Amount = 5000m,
+            TransferType = transferType,
+            RequestedBy = "EMP-002", // Head Accountant requested
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        });
+        await context.SaveChangesAsync();
+
+        var recHaTransfer = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = gateItemType,
+            ItemId = haTransferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        var exRequester = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gateService.ConfirmRecordAsync(recHaTransfer.RecordId, "Recording", "EMP-002", "Head Accountant"));
+        Assert.Contains("The Head Accountant confirming the transfer cannot be the employee who requested it", exRequester.Message);
+
+        // (c) Head Accountant confirms with Kind "Recording" on the FM-entered correction record -> gate satisfied
+        var conf = await gateService.ConfirmRecordAsync(
+            correctionRec.RecordId, "Recording", "EMP-002", "Head Accountant", "Confirmed corrected resolution by Head Accountant");
+        Assert.NotNull(conf);
+        Assert.Equal("Recording", conf.Kind);
+        Assert.Equal("EMP-002", conf.ConfirmedBy);
+
+        var checkAfter = await gateService.CheckGateAsync(gateItemType, transferId.ToString());
+        Assert.True(checkAfter.IsSatisfied);
+
+        var approved = await budgetService.ApproveBudgetTransferAsync(transferId, "EMP-001", "Finance Manager");
+        Assert.NotNull(approved);
+        Assert.Equal("Approved", approved.Status);
+
+        // Amounts update once
+        var fromLine = await context.MonthlyBudgetLines.FirstAsync(l => l.BudgetLineId == transferId * 10 + 1);
+        var toLine = await context.MonthlyBudgetLines.FirstAsync(l => l.BudgetLineId == transferId * 10 + 2);
+        Assert.Equal(40000m, fromLine.BudgetAmount);
+        Assert.Equal(60000m, toLine.BudgetAmount);
+    }
+
+    [Fact]
+    public async Task R511_Item1_CorrectionRecord_OtherItemTypes_StillFollowsCorrectionKindFlow()
+    {
+        using var context = CreateInMemoryDbContext();
+        var gateService = new CeoApprovalGateService(context);
+
+        // Seed Reimbursement item 550 so VerifyItemExistsAsync succeeds
+        context.Reimbursements.Add(new Reimbursement
+        {
+            ReimbursementId = 550,
+            ReferenceNumber = "REIM-550",
+            EmployeeId = "EMP-003",
+            Amount = 25000m,
+            DepartmentCode = "DEP-OPS",
+            Category = "Supplies",
+            FiscalYear = 2026,
+            Month = 1,
+            Status = "Validated"
+        });
+        await context.SaveChangesAsync();
+
+        // Item 5: Reimbursement
+        var orig = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.Reimbursement,
+            ItemId = "550",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow
+        }, "EMP-001", "Finance Manager");
+
+        // Record correction
+        var corr = await gateService.RecordCorrectionAsync(new CreateCeoApprovalCorrectionRequest
+        {
+            OriginalRecordId = orig.RecordId,
+            ItemType = CeoApprovalItemTypes.Reimbursement,
+            ItemId = "550",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow,
+            CorrectionReason = "Adjusted memo reference"
+        }, "EMP-001", "Finance Manager");
+
+        // Before confirmation -> blocked
+        var checkBefore = await gateService.CheckGateAsync(CeoApprovalItemTypes.Reimbursement, "550", 25000m);
+        Assert.False(checkBefore.IsSatisfied);
+        Assert.Contains("requires confirmation by a second authorized employee", checkBefore.Message);
+
+        // Non-Head Accountant (Accountant EMP-003) confirms with Kind "Correction" -> valid for other item types
+        var conf = await gateService.ConfirmRecordAsync(corr.RecordId, "Correction", "EMP-003", "Accountant");
+        Assert.NotNull(conf);
+        Assert.Equal("Correction", conf.Kind);
+
+        // Gate satisfied
+        var checkAfter = await gateService.CheckGateAsync(CeoApprovalItemTypes.Reimbursement, "550", 25000m);
+        Assert.True(checkAfter.IsSatisfied);
+    }
 }
