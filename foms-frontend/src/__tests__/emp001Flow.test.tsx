@@ -829,20 +829,16 @@ describe('EMP-001 (Finance Manager) — Complete Page-by-Page Workflow & Verific
 
   // ── Page 12: Adjustment Approval ──────────────────────────────────────────
   describe('Page 12: /adjustments (Adjustment Approval)', () => {
-    it('loads adjustments and approves adjustment calling act endpoint', async () => {
-      mockAuthUser({ role: ROLES.HEAD_ACCOUNTANT }); // R4.11 q4: only HA sees Approve
+    it('loads adjustments for FM; FM sees adjustment but has no Approve button (R4.11 q4 / FIN-23)', async () => {
+      mockAuthUser();
       renderWithContext(<FinancialAdjustments />, '/adjustments');
 
       await waitFor(() => {
         expect(screen.getByText('Freight rate correction')).toBeDefined();
-        expect(screen.getByRole('button', { name: /approve/i })).toBeDefined();
       });
 
-      fireEvent.click(screen.getByRole('button', { name: /approve/i }));
-
-      await waitFor(() => {
-        expect(onAdjustmentAct).toHaveBeenCalledWith('ADJ-001', 'approve');
-      });
+      // Finance Manager creates adjusting entries; approval is restricted to Head Accountant
+      expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
     });
   });
 
