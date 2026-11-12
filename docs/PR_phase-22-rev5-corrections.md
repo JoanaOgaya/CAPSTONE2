@@ -11,14 +11,15 @@ In the current implementation:
 **Open Question for Finance**:
 1. Confirm whether Head Accountant approval of Finance Manager adjusting entries satisfies external audit independence, or if adjusting entries should instead be recorded by Staff/Head Accountant and approved by Finance Manager.
 2. Confirm whether CEO/President approval should be required when the Finance Manager is the creator.
-3. Confirm whether an amount threshold should apply to adjusting entries (similar to CSH-09 Limit B).
+3. Confirm whether a monetary threshold should apply to adjusting entries, and if so, what amount and which approver.
 
 ### B. Invoice Approval Workflow Alignment
 * **Intended Workflow**: Accountant records first &rarr; Assistant Finance Manager approves &rarr; large amounts also require Finance Manager approval.
 * **Current Codebase Implementation**:
   1. Assistant Finance Manager (`EMP-004`) is strictly forbidden with HTTP 403 from all invoice operations (`InvoicesController.cs:1002-1005`, `Invoice.cs:216, 280`, `InvoiceApprovalWorkflowAndTransitionsTests.cs:382-414`).
   2. Head Accountant (`EMP-002`) verifies and approves invoices (with Finance Manager `EMP-001` stepping in only if Head Accountant was the creator to prevent deadlock).
-  3. Invoices do not have an amount-based escalation tier requiring Finance Manager approval; amounts exceeding ₱500,000 only set an informational audit flag (`IsSuspect = true`, `InvoicesController.cs:703-706`).
+  3. The transition path in `InvoiceDocumentStatus.cs` is `Draft` &rarr; `For Review` &rarr; `Approved`. Calling either the `verify` action (`InvoicesController.cs:1024`, `Invoice.cs:214-238`) or `approve` action (`InvoicesController.cs:1047`, `Invoice.cs:278-298`) auto-advances the document status directly to `Approved`; `Verified` is not a distinct document state.
+  4. Invoices do not have an amount-based escalation tier requiring Finance Manager approval; amounts exceeding ₱500,000 only set an informational audit flag (`IsSuspect = true`, `InvoicesController.cs:703-706`).
 
 **Open Question for Finance**:
 Confirm whether to retain the current Head Accountant verification model or refactor the invoice workflow to permit Assistant Finance Manager approvals and introduce Finance Manager threshold escalation.
@@ -54,10 +55,15 @@ Confirm whether to retain the current Head Accountant verification model or refa
 
 ---
 
-## 5. Commit Summary (`git log --oneline eebeec1..HEAD`)
+## 5. Commit Summary & PR Base Confirmation
 
-The branch contains 29 commits since diverging from `phase-21-rev5-gaps` (`eebeec1`):
+Depending on which base branch the Pull Request targets, the commit count is:
+* **Target `phase-21-rev5-gaps` (`eebeec1`)**: 30 commits (isolated to Phase 22 corrections).
+* **Target `main` (`32b2601`)**: 63 commits (cumulative changes across all sequential phases since Phase 6/7 hardening merge).
 
+### Commits on `phase-22-rev5-corrections` since `phase-21-rev5-gaps` (`eebeec1`):
+
+* `b918b8f` - `docs: add comprehensive PR description for phase-22-rev5-corrections`
 * `24690de` - `ci: add frontend test workflow for foms-frontend on pull_request and push`
 * `20ac6ea` - `docs(decisions): update invoice workflow comparison and add open questions for Finance`
 * `1814bb4` - `docs: add open question for Finance on adjusting entry approver; test discount transition re-checks across threshold changes`
