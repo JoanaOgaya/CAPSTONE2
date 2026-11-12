@@ -413,6 +413,204 @@ public class InvoiceDiscountGateRealControllerTests
         Assert.Equal(InvoiceDocumentStatus.Approved, updatedInv!.DocumentStatus);
     }
 
+    [Fact]
+    public async Task InvoicesController_ApproveTransitionCheck_RequiresRecordedCeoApproval()
+    {
+        // Arrange
+        var appDb = CreateAppDb();
+        var fomsDb = CreateFomsDb();
+        SeedInvoiceClient(appDb, fomsDb);
+
+        var gateService = new CeoApprovalGateService(appDb);
+
+        // a) Seed an invoice in For Review with a discount, created by EMP-003. Act as Head Accountant (EMP-002).
+        string invNo = "INV-2026-DISC-APPROVE-01";
+        var invoice = new FOMS.Domain.Entities.Invoice
+        {
+            Id = invNo,
+            InvoiceNo = invNo,
+            ClientId = "CL-DISC",
+            ClientName = "Discount Test Client",
+            FreightCharges = 600m,
+            TotalAmount = 672.68m,
+            Balance = 672.68m,
+            DiscountAmount = 77.32m,
+            DiscountRate = 0.10m,
+            DiscountApprovedBy = "President and CEO",
+            DiscountReason = "Executive Discount",
+            DocumentStatus = InvoiceDocumentStatus.ForReview,
+            EncodedBy = "EMP-003",
+            DateEncoded = "2026-11-01",
+            BillingDate = "2026-11-01"
+        };
+        appDb.Invoices.Add(invoice);
+        await appDb.SaveChangesAsync();
+
+        var controller = new InvoicesController(appDb, fomsDb, gateService)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { User = CreatePrincipal("Head Accountant", "Alex HA", "EMP-002") }
+            }
+        };
+
+        // b) With no CEO approval record, call TransitionInvoice(id, "approve") and assert BadRequest containing the CEO approval message.
+        // Assert DocumentStatus is still For Review.
+        var approveBlocked = await controller.TransitionInvoice(invoice.Id, "approve", new InvoiceTransitionRequest());
+        var bad = Assert.IsType<BadRequestObjectResult>(approveBlocked);
+        Assert.Contains("strictly requires an in-person CEO/President approval record", bad.Value?.ToString() ?? "");
+
+        var invStillForReview = await appDb.Invoices.FindAsync(invoice.Id);
+        Assert.Equal(InvoiceDocumentStatus.ForReview, invStillForReview!.DocumentStatus);
+
+        // c) Record the CEO approval (CeoApprovalItemTypes.InvoiceDiscount), then call "approve" and assert Ok and DocumentStatus == Approved.
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.InvoiceDiscount,
+            ItemId = invNo,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        var approveSuccess = await controller.TransitionInvoice(invoice.Id, "approve", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(approveSuccess);
+
+        var updatedInv = await appDb.Invoices.FindAsync(invoice.Id);
+        Assert.Equal(InvoiceDocumentStatus.Approved, updatedInv!.DocumentStatus);
+    }
+
+    [Fact]
+    public async Task InvoicesController_RecordedCeoDiscountApproval_SatisfiesBothVerifyAndApprove_RegardlessOfThresholdChanges()
+    {
+        // Arrange
+        var appDb = CreateAppDb();
+        var fomsDb = CreateFomsDb();
+        SeedInvoiceClient(appDb, fomsDb);
+
+        var gateService = new CeoApprovalGateService(appDb);
+
+        // Separate invoices for verify and approve (Total: ₱56,000, Discount: ₱5,000)
+        string invVerifyNo = "INV-2026-DISC-THRESH-VERIFY";
+        var invoiceVerify = new FOMS.Domain.Entities.Invoice
+        {
+            Id = invVerifyNo,
+            InvoiceNo = invVerifyNo,
+            ClientId = "CL-DISC",
+            ClientName = "Discount Test Client",
+            FreightCharges = 50000m,
+            TotalAmount = 56000m,
+            Balance = 56000m,
+            DiscountAmount = 5000m,
+            DiscountRate = 0.10m,
+            DiscountApprovedBy = "President and CEO",
+            DiscountReason = "VIP Partner Discount",
+            DocumentStatus = InvoiceDocumentStatus.ForReview,
+            EncodedBy = "EMP-003",
+            DateEncoded = "2026-11-01",
+            BillingDate = "2026-11-01"
+        };
+
+        string invApproveNo = "INV-2026-DISC-THRESH-APPROVE";
+        var invoiceApprove = new FOMS.Domain.Entities.Invoice
+        {
+            Id = invApproveNo,
+            InvoiceNo = invApproveNo,
+            ClientId = "CL-DISC",
+            ClientName = "Discount Test Client",
+            FreightCharges = 50000m,
+            TotalAmount = 56000m,
+            Balance = 56000m,
+            DiscountAmount = 5000m,
+            DiscountRate = 0.10m,
+            DiscountApprovedBy = "President and CEO",
+            DiscountReason = "VIP Partner Discount",
+            DocumentStatus = InvoiceDocumentStatus.ForReview,
+            EncodedBy = "EMP-003",
+            DateEncoded = "2026-11-01",
+            BillingDate = "2026-11-01"
+        };
+
+        appDb.Invoices.AddRange(invoiceVerify, invoiceApprove);
+        await appDb.SaveChangesAsync();
+
+        var controller = new InvoicesController(appDb, fomsDb, gateService)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext { User = CreatePrincipal("Head Accountant", "Alex HA", "EMP-002") }
+            }
+        };
+
+        // 1. CEO approvals are recorded FIRST for both invoices
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.InvoiceDiscount,
+            ItemId = invVerifyNo,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.InvoiceDiscount,
+            ItemId = invApproveNo,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        // 2. Initial threshold: high (₱1,000,000)
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 1_000_000m,
+            EffectiveFrom = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Reason = "Initial high threshold"
+        }, "EMP-001", "Finance Manager");
+
+        var gateCheck1 = await gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, invVerifyNo, invoiceVerify.DiscountAmount);
+        Assert.True(gateCheck1.IsSatisfied);
+
+        // 3. Lower threshold to ₱10,000.00 (below invoice total of ₱56,000)
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 10000m,
+            EffectiveFrom = DateTime.UtcNow,
+            Reason = "Threshold lowered below invoice total to Limit A"
+        }, "EMP-001", "Finance Manager");
+
+        var gateCheck2 = await gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, invVerifyNo, invoiceVerify.DiscountAmount);
+        Assert.True(gateCheck2.IsSatisfied);
+
+        // 4. Raise threshold to ₱2,000,000.00 (well above invoice total)
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 2_000_000m,
+            EffectiveFrom = DateTime.UtcNow,
+            Reason = "Threshold raised well above invoice total"
+        }, "EMP-001", "Finance Manager");
+
+        var gateCheck3 = await gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, invVerifyNo, invoiceVerify.DiscountAmount);
+        Assert.True(gateCheck3.IsSatisfied);
+
+        // 5. Verify route transition succeeds with threshold at ₱2,000,000
+        var verifyRes = await controller.TransitionInvoice(invoiceVerify.Id, "verify", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(verifyRes);
+        var updatedVerifyInv = await appDb.Invoices.FindAsync(invoiceVerify.Id);
+        Assert.Equal(InvoiceDocumentStatus.Approved, updatedVerifyInv!.DocumentStatus);
+
+        // 6. Lower threshold back to ₱10,000 (below invoice total) and test Approve route on separate invoice
+        await gateService.UpdateThresholdAsync(new UpdateCeoThresholdRequest
+        {
+            ThresholdAmount = 10000m,
+            EffectiveFrom = DateTime.UtcNow,
+            Reason = "Threshold lowered back to 10,000 before approve route"
+        }, "EMP-001", "Finance Manager");
+
+        var approveRes = await controller.TransitionInvoice(invoiceApprove.Id, "approve", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(approveRes);
+        var updatedApproveInv = await appDb.Invoices.FindAsync(invoiceApprove.Id);
+        Assert.Equal(InvoiceDocumentStatus.Approved, updatedApproveInv!.DocumentStatus);
+    }
+
     private static ClaimsPrincipal CreatePrincipal(string role, string name, string id)
     {
         var claims = new List<Claim>
