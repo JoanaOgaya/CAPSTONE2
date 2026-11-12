@@ -30,9 +30,9 @@ Confirm whether to retain the current Head Accountant verification model or refa
 
 | Suite | Target | Result | Command Output / Execution Time |
 | :--- | :--- | :--- | :--- |
-| **Backend** | `foms-backend/FOMS.Tests/FOMS.Tests.csproj` | **529 passed, 0 failed, 0 skipped** | `Passed! - Failed: 0, Passed: 529, Skipped: 0, Total: 529, Duration: 20 s - FOMS.Tests.dll (net8.0)` |
+| **Backend** | `foms-backend/FOMS.Tests/FOMS.Tests.csproj` | **531 passed, 0 failed, 0 skipped** | `Passed! - Failed: 0, Passed: 531, Skipped: 0, Total: 531, Duration: 23 s - FOMS.Tests.dll (net9.0)` |
 | **Frontend** | `foms-frontend` | **18 test files passed (18), 177 tests passed (177)** | `Test Files 18 passed (18), Tests 177 passed (177), Duration 33.89s` (`npm test`) |
-| **AI Gateway** | `ai-gateway.Tests/foms-ai-gateway.Tests.csproj` | **40 passed, 0 failed, 0 skipped** | `Passed! - Failed: 0, Passed: 40, Skipped: 0, Total: 40, Duration: 2 s - foms-ai-gateway.Tests.dll (net8.0)` |
+| **AI Gateway** | `ai-gateway.Tests/foms-ai-gateway.Tests.csproj` | **40 passed, 0 failed, 0 skipped** | `Passed! - Failed: 0, Passed: 40, Skipped: 0, Total: 40, Duration: 2 s - foms-ai-gateway.Tests.dll` |
 | **AI Service** | `ai-service` | **31 passed, 0 failed** | `31 passed in 11.97s` (`python -m pytest -v`) |
 
 ---
@@ -58,11 +58,14 @@ Confirm whether to retain the current Head Accountant verification model or refa
 ## 5. Commit Summary & PR Base Confirmation
 
 Depending on which base branch the Pull Request targets, the commit count is:
-* **Target `phase-21-rev5-gaps` (`eebeec1`)**: 30 commits (isolated to Phase 22 corrections).
-* **Target `main` (`32b2601`)**: 63 commits (cumulative changes across all sequential phases since Phase 6/7 hardening merge).
+* **Target `phase-21-rev5-gaps` (`eebeec1`)**: 34 commits (isolated to Phase 22 corrections).
+* **Target `main` (`32b2601`)**: 67 commits (cumulative changes across all sequential phases since Phase 6/7 hardening merge).
 
 ### Commits on `phase-22-rev5-corrections` since `phase-21-rev5-gaps` (`eebeec1`):
 
+* `391f506` - `test(invoices): add approve route discount gate test and isolate threshold changes across verify and approve`
+* `146252c` - `docs/test: rename discount transition test and align DECISIONS.md description to verify route`
+* `669b316` - `docs: clean adjusting entry threshold question, clarify invoice transitions, and note PR base options`
 * `b918b8f` - `docs: add comprehensive PR description for phase-22-rev5-corrections`
 * `24690de` - `ci: add frontend test workflow for foms-frontend on pull_request and push`
 * `20ac6ea` - `docs(decisions): update invoice workflow comparison and add open questions for Finance`
