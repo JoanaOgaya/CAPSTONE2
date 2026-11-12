@@ -334,7 +334,7 @@ public class InvoiceDiscountGateRealControllerTests
     // ─────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task InvoicesController_TransitionRechecks_AtVerifyAndApprove_ThresholdChangeInBetween_DoesNotAffectOutcome()
+    public async Task InvoicesController_VerifyTransitionCheck_ThresholdChangeInBetween_DoesNotAffectDiscountGateOutcome()
     {
         // Arrange
         var appDb = CreateAppDb();
