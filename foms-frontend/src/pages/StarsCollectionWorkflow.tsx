@@ -200,36 +200,46 @@ export const StarsCollectionWorkflow: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
-      {/* ─── Top Actions Bar ──────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
-        <Button
-          title="Refresh Engine"
-          variant="secondary"
-          onClick={() => {
-            refetchMetrics();
-            refetchTasks();
-            toast.info('Refreshed collection metrics and tasks.');
-          }}
-        >
-          <i className="ti ti-refresh" style={{ marginRight: '6px' }} />
-          Refresh Engine
-        </Button>
-        {canDispatchFollowUp(user?.role) && (
+      {/* Header with Title & Action Buttons */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
+            STARS Collection
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: '13.5px', color: '#64748B' }}>
+            Automated accounts receivable follow-up dispatch, graph routing engine, and coordinator tracking.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <Button
-            title="Dispatch New Follow-Up"
-            variant="primary"
+            title="Refresh Engine"
+            variant="secondary"
             onClick={() => {
-              setDispatchInvoiceNo('');
-              setDispatchClient('');
-              setDispatchAmount('');
-              setDispatchDaysOverdue('');
-              setShowDispatchModal(true);
+              refetchMetrics();
+              refetchTasks();
+              toast.info('Refreshed collection metrics and tasks.');
             }}
           >
-            <i className="ti ti-plus" style={{ marginRight: '6px' }} />
-            Dispatch New Follow-Up
+            <i className="ti ti-refresh" style={{ marginRight: '6px' }} />
+            Refresh Engine
           </Button>
-        )}
+          {canDispatchFollowUp(user?.role) && (
+            <Button
+              title="Dispatch New Follow-Up"
+              variant="primary"
+              onClick={() => {
+                setDispatchInvoiceNo('');
+                setDispatchClient('');
+                setDispatchAmount('');
+                setDispatchDaysOverdue('');
+                setShowDispatchModal(true);
+              }}
+            >
+              <i className="ti ti-plus" style={{ marginRight: '6px' }} />
+              Dispatch New Follow-Up
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* ─── KPI Cards Banner ────────────────────────────────────────────── */}
