@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { cashFlowService } from '../services/cashFlowService';
 import { useToast } from './ToastContext';
 import { invalidateForMutation } from '../services/invalidation';
+import { formatCurrency } from '../utils/format';
 
 export interface RecordCashOutflowModalProps {
   isOpen: boolean;
@@ -68,7 +69,7 @@ export const RecordCashOutflowModal: React.FC<RecordCashOutflowModalProps> = ({
       });
 
       toast.success(
-        `Cash Outflow ${form.referenceNumber} recorded (₱${amountNum.toLocaleString('en-PH', { minimumFractionDigits: 2 })}) and queued for Assistant review.`,
+        `Cash Outflow ${form.referenceNumber} recorded (${formatCurrency(amountNum)}) and queued for Assistant review.`,
         'Outflow Recorded'
       );
 

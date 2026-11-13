@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatCurrency } from '../../utils/format';
 
 export interface ComparisonCandidate {
   matchId: string;
@@ -80,8 +81,8 @@ export const DuplicateComparisonModal: React.FC<Props> = ({
     {
       label: 'Amount (PHP)',
       key: 'amount',
-      val1: `₱${Number(scannedDoc.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
-      val2: `₱${Number(activeCandidate.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+      val1: formatCurrency(Number(scannedDoc.amount || 0)),
+      val2: formatCurrency(Number(activeCandidate.amount || 0)),
     },
     { label: 'Reference Number', key: 'referenceNumber', val1: scannedDoc.referenceNumber, val2: activeCandidate.referenceNumber },
     { label: 'Payment Method', key: 'paymentMethod', val1: scannedDoc.paymentMethod, val2: activeCandidate.paymentMethod },

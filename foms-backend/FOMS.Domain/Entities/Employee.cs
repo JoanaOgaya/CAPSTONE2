@@ -62,5 +62,25 @@ public class Employee
     /// </summary>
     public DateTime? DateHired { get; set; }
 
+    /// <summary>
+    /// Position held by the employee (e.g., "Finance Manager", "Head Accountant", "Accountant", "Assistant of Finance Manager").
+    /// </summary>
+    public string? Position { get; set; }
+
+    /// <summary>
+    /// Whether the user is required to change their password upon login.
+    /// </summary>
+    public bool MustChangePassword { get; set; } = false;
+
+    /// <summary>
+    /// Whether the current password was system-generated as a temporary password.
+    /// </summary>
+    public bool IsTemporaryPassword { get; set; } = false;
+
+    /// <summary>
+    /// Expiration timestamp for temporary password.
+    /// </summary>
+    public DateTime? TemporaryPasswordExpiresAt { get; set; }
+
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 }

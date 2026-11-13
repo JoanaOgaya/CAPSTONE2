@@ -249,10 +249,13 @@ public class LiquidationsController : ControllerBase
             {
                 return await Act(id, "endorse", dto);
             }
-            if (string.Equals(targetStatus, "Approved", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(targetStatus, "Validated", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(targetStatus, "Approved", StringComparison.OrdinalIgnoreCase))
             {
                 return await Act(id, "approve", dto);
+            }
+            if (string.Equals(targetStatus, "Validated", StringComparison.OrdinalIgnoreCase))
+            {
+                return await Act(id, "validate", dto);
             }
             if (string.Equals(targetStatus, "Rejected", StringComparison.OrdinalIgnoreCase))
             {
@@ -298,13 +301,12 @@ public class LiquidationsController : ControllerBase
             ? item.SubmittedByEmployeeId
             : item.SubmittedByName;
 
-        bool isTier1Action = string.Equals(effectiveAction, "endorse", StringComparison.OrdinalIgnoreCase) ||
-                             (string.Equals(effectiveAction, "validate", StringComparison.OrdinalIgnoreCase) && !FomsRoles.IsFinanceManager(role));
+        bool isTier1Action = string.Equals(effectiveAction, "endorse", StringComparison.OrdinalIgnoreCase);
 
         bool isTier2Action = string.Equals(effectiveAction, "approve", StringComparison.OrdinalIgnoreCase) ||
                              string.Equals(effectiveAction, "signoff", StringComparison.OrdinalIgnoreCase) ||
                              string.Equals(effectiveAction, "sign_off", StringComparison.OrdinalIgnoreCase) ||
-                             (string.Equals(effectiveAction, "validate", StringComparison.OrdinalIgnoreCase) && FomsRoles.IsFinanceManager(role));
+                             string.Equals(effectiveAction, "validate", StringComparison.OrdinalIgnoreCase);
 
         if (isTier1Action)
         {
@@ -352,41 +354,54 @@ public class LiquidationsController : ControllerBase
 
         if (isTier2Action)
         {
-            // Strict Tier 2: Finance Manager final sign-off
-            if (!FomsRoles.IsFinanceManager(role))
+            if (!FomsRoles.IsFinanceManager(role) && !FomsRoles.IsHeadAccountant(role))
             {
-                return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to approve liquidations. Only Finance Manager (EMP-001) can perform final sign-off." });
+                return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to approve liquidations. Only Finance Manager (EMP-001) or Head Accountant (EMP-002) can perform sign-off." });
             }
 
-                if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
+            if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
+            {
+                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot approve their own liquidation." });
+            }
+
+            // Skipped Tier: Finance Manager cannot sign off without prior endorsement by Tier 1 Assistant FM
+            if (FomsRoles.IsRole(role, FomsRoles.FinanceManager) && !string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(effectiveAction, "approve", StringComparison.OrdinalIgnoreCase) &&
+                    (string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase)))
                 {
-                    return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot approve their own liquidation." });
+                    return Ok(item);
                 }
 
-                // STRICT SKIPPED TIER CHECK:
-                // Must be Endorsed by Assistant FM first!
-                if (!string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(effectiveAction, "validate", StringComparison.OrdinalIgnoreCase) &&
+                    (string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Idempotent: already approved
-                        return Ok(item);
-                    }
-
-                    return BadRequest(new
-                    {
-                        message = "Two-tier endorsement required: Liquidation must be endorsed by Assistant Finance Manager (EMP-004) before final Finance Manager sign-off."
-                    });
+                    return Conflict(new { message = "This liquidation has already been signed off and validated." });
                 }
 
-                item.Status = "Approved";
-                item.ValidatedAt = DateTime.UtcNow;
-                item.ValidatedBy = 1;
-                                                if (!string.IsNullOrWhiteSpace(dto?.Notes ?? dto?.Remarks))
+                return BadRequest(new
                 {
-                    item.Remarks = dto?.Notes ?? dto?.Remarks;
+                    message = "Skipped tier: Two-tier endorsement required: Liquidation must be endorsed by Assistant Finance Manager (EMP-004) before final Finance Manager sign-off."
+                });
+            }
+
+            // Duplicate validation check when status is already Approved/Validated
+            if (string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(effectiveAction, "approve", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Ok(item);
                 }
+                return Conflict(new { message = "This liquidation has already been signed off and validated." });
+            }
+
+            item.Status = string.Equals(effectiveAction, "validate", StringComparison.OrdinalIgnoreCase) ? "Validated" : "Approved";
+            item.ValidatedAt = DateTime.UtcNow;
+            item.ValidatedBy = 1;
+            if (!string.IsNullOrWhiteSpace(dto?.Notes ?? dto?.Remarks))
+            {
+                item.Remarks = dto?.Notes ?? dto?.Remarks;
+            }
 
                 // Recognize Cash Outflow, Inflow in Treasury and Journal Entries in Ledger ONCE ONLY!
                 await PostLiquidationLedgerAndTreasuryAsync(item, empId);

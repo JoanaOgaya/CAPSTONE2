@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { ComparisonCandidate } from './DuplicateComparisonModal';
+import { formatCurrency } from '../../utils/format';
 
 export type DecisionType = 'UNIQUE' | 'FLAGGED' | 'NEEDS_MANUAL_REVIEW';
 
@@ -207,7 +208,7 @@ export const AccountantDecisionModal: React.FC<Props> = ({
                     >
                       {matchedCandidates.map(c => (
                         <option key={c.matchedDocumentId} value={c.matchedDocumentId}>
-                          {c.documentNumber} ({c.clientName}) - ₱{c.amount.toLocaleString()} ({Math.round(c.similarityScore * 100)}% Match)
+                          {c.documentNumber} ({c.clientName}) - {formatCurrency(c.amount)} ({Math.round(c.similarityScore * 100)}% Match)
                         </option>
                       ))}
                     </select>

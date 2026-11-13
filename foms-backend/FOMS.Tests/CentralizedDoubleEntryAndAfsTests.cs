@@ -583,14 +583,26 @@ public class CentralizedDoubleEntryAndAfsTests
         Assert.Equal("EMP-001", pkgReviewed.ReviewedBy);
         Assert.NotNull(pkgReviewed.ReviewedAt);
 
-        // 2. Non-CEO attempt to approve annual package fails
+        // 2. Approval without in-person CEO approval record fails
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => service.ApproveAfsPackageAsync(2026, "Year", 1, "EMP-001", "Finance Manager"));
 
-        // 3. CEO approves annual package
-        var pkgApproved = await service.ApproveAfsPackageAsync(2026, "Year", 1, "EMP-099", "CEO");
+        // 3. FM records in-person CEO approval record, then approves annual package (IAM-07 to IAM-10)
+        // Item 8 strictly requires an attachment per R5.3
+        var gateService = new CeoApprovalGateService(context);
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualFinancialStatement,
+            ItemId = "2026",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date,
+            AttachmentBytes = System.Text.Encoding.UTF8.GetBytes("%PDF-1.4 Audited Financial Statement PDF"),
+            AttachmentFileName = "audited_afs_2026.pdf"
+        }, "EMP-001", "Finance Manager");
+
+        var pkgApproved = await service.ApproveAfsPackageAsync(2026, "Year", 1, "EMP-001", "Finance Manager");
         Assert.Equal("Approved", pkgApproved.Status);
-        Assert.Equal("EMP-099", pkgApproved.ApprovedBy);
+        Assert.Equal("EMP-001", pkgApproved.ApprovedBy);
         Assert.NotNull(pkgApproved.ApprovedAt);
 
         // 4. Attach Audited AFS as file only

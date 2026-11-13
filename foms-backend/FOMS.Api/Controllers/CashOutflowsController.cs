@@ -1,3 +1,5 @@
+using FOMS.Application.Services;
+using FOMS.Domain.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -124,9 +126,9 @@ public class CashOutflowsController : ControllerBase
             return Conflict(new { success = false, message = $"A cash outflow with reference number '{refNo}' already exists." });
         }
 
-        // Active threshold check from single configuration source
-        decimal maxLimit = await ThresholdConfigHelper.GetAssistantFmThresholdAsync(_fomsDb.ApprovalThresholdSettings, "CashOutflow");
-        bool exceedsThreshold = ThresholdConstants.ExceedsThreshold(dto.Amount, maxLimit);
+        // Active threshold check from centralized configuration source
+        decimal maxLimit = await ApprovalThresholdResolver.ResolveThresholdLimitAsync(_fomsDb.ApprovalThresholdSettings);
+        bool exceedsThreshold = dto.Amount > maxLimit;
 
         var outflowId = $"CO-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
         var txDate = dto.TransactionDate ?? DateTime.UtcNow;

@@ -278,7 +278,7 @@ main {
 
 .btn-ghost:hover:not(:disabled),
 .btn--ghost:hover:not(:disabled) {
-  background: var(--s2, #F0F4FF);
+  background: var(--teal-bg);
   color: var(--tp, #0F172A);
 }
 
@@ -1132,6 +1132,9 @@ html.dark .sidebar {
     margin: 0 !important;
   }
 }
+
+/* Amount / currency cells — tabular-nums + right-align so decimals line up */
+.amt { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
 /* ================================================================
    Desktop Accessibility & Usability Enhancements

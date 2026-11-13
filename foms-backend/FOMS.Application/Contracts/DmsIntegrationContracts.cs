@@ -114,6 +114,8 @@ public class DmsCashAdvanceRequestDto
     public decimal RequestedAmount { get; set; }
 
     public DateTime RequestDate { get; set; } = DateTime.UtcNow;
+
+    public string? DepartmentCode { get; set; }
 }
 
 /// <summary>

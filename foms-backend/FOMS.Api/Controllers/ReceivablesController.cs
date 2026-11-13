@@ -28,9 +28,9 @@ public class ReceivablesController : ControllerBase
     }
 
     [HttpGet("records")]
-    public async Task<IActionResult> GetArRecords()
+    public async Task<IActionResult> GetArRecords([FromQuery] int dueSoonDays = 7)
     {
-        var invoices = await _context.Invoices.Where(i => (!i.Archived || i.Balance > 0m) && i.DocumentStatus != "Void").ToListAsync();
+        var invoices = await _context.Invoices.Where(i => (!i.Archived || i.Balance > 0m) && i.DocumentStatus != "Void" && i.DocumentStatus != "Voided").ToListAsync();
         foreach (var inv in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(inv);
@@ -38,7 +38,8 @@ public class ReceivablesController : ControllerBase
 
         var records = invoices.Select(i =>
         {
-            var isDueSoon = DateTime.TryParse(i.DueDate, out var dt) && (dt - DateTime.UtcNow).TotalDays <= 7 && (dt - DateTime.UtcNow).TotalDays >= 0;
+            var bucket = BillingComputationService.ComputeDerivedAgingBucket(i.DueDate, dueSoonDays);
+            var isDueSoon = bucket == "Due Soon";
             return new
             {
                 id = i.Id,
@@ -51,15 +52,16 @@ public class ReceivablesController : ControllerBase
                 originalAmount = i.TotalAmount,
                 paidAmount = i.AmountPaid,
                 outstandingBalance = i.Balance,
-                agingBracket = i.DaysOverdue <= 0 ? "Current" :
-                               i.DaysOverdue <= 30 ? "0-30 days" :
-                               i.DaysOverdue <= 60 ? "31-60 days" :
-                               i.DaysOverdue <= 90 ? "61-90 days" : "90+ days",
+                agingBracket = bucket,
+                agingBucket = bucket,
                 agingDays = i.DaysOverdue,
                 documentStatus = i.DocumentStatus,
                 status = i.Balance <= 0 ? "Current" :
                          i.DaysOverdue > 0 ? "Overdue" :
-                         isDueSoon ? "Due Soon" : "Outstanding"
+                         isDueSoon ? "Due Soon" : "Outstanding",
+                isDisputed = i.IsDisputed,
+                disputeReasonCode = i.DisputeReasonCode,
+                disputeRemarks = i.DisputeRemarks
             };
         }).ToList();
 
@@ -67,9 +69,9 @@ public class ReceivablesController : ControllerBase
     }
 
     [HttpGet("aging")]
-    public async Task<IActionResult> GetArAging()
+    public async Task<IActionResult> GetArAging([FromQuery] int dueSoonDays = 7)
     {
-        var invoices = await _context.Invoices.Where(i => i.Balance > 0 && i.DocumentStatus != "Void").ToListAsync();
+        var invoices = await _context.Invoices.Where(i => i.Balance > 0 && i.DocumentStatus != "Void" && i.DocumentStatus != "Voided").ToListAsync();
         foreach (var inv in invoices)
         {
             BillingComputationService.RefreshInvoiceAging(inv);
@@ -77,11 +79,14 @@ public class ReceivablesController : ControllerBase
 
         var result = new List<object>
         {
+            new { label = "Not Yet Due", value = invoices.Where(i => BillingComputationService.ComputeDerivedAgingBucket(i.DueDate, dueSoonDays) == "Not Yet Due").Sum(i => i.Balance) },
+            new { label = "Due Soon", value = invoices.Where(i => BillingComputationService.ComputeDerivedAgingBucket(i.DueDate, dueSoonDays) == "Due Soon").Sum(i => i.Balance) },
+            new { label = "1-30", value = invoices.Where(i => BillingComputationService.ComputeDerivedAgingBucket(i.DueDate, dueSoonDays) == "1-30").Sum(i => i.Balance) },
+            new { label = "31-60", value = invoices.Where(i => BillingComputationService.ComputeDerivedAgingBucket(i.DueDate, dueSoonDays) == "31-60").Sum(i => i.Balance) },
+            new { label = "61-90", value = invoices.Where(i => BillingComputationService.ComputeDerivedAgingBucket(i.DueDate, dueSoonDays) == "61-90").Sum(i => i.Balance) },
+            new { label = "90+", value = invoices.Where(i => BillingComputationService.ComputeDerivedAgingBucket(i.DueDate, dueSoonDays) == "90+").Sum(i => i.Balance) },
             new { label = "Current", value = invoices.Where(i => i.DaysOverdue <= 0).Sum(i => i.Balance) },
             new { label = "0-30 days", value = invoices.Where(i => i.DaysOverdue > 0 && i.DaysOverdue <= 30).Sum(i => i.Balance) },
-            new { label = "31-60 days", value = invoices.Where(i => i.DaysOverdue > 30 && i.DaysOverdue <= 60).Sum(i => i.Balance) },
-            new { label = "61-90 days", value = invoices.Where(i => i.DaysOverdue > 60 && i.DaysOverdue <= 90).Sum(i => i.Balance) },
-            new { label = "90+ days", value = invoices.Where(i => i.DaysOverdue > 90).Sum(i => i.Balance) },
         };
 
         return Ok(result);

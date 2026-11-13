@@ -14,6 +14,19 @@ namespace FOMS.Application.Features;
 public static class AdjustmentFeatures
 {
     // ─────────────────────────────────────────────────────────────────
+    // Manila timezone helper (R4.11 q4 / FIN-23)
+    // Mirrors CeoApprovalGateService.GetManilaToday().
+    // ─────────────────────────────────────────────────────────────────
+    internal static DateTime GetManilaToday()
+    {
+        var tz = TimeZoneInfo.FindSystemTimeZoneById(
+            OperatingSystem.IsWindows() ? "Singapore Standard Time" : "Asia/Manila");
+        return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz).Date;
+    }
+
+    internal static string GetManilaTodayString() => GetManilaToday().ToString("yyyy-MM-dd");
+
+    // ─────────────────────────────────────────────────────────────────
     // GET ADJUSTMENTS — newest first
     // ─────────────────────────────────────────────────────────────────
     public record GetAdjustmentsQuery : IRequest<List<PaymentAdjustment>>;
@@ -108,7 +121,7 @@ public static class AdjustmentFeatures
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // CREATE ADJUSTMENT REQUEST — stays Pending until Accountant approves
+    // CREATE ADJUSTMENT REQUEST — stays Pending until approved before posting (FIN-23)
     // ─────────────────────────────────────────────────────────────────
     public record CreateAdjustmentCommand(
         string InvoiceNo,
@@ -116,7 +129,9 @@ public static class AdjustmentFeatures
         decimal Amount,
         string Reason,
         string AdjustedBy = "",  // Submitter
-        string ApprovedBy = ""   // Approver (if pre-assigned)
+        string ApprovedBy = "",  // Approver (if pre-assigned)
+        string Role = "",        // Creator role (must be Finance Manager per FIN-23)
+        DateTime? AdjustmentDate = null
     ) : IRequest<PaymentAdjustment?>;
 
     public class CreateAdjustmentCommandHandler : IRequestHandler<CreateAdjustmentCommand, PaymentAdjustment?>
@@ -130,6 +145,28 @@ public static class AdjustmentFeatures
 
         public async Task<PaymentAdjustment?> Handle(CreateAdjustmentCommand request, CancellationToken cancellationToken)
         {
+            // FIN-23: Adjusting entries created by the Finance Manager only
+            if (!string.IsNullOrWhiteSpace(request.Role) && !FOMS.Domain.Constants.FomsRoles.IsFinanceManager(request.Role))
+            {
+                throw new UnauthorizedAccessException("Only the Finance Manager can create adjusting entries (FIN-23).");
+            }
+
+            // FIN-23: Reason is strictly mandatory
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                throw new InvalidOperationException("A reason is strictly required when creating an adjusting entry (FIN-23).");
+            }
+
+            // FIN-23 / R4.2: Closed accounting period blocks creation of adjusting entries
+            // R4.11 q4: Use the caller-supplied adjustment date (Manila calendar date), not DateTime.UtcNow.
+            var effectiveDate = (request.AdjustmentDate ?? GetManilaToday()).Date;
+            bool isPeriodClosed = await _context.AccountingPeriodCloses
+                .AnyAsync(p => effectiveDate >= p.PeriodStart.Date && effectiveDate <= p.PeriodEnd.Date, cancellationToken);
+            if (isPeriodClosed)
+            {
+                throw new InvalidOperationException("Cannot create an adjusting entry in a closed accounting period (FIN-23 / R4.2).");
+            }
+
             // Guard: amount must be positive
             if (request.Amount <= 0m)
                 throw new InvalidOperationException("Adjustment amount must be greater than zero.");
@@ -175,7 +212,8 @@ public static class AdjustmentFeatures
                 Reason       = request.Reason,
                 AdjustedBy   = request.AdjustedBy,
                 ApprovedBy   = string.Empty,   // Not yet approved — populated on Approve
-                DateRequested = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                // R4.11 q4: Store the caller-supplied date (Manila calendar date), falling back to Manila today.
+                DateRequested = (request.AdjustmentDate ?? GetManilaToday()).ToString("yyyy-MM-dd"),
                 DateApproved = string.Empty,   // Not yet approved
                 Status       = "Pending"
             };
@@ -205,7 +243,8 @@ public static class AdjustmentFeatures
     // ─────────────────────────────────────────────────────────────────
     public record ApproveAdjustmentCommand(
         string Id,
-        string ApprovedBy
+        string ApprovedBy,
+        string Role = "Head Accountant"
     ) : IRequest<PaymentAdjustment?>;
 
     public class ApproveAdjustmentCommandHandler : IRequestHandler<ApproveAdjustmentCommand, PaymentAdjustment?>
@@ -225,6 +264,29 @@ public static class AdjustmentFeatures
             if (adjustment == null || adjustment.Status != "Pending")
                 return null;
 
+            // R5.11 item 1 / R4.11 q4: Proposed approver is Head Accountant
+            if (!string.IsNullOrWhiteSpace(request.Role) && !FOMS.Domain.Constants.FomsRoles.IsHeadAccountant(request.Role))
+            {
+                throw new UnauthorizedAccessException("Adjusting entries strictly require Head Accountant approval before posting (R5.11 item 1 / R4.11 q4).");
+            }
+
+            // Separation of Duties: Creator cannot approve their own entry
+            if (!string.IsNullOrWhiteSpace(request.ApprovedBy) &&
+                string.Equals(adjustment.AdjustedBy, request.ApprovedBy, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("The creator of an adjusting entry cannot approve their own entry (Separation of Duties).");
+            }
+
+            // FIN-23 / R4.2: Closed accounting period blocks approval of adjusting entries
+            // R4.11 q4: Use the adjustment's own date for the period check; fall back to Manila today.
+            var adjDate = DateTime.TryParse(adjustment.DateRequested, out var parsedDate) ? parsedDate.Date : GetManilaToday();
+            bool isPeriodClosed = await _context.AccountingPeriodCloses
+                .AnyAsync(p => adjDate >= p.PeriodStart.Date && adjDate <= p.PeriodEnd.Date, cancellationToken);
+            if (isPeriodClosed)
+            {
+                throw new InvalidOperationException("Cannot approve an adjusting entry in a closed accounting period (FIN-23 / R4.2).");
+            }
+
             var invoice = await _context.Invoices
                 .FirstOrDefaultAsync(i => i.InvoiceNo == adjustment.InvoiceNo, cancellationToken);
             if (invoice == null)
@@ -237,7 +299,8 @@ public static class AdjustmentFeatures
             // Mark adjustment as approved
             adjustment.Status       = "Approved";
             adjustment.ApprovedBy   = request.ApprovedBy;
-            adjustment.DateApproved = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            // R4.11 q4: DateApproved is Manila today (the date the HA approves), not UTC.
+            adjustment.DateApproved = GetManilaTodayString();
 
             var adjType = adjustment.AdjustmentType.ToLower();
 
@@ -257,6 +320,9 @@ public static class AdjustmentFeatures
 
                     // C1 FR-034 / C2 FR-032: Paid-invoice credits remain client credit, never cash outflow.
                     client.AvailableCredit += adjustment.Amount;
+
+                    // R4.5: Post Dr Cargo Claims (Sales Allowances) / Cr Unapplied Client Credits
+                    await PostCreditMemoJournalEntryAsync(invoice, adjustment, cancellationToken);
                 }
             }
             else if (adjType == "debit")
@@ -267,7 +333,8 @@ public static class AdjustmentFeatures
             // Fully recalculate all derived fields using the authoritative service
             BillingComputationService.RecalculateInvoice(invoice);
             invoice.UpdatedBy   = request.ApprovedBy;
-            invoice.LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            // R4.11 q4: LastUpdated uses Manila today for consistency.
+            invoice.LastUpdated = GetManilaTodayString();
 
             var audit = new AuditLog
             {
@@ -295,6 +362,73 @@ public static class AdjustmentFeatures
             await _context.SaveChangesAsync(cancellationToken);
 
             return adjustment;
+        }
+
+        private async Task PostCreditMemoJournalEntryAsync(Invoice invoice, PaymentAdjustment adjustment, CancellationToken cancellationToken)
+        {
+            var claimsAccount = await _context.ChartOfAccounts.FirstOrDefaultAsync(
+                a => a.Name.Contains("Cargo Claims") || a.AccountCode == "4200" || a.Name.Contains("Sales Allowances"),
+                cancellationToken);
+            if (claimsAccount == null)
+            {
+                claimsAccount = new ChartOfAccount
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    AccountCode = "4200",
+                    Name = "Cargo Claims (Sales Allowances)",
+                    Type = "Expense"
+                };
+                _context.ChartOfAccounts.Add(claimsAccount);
+            }
+
+            var unappliedCreditsAccount = await _context.ChartOfAccounts.FirstOrDefaultAsync(
+                a => a.Name.Contains("Unapplied Client Credits") || a.AccountCode == "2160",
+                cancellationToken);
+            if (unappliedCreditsAccount == null)
+            {
+                unappliedCreditsAccount = new ChartOfAccount
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    AccountCode = "2160",
+                    Name = "Unapplied Client Credits",
+                    Type = "Liability"
+                };
+                _context.ChartOfAccounts.Add(unappliedCreditsAccount);
+            }
+
+            var jeId = Guid.NewGuid().ToString();
+            var je = new JournalEntry
+            {
+                Id = jeId,
+                EntryNumber = $"JE-CREDITMEMO-{invoice.InvoiceNo}-{jeId[..8]}",
+                InvoiceId = invoice.Id,
+                // R4.11 q4: Journal entry date = adjustment's own date, never DateTime.UtcNow.
+                // Parse DateRequested (a Manila calendar date string "yyyy-MM-dd"); fall back to Manila today.
+                Date = DateTime.TryParse(adjustment.DateRequested, out var jeDate)
+                    ? jeDate.Date
+                    : GetManilaToday(),
+                Description = $"Credit Memo on Paid Invoice {invoice.InvoiceNo}: Dr Cargo Claims (Sales Allowances) / Cr Unapplied Client Credits",
+                Posted = true
+            };
+            _context.JournalEntries.Add(je);
+
+            _context.GeneralLedgerEntries.Add(new GeneralLedgerEntry
+            {
+                Id = Guid.NewGuid().ToString(),
+                JournalEntryId = jeId,
+                AccountId = claimsAccount.Id,
+                Debit = adjustment.Amount,
+                Credit = 0m
+            });
+
+            _context.GeneralLedgerEntries.Add(new GeneralLedgerEntry
+            {
+                Id = Guid.NewGuid().ToString(),
+                JournalEntryId = jeId,
+                AccountId = unappliedCreditsAccount.Id,
+                Debit = 0m,
+                Credit = adjustment.Amount
+            });
         }
     }
 
@@ -325,7 +459,8 @@ public static class AdjustmentFeatures
 
             adjustment.Status       = "Rejected";
             adjustment.ApprovedBy   = request.RejectedBy; // Records who rejected it
-            adjustment.DateApproved = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            // R4.11 q4: DateApproved is Manila today (the date the HA approves), not UTC.
+            adjustment.DateApproved = GetManilaTodayString();
 
             var audit = new AuditLog
             {

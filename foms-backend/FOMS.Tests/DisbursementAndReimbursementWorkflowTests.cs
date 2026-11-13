@@ -32,6 +32,18 @@ public class DisbursementAndReimbursementWorkflowTests
             IsActive = true
         });
 
+        context.CeoApprovalThresholdSettings.Add(new CeoApprovalThresholdSetting
+        {
+            SettingId = 1,
+            SettingKey = "CSH-09_CEO_THRESHOLD",
+            ThresholdAmount = 10000.00m,
+            Currency = "PHP",
+            EffectiveFrom = DateTime.UtcNow.AddYears(-1),
+            IsActive = true,
+            UpdatedBy = "EMP-001",
+            UpdatedAt = DateTime.UtcNow.AddYears(-1)
+        });
+
         // Seed budget line for DEP-OPS / Fuel: Budget = 100,000, Actual = 20,000, Committed = 0, Available = 80,000
         context.MonthlyBudgetLines.Add(new MonthlyBudgetLine
         {
@@ -245,8 +257,17 @@ public class DisbursementAndReimbursementWorkflowTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-001", "Finance Manager"));
 
-        // Release by CEO/President succeeds
-        var released = await service.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-CEO", "CEO");
+        // Release with in-person CEO/President approval record entered by FM (IAM-07 to IAM-10)
+        var gateService = new CeoApprovalGateService(context);
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.CashOutflow,
+            ItemId = ca.AdvanceId,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        var released = await service.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-001", "Finance Manager");
         Assert.Equal("Released", released.Status);
     }
 
@@ -305,7 +326,17 @@ public class DisbursementAndReimbursementWorkflowTests
         var budgetLine = await context.MonthlyBudgetLines.FirstAsync(l => l.Category == "Repairs and Maintenance");
         Assert.Equal(12000m, budgetLine.CommittedAmount);
 
-        // 3. Released: CSH-12 converts Committed -> Actual immediately without any liquidation!
+        // 3. Record CEO approval for disbursement > CSH-09 threshold, then release
+        var gateService = new CeoApprovalGateService(context);
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.CashOutflow,
+            ItemId = disb.DisbursementId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        // Released: CSH-12 converts Committed -> Actual immediately without any liquidation!
         var released = await service.ReleaseDirectDisbursementAsync(disb.DisbursementId, "EMP-001", "Finance Manager");
         Assert.Equal("Released", released.Status);
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { CashAdvance, CashAdvanceCreatePayload } from '../types/approvals';
 import { approvalsService, formatApprovalErrorMessage } from '../services/approvalsService';
+import { departmentsService, DepartmentDto, DepartmentSuggestionDto } from '../services/departmentsService';
 import { formatCurrency, formatDate, formatDateTime } from '../utils/format';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { useToast } from '../components/ToastContext';
@@ -8,6 +9,8 @@ import { useToast } from '../components/ToastContext';
 export const MyCashAdvances: React.FC = () => {
   const { toast } = useToast();
   const [items, setItems] = useState<CashAdvance[]>([]);
+  const [departments, setDepartments] = useState<DepartmentDto[]>([]);
+  const [suggestion, setSuggestion] = useState<DepartmentSuggestionDto | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +41,8 @@ export const MyCashAdvances: React.FC = () => {
 
   useEffect(() => {
     fetchItems();
+    departmentsService.getDepartments().then(setDepartments).catch(() => {});
+    departmentsService.getDepartmentSuggestion().then(setSuggestion).catch(() => {});
   }, []);
 
   const openCreateModal = () => {
@@ -45,6 +50,7 @@ export const MyCashAdvances: React.FC = () => {
     setFormData({
       amount: 0,
       purpose: '',
+      departmentCode: '',
       dateNeeded: new Date().toISOString().split('T')[0],
       remarks: '',
     });
@@ -56,6 +62,7 @@ export const MyCashAdvances: React.FC = () => {
     setFormData({
       amount: item.amount,
       purpose: item.purpose,
+      departmentCode: item.departmentCode || '',
       dateNeeded: item.dateNeeded ? item.dateNeeded.split('T')[0] : '',
       remarks: item.remarks || '',
     });
@@ -538,6 +545,56 @@ export const MyCashAdvances: React.FC = () => {
 
             {/* Modal Form */}
             <form onSubmit={handleSave} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                    Department <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  {suggestion?.hasSuggestion && suggestion.departmentCode && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, departmentCode: suggestion.departmentCode! })}
+                      style={{
+                        background: '#EEF2FF',
+                        border: '1px solid #C7D2FE',
+                        borderRadius: '12px',
+                        padding: '2px 8px',
+                        fontSize: '11px',
+                        color: '#4F46E5',
+                        cursor: 'pointer',
+                        fontWeight: 500
+                      }}
+                      title="Click to apply your last-used department"
+                    >
+                      Suggested: {suggestion.departmentName || suggestion.departmentCode}
+                    </button>
+                  )}
+                </div>
+                <select
+                  required
+                  disabled={isSubmitting}
+                  value={formData.departmentCode || ''}
+                  onChange={(e) => setFormData({ ...formData, departmentCode: e.target.value })}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    fontSize: '14px',
+                    outline: 'none',
+                    backgroundColor: '#fff',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <option value="">Select Department</option>
+                  {departments.map((d) => (
+                    <option key={d.departmentCode} value={d.departmentCode}>
+                      {d.departmentName} ({d.departmentCode})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
                   Amount (PHP) <span style={{ color: '#EF4444' }}>*</span>

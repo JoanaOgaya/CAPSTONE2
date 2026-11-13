@@ -77,7 +77,7 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 1. FULL APPROVAL CHAIN: Draft -> Pending HA -> Pending FM -> Approved -> Sent -> Received
+    // 1. FULL APPROVAL CHAIN: Draft -> For Review -> Approved -> Sent -> Received
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
     public async Task FullApprovalChain_DraftToReceived_TransitionsSuccessfully()
@@ -90,48 +90,43 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
 
         var controller = new InvoicesController(appDb, mssqlDb);
 
-        // 1. Staff EMP-003 submits Draft -> Pending HA Verification
+        // 1. Staff EMP-003 submits Draft -> For Review
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = StaffUser() } };
         var submitRes = await controller.TransitionInvoice(invoice.Id, "submit", new InvoiceTransitionRequest());
         Assert.IsType<OkObjectResult>(submitRes);
         var cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.PendingHaVerification, cur!.DocumentStatus);
+        Assert.Equal(InvoiceDocumentStatus.ForReview, cur!.DocumentStatus);
 
-        // 2. HA EMP-002 verifies -> Pending FM Approval
+        // 2. HA EMP-002 verifies -> Approved (AR not posted yet; posts strictly at Sent)
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } };
         var verifyRes = await controller.TransitionInvoice(invoice.Id, "verify", new InvoiceTransitionRequest());
         Assert.IsType<OkObjectResult>(verifyRes);
         cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, cur!.DocumentStatus);
-
-        // 3. FM EMP-001 approves -> Approved (AR posted here once)
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = FinanceManagerUser() } };
-        var approveRes = await controller.TransitionInvoice(invoice.Id, "approve", new InvoiceTransitionRequest());
-        Assert.IsType<OkObjectResult>(approveRes);
-        cur = await appDb.Invoices.FindAsync(invoice.Id);
         Assert.Equal(InvoiceDocumentStatus.Approved, cur!.DocumentStatus);
-        Assert.True(cur.AccrualRevenueRecognized);
-        Assert.NotNull(cur.AccrualJournalEntryId);
+        Assert.False(cur.AccrualRevenueRecognized);
+        Assert.Null(cur.AccrualJournalEntryId);
 
-        // Verify AR journal entry
-        var je = await appDb.JournalEntries.FirstOrDefaultAsync(j => j.Id == cur.AccrualJournalEntryId);
-        Assert.NotNull(je);
-        var gl = await appDb.GeneralLedgerEntries.Where(g => g.JournalEntryId == je.Id).ToListAsync();
-        Assert.Equal(gl.Sum(g => g.Debit), gl.Sum(g => g.Credit));
-
-        // 4. Staff EMP-003 sends -> Sent (DueDate remains null)
+        // 3. Staff EMP-003 sends -> Sent (AR posted strictly at Sent; DueDate remains null)
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = StaffUser() } };
         var sendRes = await controller.TransitionInvoice(invoice.Id, "send", new InvoiceTransitionRequest());
         Assert.IsType<OkObjectResult>(sendRes);
         cur = await appDb.Invoices.FindAsync(invoice.Id);
         Assert.Equal(InvoiceDocumentStatus.Sent, cur!.DocumentStatus);
         Assert.NotNull(cur.SentDate);
+        Assert.True(cur.AccrualRevenueRecognized);
+        Assert.NotNull(cur.AccrualJournalEntryId);
+
+        // Verify AR journal entry posted
+        var je = await appDb.JournalEntries.FirstOrDefaultAsync(j => j.Id == cur.AccrualJournalEntryId);
+        Assert.NotNull(je);
+        var gl = await appDb.GeneralLedgerEntries.Where(g => g.JournalEntryId == je.Id).ToListAsync();
+        Assert.Equal(gl.Sum(g => g.Debit), gl.Sum(g => g.Credit));
 
         var rec = await appDb.ReceivableBalances.FirstOrDefaultAsync();
         Assert.NotNull(rec);
         Assert.Null(rec.DueDate);
 
-        // 5. Staff EMP-003 marks Received -> Received (DueDate calculated from term)
+        // 4. Staff EMP-003 marks Received -> Received (DueDate calculated from term)
         var receivedDate = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc);
         var recvRes = await controller.TransitionInvoice(invoice.Id, "receive", new InvoiceTransitionRequest { ReceivedDate = receivedDate });
         Assert.IsType<OkObjectResult>(recvRes);
@@ -142,10 +137,10 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 2. BIDIRECTIONAL RETURNS
+    // 2. REVISION 3 ROUNDTRIP: Draft -> For Review -> Return to Draft -> Resubmit -> Verify -> Send
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
-    public async Task ReturnedToHa_FullRoundTrip_FmReturns_HaReverifies_FmApproves_PostsArAccrualOnce()
+    public async Task Revision3_ReturnAndReverify_PostsArAccrualOnceAtSent()
     {
         var appDb = CreateAppDb(Guid.NewGuid().ToString());
         var mssqlDb = CreateMssqlDb(Guid.NewGuid().ToString());
@@ -155,44 +150,45 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
 
         var controller = new InvoicesController(appDb, mssqlDb);
 
-        // 1. Creator EMP-003 submits -> Pending HA Verification
+        // 1. Creator EMP-003 submits -> For Review
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = StaffUser() } };
         var submitRes = await controller.TransitionInvoice(invoice.Id, "submit", new InvoiceTransitionRequest());
         Assert.IsType<OkObjectResult>(submitRes);
         var cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.PendingHaVerification, cur!.DocumentStatus);
+        Assert.Equal(InvoiceDocumentStatus.ForReview, cur!.DocumentStatus);
 
-        // 2. HA EMP-002 verifies -> Pending FM Approval
+        // 2. HA EMP-002 returns to creator with mandatory reason -> Draft
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } };
-        var verifyRes = await controller.TransitionInvoice(invoice.Id, "verify", new InvoiceTransitionRequest());
-        Assert.IsType<OkObjectResult>(verifyRes);
-        cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, cur!.DocumentStatus);
-
-        // 3. FM EMP-001 returns to HA -> Returned to HA
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = FinanceManagerUser() } };
-        var returnRes = await controller.TransitionInvoice(invoice.Id, "return-to-ha", new InvoiceTransitionRequest
+        var returnRes = await controller.TransitionInvoice(invoice.Id, "return-to-creator", new InvoiceTransitionRequest
         {
             ReviewRejectionReason = "Client contracted custom rate must be applied"
         });
         Assert.IsType<OkObjectResult>(returnRes);
         cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.ReturnedToHa, cur!.DocumentStatus);
+        Assert.Equal(InvoiceDocumentStatus.Draft, cur!.DocumentStatus);
         Assert.Equal("Client contracted custom rate must be applied", cur.ReviewRejectionReason);
 
-        // 4. HA EMP-002 re-verifies / resubmits -> Pending FM Approval
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } };
-        var reVerifyRes = await controller.TransitionInvoice(invoice.Id, "resubmit", new InvoiceTransitionRequest());
-        Assert.IsType<OkObjectResult>(reVerifyRes);
+        // 3. Creator EMP-003 resubmits -> For Review
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = StaffUser() } };
+        var reSubmitRes = await controller.TransitionInvoice(invoice.Id, "resubmit", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(reSubmitRes);
         cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, cur!.DocumentStatus);
+        Assert.Equal(InvoiceDocumentStatus.ForReview, cur!.DocumentStatus);
 
-        // 5. FM EMP-001 approves -> Approved (AR accrual posted EXACTLY once)
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = FinanceManagerUser() } };
-        var approveRes = await controller.TransitionInvoice(invoice.Id, "approve", new InvoiceTransitionRequest());
-        Assert.IsType<OkObjectResult>(approveRes);
+        // 4. HA EMP-002 verifies -> Approved (No AR journal entry yet)
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } };
+        var verifyRes = await controller.TransitionInvoice(invoice.Id, "verify", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(verifyRes);
         cur = await appDb.Invoices.FindAsync(invoice.Id);
         Assert.Equal(InvoiceDocumentStatus.Approved, cur!.DocumentStatus);
+        Assert.False(cur.AccrualRevenueRecognized);
+
+        // 5. Staff EMP-003 sends -> Sent (AR accrual posted EXACTLY once)
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = StaffUser() } };
+        var sendRes = await controller.TransitionInvoice(invoice.Id, "send", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(sendRes);
+        cur = await appDb.Invoices.FindAsync(invoice.Id);
+        Assert.Equal(InvoiceDocumentStatus.Sent, cur!.DocumentStatus);
         Assert.True(cur.AccrualRevenueRecognized);
         Assert.NotNull(cur.AccrualJournalEntryId);
 
@@ -205,13 +201,13 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
     {
         var appDb = CreateAppDb(Guid.NewGuid().ToString());
         var mssqlDb = CreateMssqlDb(Guid.NewGuid().ToString());
-        var invoice = CreateSeedInvoice("INV-RET-HA", InvoiceDocumentStatus.PendingFmApproval);
+        var invoice = CreateSeedInvoice("INV-RET-HA", InvoiceDocumentStatus.ForReview);
         appDb.Invoices.Add(invoice);
         await appDb.SaveChangesAsync();
 
         var controller = new InvoicesController(appDb, mssqlDb);
 
-        // FM returns to HA with mandatory reason
+        // FM returns to HA with mandatory reason -> stays/returns in For Review with reason
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = FinanceManagerUser() } };
         var returnRes = await controller.TransitionInvoice(invoice.Id, "return-to-ha", new InvoiceTransitionRequest
         {
@@ -219,15 +215,15 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
         });
         Assert.IsType<OkObjectResult>(returnRes);
         var cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.ReturnedToHa, cur!.DocumentStatus);
+        Assert.Equal(InvoiceDocumentStatus.ForReview, cur!.DocumentStatus);
         Assert.Equal("Pricing tier mismatch on client contract", cur.ReviewRejectionReason);
 
-        // HA resubmits back to Pending FM Approval
+        // HA verifies -> Approved
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } };
-        var resubmitRes = await controller.TransitionInvoice(invoice.Id, "resubmit", new InvoiceTransitionRequest());
-        Assert.IsType<OkObjectResult>(resubmitRes);
+        var verifyRes = await controller.TransitionInvoice(invoice.Id, "verify", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(verifyRes);
         cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, cur!.DocumentStatus);
+        Assert.Equal(InvoiceDocumentStatus.Approved, cur!.DocumentStatus);
     }
 
     [Fact]
@@ -235,13 +231,13 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
     {
         var appDb = CreateAppDb(Guid.NewGuid().ToString());
         var mssqlDb = CreateMssqlDb(Guid.NewGuid().ToString());
-        var invoice = CreateSeedInvoice("INV-RET-CR", InvoiceDocumentStatus.PendingHaVerification, encodedBy: "EMP-003");
+        var invoice = CreateSeedInvoice("INV-RET-CR", InvoiceDocumentStatus.ForReview, encodedBy: "EMP-003");
         appDb.Invoices.Add(invoice);
         await appDb.SaveChangesAsync();
 
         var controller = new InvoicesController(appDb, mssqlDb);
 
-        // HA returns to Creator with mandatory reason
+        // HA returns to Creator with mandatory reason -> Draft
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } };
         var returnRes = await controller.TransitionInvoice(invoice.Id, "return-to-creator", new InvoiceTransitionRequest
         {
@@ -249,14 +245,14 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
         });
         Assert.IsType<OkObjectResult>(returnRes);
         var cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.ReturnedToCreator, cur!.DocumentStatus);
+        Assert.Equal(InvoiceDocumentStatus.Draft, cur!.DocumentStatus);
 
-        // Creator (EMP-003) resubmits back to Pending HA Verification
+        // Creator (EMP-003) resubmits back to For Review
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = StaffUser() } };
         var resubmitRes = await controller.TransitionInvoice(invoice.Id, "resubmit", new InvoiceTransitionRequest());
         Assert.IsType<OkObjectResult>(resubmitRes);
         cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.PendingHaVerification, cur!.DocumentStatus);
+        Assert.Equal(InvoiceDocumentStatus.ForReview, cur!.DocumentStatus);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -264,6 +260,8 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
     // ─────────────────────────────────────────────────────────────────────────
     [Theory]
     [InlineData(InvoiceDocumentStatus.Draft)]
+    [InlineData(InvoiceDocumentStatus.ForReview)]
+    [InlineData(InvoiceDocumentStatus.Approved)]
     [InlineData(InvoiceDocumentStatus.PendingHaVerification)]
     [InlineData(InvoiceDocumentStatus.PendingFmApproval)]
     [InlineData(InvoiceDocumentStatus.ReturnedToCreator)]
@@ -295,53 +293,39 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 4. FM VOID ON APPROVED INVOICE (REVERSING JOURNAL ENTRY)
+    // 4. TEST 4 ASSERTION: VOIDING APPROVED INVOICE POSTS NO JOURNAL ENTRY
+    //    (AR posts strictly at Sent; Void allowed by Head Accountant prior to Sent)
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
-    public async Task FinanceManager_CanVoid_ApprovedInvoice_CreatesReversingJournalEntry()
+    public async Task Test4_VoidingApprovedInvoice_PostsNoJournalEntry_AndVoidPriorToSentAllowedByHeadAccountant()
     {
         var appDb = CreateAppDb(Guid.NewGuid().ToString());
         var mssqlDb = CreateMssqlDb(Guid.NewGuid().ToString());
-        var invoice = CreateSeedInvoice("INV-APP-VOID", InvoiceDocumentStatus.PendingFmApproval, encodedBy: "EMP-003", amount: 1120m);
+        var invoice = CreateSeedInvoice("INV-APP-VOID", InvoiceDocumentStatus.Approved, encodedBy: "EMP-003", amount: 1120m);
         appDb.Invoices.Add(invoice);
         await appDb.SaveChangesAsync();
 
         var controller = new InvoicesController(appDb, mssqlDb)
         {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = FinanceManagerUser() } }
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } }
         };
 
-        // 1. FM approves (AR recognized)
-        var approveRes = await controller.TransitionInvoice(invoice.Id, "approve", new InvoiceTransitionRequest());
-        Assert.IsType<OkObjectResult>(approveRes);
+        // 1. Prior to Sent, Head Accountant can void the Approved invoice
+        var voidRes = await controller.VoidInvoice(invoice.Id, new VoidInvoiceRequest
+        {
+            VoidReason = "Commercial renegotiation prior to client delivery"
+        });
+        Assert.IsType<OkObjectResult>(voidRes);
+
         var cur = await appDb.Invoices.FindAsync(invoice.Id);
-        Assert.Equal(InvoiceDocumentStatus.Approved, cur!.DocumentStatus);
-        Assert.True(cur.AccrualRevenueRecognized);
-        var origJeId = cur.AccrualJournalEntryId;
-        Assert.NotNull(origJeId);
-
-        // 2. HA cannot void Approved invoice (FM only)
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } };
-        var haVoidRes = await controller.VoidInvoice(invoice.Id, new VoidInvoiceRequest { VoidReason = "HA attempt on approved" });
-        var forbid = Assert.IsType<ObjectResult>(haVoidRes);
-        Assert.Equal(StatusCodes.Status403Forbidden, forbid.StatusCode);
-
-        // 3. FM voids Approved invoice with mandatory reason
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = FinanceManagerUser() } };
-        var fmVoidRes = await controller.VoidInvoice(invoice.Id, new VoidInvoiceRequest { VoidReason = "Commercial renegotiation prior to client delivery" });
-        Assert.IsType<OkObjectResult>(fmVoidRes);
-
-        cur = await appDb.Invoices.FindAsync(invoice.Id);
         Assert.Equal(InvoiceDocumentStatus.Void, cur!.DocumentStatus);
         Assert.Equal("Commercial renegotiation prior to client delivery", cur.VoidReason);
 
-        // Verify reversing journal entry was created
-        var revJe = await appDb.JournalEntries.FirstOrDefaultAsync(j => j.Description != null && j.Description.Contains("Reversal of Accrual Revenue") && j.Description.Contains(cur.InvoiceNo));
-        Assert.NotNull(revJe);
-        var revEntries = await appDb.GeneralLedgerEntries.Where(g => g.JournalEntryId == revJe.Id).ToListAsync();
-        Assert.NotEmpty(revEntries);
-        // Verify balanced entry
-        Assert.Equal(revEntries.Sum(e => e.Debit), revEntries.Sum(e => e.Credit));
+        // 2. Proves: Voiding an Approved invoice posts NO journal entry (AR posts strictly at Sent)
+        var journalEntryCount = await appDb.JournalEntries.CountAsync();
+        Assert.Equal(0, journalEntryCount);
+        var glEntryCount = await appDb.GeneralLedgerEntries.CountAsync();
+        Assert.Equal(0, glEntryCount);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -430,15 +414,16 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 7. SEPARATION OF DUTIES: Creator Cannot Verify, Approve, or Void Own Invoice
+    // 7. SEPARATION OF DUTIES & OPTION 1 EDGE CASE:
+    //    Creator Cannot Verify/Approve Own Invoice.
+    //    If Head Accountant Created Invoice, Finance Manager Verifies and Approves.
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
     public async Task SeparationOfDuties_Creator_CannotVerifyOrApproveOrVoid_OwnInvoice()
     {
         var appDb = CreateAppDb(Guid.NewGuid().ToString());
         var mssqlDb = CreateMssqlDb(Guid.NewGuid().ToString());
-        // Invoice created by EMP-002 (e.g. if HA had somehow created it)
-        var invoice = CreateSeedInvoice("INV-SOD-001", InvoiceDocumentStatus.PendingHaVerification, encodedBy: "EMP-002");
+        var invoice = CreateSeedInvoice("INV-SOD-001", InvoiceDocumentStatus.ForReview, encodedBy: "EMP-002");
         appDb.Invoices.Add(invoice);
         await appDb.SaveChangesAsync();
 
@@ -457,6 +442,35 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
         var voidRes = await controller.VoidInvoice(invoice.Id, new VoidInvoiceRequest { VoidReason = "Self void attempt" });
         var conflictVoid = Assert.IsType<ObjectResult>(voidRes);
         Assert.Equal(StatusCodes.Status409Conflict, conflictVoid.StatusCode);
+    }
+
+    [Fact]
+    public async Task Option1_HeadAccountantCreator_VerifiedAndApprovedByFinanceManager()
+    {
+        var appDb = CreateAppDb(Guid.NewGuid().ToString());
+        var mssqlDb = CreateMssqlDb(Guid.NewGuid().ToString());
+        // Head Accountant EMP-002 created/encoded the invoice
+        var invoice = CreateSeedInvoice("INV-HA-CREATOR-01", InvoiceDocumentStatus.ForReview, encodedBy: "EMP-002");
+        appDb.Invoices.Add(invoice);
+        await appDb.SaveChangesAsync();
+
+        var controller = new InvoicesController(appDb, mssqlDb);
+
+        // HA cannot verify own invoice (SoD)
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = HeadAccountantUser() } };
+        var haRes = await controller.TransitionInvoice(invoice.Id, "verify", new InvoiceTransitionRequest());
+        var conflict = Assert.IsType<ObjectResult>(haRes);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+
+        // Finance Manager EMP-001 verifies and approves (Option 1 confirmed) -> 200 OK
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = FinanceManagerUser() } };
+        var fmRes = await controller.TransitionInvoice(invoice.Id, "verify", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(fmRes);
+
+        var cur = await appDb.Invoices.FindAsync(invoice.Id);
+        Assert.Equal(InvoiceDocumentStatus.Approved, cur!.DocumentStatus);
+        Assert.Equal("EMP-001", cur.VerifiedBy);
+        Assert.Equal("EMP-001", cur.ApprovedBy);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -507,7 +521,7 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
     {
         var appDb = CreateAppDb(Guid.NewGuid().ToString());
         var mssqlDb = CreateMssqlDb(Guid.NewGuid().ToString());
-        var invoice = CreateSeedInvoice("INV-CONC-001", InvoiceDocumentStatus.PendingFmApproval, encodedBy: "EMP-003");
+        var invoice = CreateSeedInvoice("INV-CONC-001", InvoiceDocumentStatus.ForReview, encodedBy: "EMP-003");
         appDb.Invoices.Add(invoice);
         await appDb.SaveChangesAsync();
 
@@ -524,5 +538,27 @@ public class InvoiceApprovalWorkflowAndTransitionsTests
         var res2 = await controller.TransitionInvoice(invoice.Id, "approve", new InvoiceTransitionRequest());
         var conflict = Assert.IsType<ObjectResult>(res2);
         Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 10. LEGACY STATUS MAPPING & NORMALIZATION TEST
+    // ─────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public void LegacyStatusMapping_NormalizesOldStatusesToRevision3()
+    {
+        Assert.Equal(InvoiceDocumentStatus.ForReview, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.PendingHaVerification));
+        Assert.Equal(InvoiceDocumentStatus.ForReview, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.PendingFmApproval));
+        Assert.Equal(InvoiceDocumentStatus.ForReview, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.ReturnedToHa));
+        Assert.Equal(InvoiceDocumentStatus.ForReview, InvoiceDocumentStatus.Normalize("Pending Approval"));
+        Assert.Equal(InvoiceDocumentStatus.ForReview, InvoiceDocumentStatus.Normalize("Pending"));
+
+        Assert.Equal(InvoiceDocumentStatus.Draft, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.ReturnedToCreator));
+        Assert.Equal(InvoiceDocumentStatus.Draft, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.Draft));
+
+        Assert.Equal(InvoiceDocumentStatus.Approved, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.Approved));
+        Assert.Equal(InvoiceDocumentStatus.Sent, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.Sent));
+        Assert.Equal(InvoiceDocumentStatus.Received, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.Received));
+        Assert.Equal(InvoiceDocumentStatus.Disputed, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.Disputed));
+        Assert.Equal(InvoiceDocumentStatus.Void, InvoiceDocumentStatus.Normalize(InvoiceDocumentStatus.Void));
     }
 }

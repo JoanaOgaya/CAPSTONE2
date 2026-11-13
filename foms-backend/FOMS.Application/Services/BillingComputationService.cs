@@ -163,7 +163,7 @@ public static class BillingComputationService
     }
 
     /// <summary>
-    /// Validates discount requirements: discounts around 10% require recorded CEO or President approval.
+    /// Validates discount requirements: discounts around 10% require documented approval.
     /// </summary>
     public static (bool isValid, string? error) ValidateDiscountApproval(decimal discountAmount, decimal discountRate, string? approver)
     {
@@ -174,8 +174,8 @@ public static class BillingComputationService
             return (false, "Discounts require documented CEO or President approval.");
 
         var norm = approver.Trim().ToLowerInvariant();
-        bool isCeoOrPresident = norm.Contains("ceo") || norm.Contains("president") || norm.Contains("chief executive");
-        if (!isCeoOrPresident)
+        bool isDocumentedCeo = norm.Contains("ceo") || norm.Contains("president") || norm.Contains("chief executive");
+        if (!isDocumentedCeo)
             return (false, $"Discount approval by '{approver}' is invalid. Discounts require recorded CEO or President approval.");
 
         return (true, null);

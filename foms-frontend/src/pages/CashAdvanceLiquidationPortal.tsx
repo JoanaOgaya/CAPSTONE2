@@ -13,7 +13,16 @@ import {
 import { liquidationsService } from '../services/liquidationsService';
 import { formatCurrency, formatDate } from '../utils/format';
 import { canRequestCashAdvance } from '../utils/roleAccess';
+import { departmentsService } from '../services/departmentsService';
 import type { Liquidation } from '../types/entities';
+
+const SELECTABLE_DEPARTMENTS = [
+  { departmentCode: 'DEP-FIN', departmentName: 'Finance' },
+  { departmentCode: 'DEP-CCS', departmentName: 'Customer Care & Sales' },
+  { departmentCode: 'DEP-DSP', departmentName: 'Dispatch Team' },
+  { departmentCode: 'DEP-FWD', departmentName: 'Forwarding Team' },
+  { departmentCode: 'DEP-OVH', departmentName: 'Company Overhead' },
+];
 
 export const CashAdvanceLiquidationPortal: React.FC = () => {
   const { toast } = useToast();
@@ -56,6 +65,7 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
   // New Advance Request Form (all fields start empty)
   const [advanceForm, setAdvanceForm] = useState({
     courierName: '',
+    departmentCode: '',
     tripReference: '',
     amountGiven: '' as unknown as number,
     purpose: '',
@@ -108,7 +118,7 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
 
   // Handle Approve Cash Advance (FR-050)
   const handleApproveAdvance = async (advance: CashAdvanceItem) => {
-    if (!window.confirm(`Approve Cash Advance request ${advance.advanceId} for ${advance.courierName} (₱${advance.amountGiven.toLocaleString()})?`)) {
+    if (!window.confirm(`Approve Cash Advance request ${advance.advanceId} for ${advance.courierName} (${formatCurrency(advance.amountGiven)})?`)) {
       return;
     }
     try {
@@ -168,6 +178,10 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
       toast.error('Courier full name is required.');
       return;
     }
+    if (!advanceForm.departmentCode || !advanceForm.departmentCode.trim()) {
+      toast.error('Department is strictly required.');
+      return;
+    }
     if (!advanceForm.tripReference.trim()) {
       toast.error('Trip reference is required.');
       return;
@@ -186,6 +200,7 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
         toast.success(res.message);
         setAdvanceForm({
           courierName: '',
+          departmentCode: '',
           tripReference: '',
           amountGiven: '' as unknown as number,
           purpose: '',
@@ -332,6 +347,7 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
             onClick={() => {
               setAdvanceForm({
                 courierName: '',
+                departmentCode: '',
                 tripReference: '',
                 amountGiven: '' as unknown as number,
                 purpose: '',
@@ -1332,6 +1348,25 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
                   onChange={(e) => setAdvanceForm({ ...advanceForm, courierName: e.target.value })}
                   style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
                 />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+                  Department *
+                </label>
+                <select
+                  required
+                  value={advanceForm.departmentCode}
+                  onChange={(e) => setAdvanceForm({ ...advanceForm, departmentCode: e.target.value })}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', backgroundColor: '#fff' }}
+                >
+                  <option value="">Select Department</option>
+                  {SELECTABLE_DEPARTMENTS.filter(d => d.departmentCode !== 'DEP-OVH' || user?.role === 'FINANCE_MANAGER').map((d) => (
+                    <option key={d.departmentCode} value={d.departmentCode}>
+                      {d.departmentName} ({d.departmentCode})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>

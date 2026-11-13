@@ -45,7 +45,8 @@ public class FinancePaymentsController : ControllerBase
             ?? User.FindFirst("sub")?.Value
             ?? user;
 
-        if (role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase))
+        if (role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) ||
+            role.Equals("FINANCE_MANAGER", StringComparison.OrdinalIgnoreCase))
         {
             return (true, "Finance Manager", null);
         }
@@ -83,12 +84,10 @@ public class FinancePaymentsController : ControllerBase
             return Unauthorized(new { message = "Authentication required." });
         }
 
-        var role = User.FindFirst(ClaimTypes.Role)?.Value
-            ?? User.FindFirst("role")?.Value;
-
-        if (string.IsNullOrWhiteSpace(role) || (!role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) && !role.Equals("FINANCE_MANAGER", StringComparison.OrdinalIgnoreCase)))
+        var (isAuthorized, validatorRole, delegateNote) = await CheckValidationAuthorityAsync();
+        if (!isAuthorized)
         {
-            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only the Finance Manager is authorized to perform final approval on payments." });
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only the Finance Manager (or configured, logged delegate) is authorized to perform payment approval." });
         }
 
         var approverEmpId = User.FindFirst("employeeNumber")?.Value
@@ -137,6 +136,13 @@ public class FinancePaymentsController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new { message = "Separation of duties violation: Submitter cannot approve their own payment." });
         }
 
+        if (!string.IsNullOrWhiteSpace(payment.RecordedBy) &&
+            (payment.RecordedBy.Equals(user, StringComparison.OrdinalIgnoreCase) ||
+             payment.RecordedBy.Equals(approverEmpId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Separation of duties violation: Submitter cannot approve their own payment." });
+        }
+
         // Illegal transitions rejected server-side with clear error
         if (payment.PaymentStatus is "Rejected" or "Returned")
         {
@@ -152,6 +158,8 @@ public class FinancePaymentsController : ControllerBase
         {
             return BadRequest(new { message = "Cannot approve payment for a void invoice. Void is terminal." });
         }
+
+
 
         BillingComputationService.RecalculateInvoice(invoice);
 

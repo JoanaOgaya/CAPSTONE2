@@ -62,7 +62,7 @@ export const MODULES: readonly ModuleDef[] = [
   { key: 'receipts', label: 'Official Receipts', group: 'Receivables & Payments', icon: 'ti ti-receipt', path: '/receipts', detailPath: '/receipts/:id', nav: true, roles: { [ACC]: ['view', 'create'], [FM]: ['view'] } },
   { key: 'settlements', label: 'Settlements', labelByRole: { [FM]: 'Settlement Validation' }, group: 'Receivables & Payments', icon: 'ti ti-calculator', path: '/settlements', nav: true, roles: { [ACC]: ['view', 'create'], [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
   { key: 'recordSettlement', label: 'Record Settlement', group: 'Receivables & Payments', icon: 'ti ti-receipt-2', path: '/record-settlement', nav: false, roles: { [ACC]: ['view', 'create', 'submit'], [HA]: ['view'] } },
-  { key: 'adjustments', label: 'Financial Adjustments', labelByRole: { [HA]: 'Adjustment Validation', [FM]: 'Adjustment Approval' }, group: 'Receivables & Payments', icon: 'ti ti-adjustments-alt', path: '/adjustments', nav: true, roles: { [ACC]: ['view', 'create', 'edit', 'submit'], [HA]: ['view', 'verify', 'return'], [FM]: ['view', 'approve'] } },
+  { key: 'adjustments', label: 'Financial Adjustments', labelByRole: { [HA]: 'Adjustment Approval', [FM]: 'Financial Adjustments' }, group: 'Receivables & Payments', icon: 'ti ti-adjustments-alt', path: '/adjustments', nav: true, roles: { [ACC]: ['view', 'create', 'edit', 'submit'], [HA]: ['view', 'verify', 'return', 'approve'], [FM]: ['view'] } },
 
   { key: 'myCashAdvances', label: 'My Cash Advances', group: 'Liquidation', icon: 'ti ti-wallet', path: '/my-cash-advances', nav: true, roles: { [ACC]: ['view', 'create'] } },
   // Cash Advance Approvals is consolidated into the Approvals queue (/approvals) for Asst. FM
@@ -171,6 +171,14 @@ export function canIntakeDelivery(role: Role | undefined | null): boolean {
 
 export function canReassignFollowUp(role: Role | undefined | null): boolean {
   return role === ROLES.FINANCE_MANAGER || role === ROLES.HEAD_ACCOUNTANT;
+}
+
+/**
+ * Head Accountant maker-checker recording confirmation for CEO approval records (R5.11 item 1).
+ * Strictly restricted to Head Accountant role.
+ */
+export function canConfirmCeoApproval(role: Role | undefined | null): boolean {
+  return role === ROLES.HEAD_ACCOUNTANT;
 }
 
 /** Sidebar structure for a role: only allowed, nav-visible modules, grouped in declaration order with key deduplication. */

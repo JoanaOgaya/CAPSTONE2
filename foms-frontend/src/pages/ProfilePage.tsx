@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Card } from '../components/Card';
 import { useQuery } from '../hooks/useQuery';
@@ -18,18 +18,38 @@ const ROLE_LABEL_MAP: Record<string, string> = {
 };
 const getRoleLabel = (r?: string) => (r && ROLE_LABEL_MAP[r]) || r || 'User';
 
-const ALLOWED_ROLES = [
+// Authoritative positions unified from backend single source (EmployeePositions.cs / GET /api/users/positions)
+const DEFAULT_FINANCE_POSITIONS = [
   'Finance Manager',
   'Head Accountant',
   'Accountant',
   'Assistant of Finance Manager'
 ];
 
+// ASSUMED: Non-finance positions provisionally listed pending DMS confirmation (R5.11 / dms-handoff.md)
+// Sourced originally from commit bb4d0ee (Phase 20) as operational defaults; not verified in DMS database.
+const DEFAULT_NON_FINANCE_POSITIONS = [
+  'Courier',
+  'Dispatcher',
+  'Driver',
+  'Hub Supervisor',
+  'Sorter'
+];
+
+const DEFAULT_DMS_OPERATIONAL_ROLES = [
+  'Admin',
+  'Encoder',
+  'Driver',
+  'None (no DMS access)'
+];
+
 interface EmployeeFormData {
   employeeId: string;
   fullName: string;
   email: string;
+  position: string;
   role: string;
+  dmsRole: string;
   phone: string;
   salaryRate: string;
   dateHired: string;
@@ -40,7 +60,9 @@ interface FormFieldErrors {
   employeeId?: string;
   fullName?: string;
   email?: string;
+  position?: string;
   role?: string;
+  dmsRole?: string;
   phone?: string;
   salaryRate?: string;
   dateHired?: string;
@@ -75,22 +97,49 @@ export const ProfilePage: React.FC = () => {
   // Modal State for Add / Edit Employee
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<AppUserRecord | null>(null);
+  const [financePositions, setFinancePositions] = useState<string[]>(DEFAULT_FINANCE_POSITIONS);
+  const [nonFinancePositions, setNonFinancePositions] = useState<string[]>(DEFAULT_NON_FINANCE_POSITIONS);
+  const [dmsRoles, setDmsRoles] = useState<string[]>(DEFAULT_DMS_OPERATIONAL_ROLES);
+
+  useEffect(() => {
+    // Unify to server-side source of truth (GET /api/users/positions)
+    fetch('/api/users/positions')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          if (Array.isArray(data.financePositions)) setFinancePositions(data.financePositions);
+          if (Array.isArray(data.nonFinancePositions)) setNonFinancePositions(data.nonFinancePositions);
+          if (Array.isArray(data.dmsRoles)) setDmsRoles(data.dmsRoles);
+        }
+      })
+      .catch(() => {
+        // Fallback gracefully to default constants if offline
+      });
+  }, []);
+
   const [formData, setFormData] = useState<EmployeeFormData>({
     employeeId: '',
     fullName: '',
     email: '',
-    role: 'Accountant',
+    position: '',
+    role: '',
+    dmsRole: '',
     phone: '',
     salaryRate: '',
     dateHired: '',
     status: 'Active',
   });
+  const [createdAccountModal, setCreatedAccountModal] = useState<{
+    employeeId: string;
+    fullName: string;
+    tempPassword: string;
+  } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Validation rules
   const validateField = (name: keyof EmployeeFormData, val: string): string | undefined => {
-    const trimmed = val.trim();
+    const trimmed = (val || '').trim();
     switch (name) {
       case 'employeeId':
         if (!editingEmployee) {
@@ -117,8 +166,16 @@ export const ProfilePage: React.FC = () => {
         if (emailExists) return 'This email is already in use.';
         return undefined;
       }
+      case 'position':
+        if (!trimmed) return 'Position is required.';
+        return undefined;
       case 'role':
         if (!trimmed) return 'Role is required.';
+        return undefined;
+      case 'dmsRole':
+        if (nonFinancePositions.includes(formData.position) && !trimmed) {
+          return 'DMS operational role is required for non-finance staff.';
+        }
         return undefined;
       case 'phone':
         if (trimmed && !/^(\+63|0)9\d{9}$/.test(trimmed.replace(/[\s-]/g, ''))) {
@@ -146,12 +203,14 @@ export const ProfilePage: React.FC = () => {
     const errId = validateField('employeeId', formData.employeeId);
     const errName = validateField('fullName', formData.fullName);
     const errEmail = validateField('email', formData.email);
+    const errPos = validateField('position', formData.position);
     const errRole = validateField('role', formData.role);
+    const errDms = validateField('dmsRole', formData.dmsRole);
     const errPhone = validateField('phone', formData.phone);
     const errSalary = validateField('salaryRate', formData.salaryRate);
     const errDate = validateField('dateHired', formData.dateHired);
 
-    return !errId && !errName && !errEmail && !errRole && !errPhone && !errSalary && !errDate;
+    return !errId && !errName && !errEmail && !errPos && !errRole && !errDms && !errPhone && !errSalary && !errDate;
   }, [formData, editingEmployee, staffList]);
 
   const handleOpenAddModal = () => {
@@ -160,7 +219,9 @@ export const ProfilePage: React.FC = () => {
       employeeId: '',
       fullName: '',
       email: '',
-      role: 'Accountant',
+      position: '',
+      role: '',
+      dmsRole: '',
       phone: '',
       salaryRate: '',
       dateHired: new Date().toISOString().split('T')[0],
@@ -172,11 +233,15 @@ export const ProfilePage: React.FC = () => {
 
   const handleOpenEditModal = (emp: AppUserRecord) => {
     setEditingEmployee(emp);
+    const initialRole = emp.role || '';
+    const initialPosition = emp.position || initialRole;
     setFormData({
       employeeId: emp.employeeNumber || emp.id,
       fullName: emp.fullName || '',
       email: emp.email || '',
-      role: emp.role || 'Accountant',
+      position: initialPosition,
+      role: initialRole,
+      dmsRole: (emp as any).dmsRole || (financePositions.includes(initialPosition) ? 'None' : 'None (no DMS access)'),
       phone: emp.phone || '',
       salaryRate: emp.salaryRate ? String(emp.salaryRate) : '',
       dateHired: emp.dateHired ? emp.dateHired.split('T')[0] : '',
@@ -192,6 +257,49 @@ export const ProfilePage: React.FC = () => {
     setFieldErrors(prev => ({ ...prev, [field]: error }));
   };
 
+  const handlePositionChange = (pos: string) => {
+    if (financePositions.includes(pos)) {
+      setFormData(prev => ({
+        ...prev,
+        position: pos,
+        role: pos,
+        dmsRole: 'None',
+      }));
+      setFieldErrors(prev => ({
+        ...prev,
+        position: undefined,
+        role: undefined,
+        dmsRole: undefined,
+      }));
+    } else if (nonFinancePositions.includes(pos)) {
+      setFormData(prev => ({
+        ...prev,
+        position: pos,
+        role: 'None',
+        dmsRole: prev.dmsRole && dmsRoles.includes(prev.dmsRole) && prev.dmsRole !== 'None' ? prev.dmsRole : '',
+      }));
+      setFieldErrors(prev => ({
+        ...prev,
+        position: undefined,
+        role: undefined,
+        dmsRole: prev.dmsRole && dmsRoles.includes(prev.dmsRole) && prev.dmsRole !== 'None' ? undefined : 'DMS operational role is required for non-finance staff.',
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        position: pos,
+        role: '',
+        dmsRole: '',
+      }));
+      setFieldErrors(prev => ({
+        ...prev,
+        position: pos ? undefined : 'Position is required.',
+        role: undefined,
+        dmsRole: undefined,
+      }));
+    }
+  };
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isFormValid || isSubmitting) return;
@@ -203,8 +311,9 @@ export const ProfilePage: React.FC = () => {
         username: formData.employeeId.trim().toUpperCase(),
         fullName: formData.fullName.trim(),
         email: formData.email.trim().toLowerCase(),
+        position: formData.position.trim(),
         role: formData.role.trim(),
-        password: 'Password@123',
+        dmsRole: formData.dmsRole.trim() || undefined,
         phone: formData.phone.trim() || undefined,
         salaryRate: formData.salaryRate ? parseFloat(formData.salaryRate) : undefined,
         dateHired: formData.dateHired ? new Date(formData.dateHired).toISOString() : undefined,
@@ -215,15 +324,24 @@ export const ProfilePage: React.FC = () => {
         await usersService.update(editingEmployee.id, {
           fullName: payload.fullName,
           email: payload.email,
+          position: payload.position,
           role: payload.role,
+          dmsRole: payload.dmsRole,
           phone: payload.phone,
           salaryRate: payload.salaryRate,
           status: payload.status,
         });
         toast.success(`Employee ${formData.employeeId} updated successfully.`);
       } else {
-        await usersService.create(payload);
+        const createdUser: any = await usersService.create(payload as any);
         toast.success(`Employee ${formData.employeeId} registered successfully.`);
+        if (createdUser?.temporaryPassword) {
+          setCreatedAccountModal({
+            employeeId: payload.employeeId,
+            fullName: payload.fullName,
+            tempPassword: createdUser.temporaryPassword,
+          });
+        }
       }
 
       setIsModalOpen(false);
@@ -492,10 +610,97 @@ export const ProfilePage: React.FC = () => {
         </div>
       </Card>
 
+
+      {/* TEMPORARY PASSWORD SECURE MODAL */}
+      {createdAccountModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '20px' }}>
+          <div style={{ background: '#FFF', borderRadius: '14px', width: '100%', maxWidth: '480px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D97706', fontSize: '1.25rem' }}>
+                <i className="ti ti-key" />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#0F172A' }}>Personnel Created</h3>
+                <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#64748B' }}>Account registered with temporary credentials</p>
+              </div>
+            </div>
+
+            <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
+              <div style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '4px' }}>Employee</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1E293B', marginBottom: '12px' }}>
+                {createdAccountModal.fullName} ({createdAccountModal.employeeId})
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '4px' }}>Temporary Password</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={createdAccountModal.tempPassword}
+                  style={{
+                    flex: 1,
+                    fontFamily: 'monospace',
+                    fontSize: '1rem',
+                    fontWeight: 700,
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #CBD5E1',
+                    background: '#FFF',
+                    color: '#0F172A'
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(createdAccountModal.tempPassword);
+                    toast.success('Temporary password copied to clipboard.');
+                  }}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '6px',
+                    border: '1px solid #CBD5E1',
+                    background: '#FFF',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: '0.85rem',
+                    color: '#334155'
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+
+            <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '12px', marginBottom: '24px' }}>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#92400E', lineHeight: 1.4 }}>
+                <strong>Important:</strong> The employee must change this password upon their first login. This temporary password will expire in 72 hours.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCreatedAccountModal(null)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                border: 'none',
+                background: '#0284C7',
+                color: '#FFF',
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                cursor: 'pointer'
+              }}
+            >
+              Done &amp; Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ADD / EDIT EMPLOYEE MODAL */}
       {isModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-          <div style={{ background: '#FFF', borderRadius: '14px', width: '100%', maxWidth: '580px', maxHeight: '90vh', overflowY: 'auto', padding: '32px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px', boxSizing: 'border-box' }}>
+          <div data-testid="employee-modal-container" style={{ background: '#FFF', borderRadius: '14px', width: '100%', maxWidth: '580px', maxHeight: '90vh', overflowY: 'auto', padding: '24px 20px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0F172A' }}>
@@ -514,7 +719,7 @@ export const ProfilePage: React.FC = () => {
             </div>
 
             <form onSubmit={handleFormSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
                     Employee ID {!editingEmployee && <span style={{ color: '#EF4444' }}>*</span>}
@@ -545,24 +750,115 @@ export const ProfilePage: React.FC = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
-                    Assigned Role <span style={{ color: '#EF4444' }}>*</span>
+                    Position <span style={{ color: '#EF4444' }}>*</span>
                   </label>
                   <select
+                    value={formData.position}
+                    onChange={e => handlePositionChange(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: `1px solid ${fieldErrors.position ? '#EF4444' : '#CBD5E1'}`,
+                      fontSize: '0.9rem',
+                      background: '#FFF'
+                    }}
+                  >
+                    <option value="">-- Select Position --</option>
+                    <optgroup label="Finance Positions">
+                      {financePositions.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Non-Finance Positions">
+                      {nonFinancePositions.map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  {fieldErrors.position && (
+                    <span style={{ color: '#EF4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                      {fieldErrors.position}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    FOMS Role (Derived) <span style={{ color: '#EF4444' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    disabled
                     value={formData.role}
-                    onChange={e => handleFormChange('role', e.target.value)}
+                    placeholder="Derived from Position"
                     style={{
                       width: '100%',
                       padding: '10px 12px',
                       borderRadius: '8px',
                       border: `1px solid ${fieldErrors.role ? '#EF4444' : '#CBD5E1'}`,
+                      background: '#F1F5F9',
+                      color: '#334155',
                       fontSize: '0.9rem',
-                      background: '#FFF'
+                      fontWeight: 600
                     }}
-                  >
-                    {ALLOWED_ROLES.map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
+                  />
+                  {fieldErrors.role && (
+                    <span style={{ color: '#EF4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                      {fieldErrors.role}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '6px', textTransform: 'uppercase' }}>
+                    DMS Operational Role {nonFinancePositions.includes(formData.position) && <span style={{ color: '#EF4444' }}>*</span>}
+                  </label>
+                  {nonFinancePositions.includes(formData.position) ? (
+                    <select
+                      aria-label="DMS Operational Role"
+                      value={formData.dmsRole}
+                      onChange={e => handleFormChange('dmsRole', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        border: `1px solid ${fieldErrors.dmsRole ? '#EF4444' : '#CBD5E1'}`,
+                        fontSize: '0.9rem',
+                        background: '#FFF',
+                        color: '#0F172A'
+                      }}
+                    >
+                      <option value="">-- Select DMS Role --</option>
+                      {dmsRoles.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      readOnly
+                      disabled
+                      value={financePositions.includes(formData.position) ? "None" : ""}
+                      placeholder={financePositions.includes(formData.position) ? "None" : "Select position first"}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        background: '#F1F5F9',
+                        color: '#64748B',
+                        fontSize: '0.9rem',
+                        fontWeight: 500
+                      }}
+                    />
+                  )}
+                  {fieldErrors.dmsRole && (
+                    <span style={{ color: '#EF4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                      {fieldErrors.dmsRole}
+                    </span>
+                  )}
                 </div>
               </div>
 

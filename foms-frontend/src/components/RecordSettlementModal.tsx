@@ -5,6 +5,7 @@ import { useToast } from './ToastContext';
 import { settlementsService } from '../services/settlementsService';
 import { useAuth } from '../context/AuthContext';
 import { invalidateForMutation } from '../services/invalidation';
+import { formatCurrency } from '../utils/format';
 
 interface RecordSettlementModalProps {
   isOpen: boolean;
@@ -187,9 +188,9 @@ const RecordSettlementModal: React.FC<RecordSettlementModalProps> = ({ isOpen, o
               {cashAdvanceGiven === 0 && totalExpenses === 0 ? (
                 <span>Enter cash advance and expenses to compute.</span>
               ) : isLeftover ? (
-                <span>Leftover cash to return: <strong style={{ color: '#15803D' }}>₱{variance.toLocaleString('en-PH', {minimumFractionDigits: 2})}</strong></span>
+                <span>Leftover cash to return: <strong style={{ color: '#15803D' }}>{formatCurrency(variance)}</strong></span>
               ) : isOverspending ? (
-                <span>Amount to reimburse: <strong style={{ color: '#B91C1C' }}>₱{Math.abs(variance).toLocaleString('en-PH', {minimumFractionDigits: 2})}</strong></span>
+                <span>Amount to reimburse: <strong style={{ color: '#B91C1C' }}>{formatCurrency(Math.abs(variance))}</strong></span>
               ) : (
                 <span>Expenses exactly match the cash advance. No variance.</span>
               )}

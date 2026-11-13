@@ -1,3 +1,5 @@
+using ClosedXML.Excel;
+using FOMS.Application.DTOs;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -97,11 +99,13 @@ public class InvoicesController : ApiControllerBase
 {
     private readonly IApplicationDbContext _context;
     private readonly FomsDbContext _fomsDb;
+    private readonly ICeoApprovalGateService? _gateService;
 
-    public InvoicesController(IApplicationDbContext context, FomsDbContext fomsDb)
+    public InvoicesController(IApplicationDbContext context, FomsDbContext fomsDb, ICeoApprovalGateService? gateService = null)
     {
         _context = context;
         _fomsDb = fomsDb;
+        _gateService = gateService;
     }
 
     private bool CanViewInvoice(Invoice invoice) =>
@@ -717,6 +721,16 @@ public class InvoicesController : ApiControllerBase
                 return BadRequest(new { message = discountError });
             }
 
+            if (_gateService != null)
+            {
+                string discountItemId = invNo;
+                var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, discountItemId, discountAmount);
+                if (!gateCheck.IsSatisfied)
+                {
+                    return BadRequest(new { message = $"Invoice discount strictly requires an in-person CEO/President approval record for item '{discountItemId}'. Record CEO approval before applying discount." });
+                }
+            }
+
             if (discountRate > 0m && discountAmount == 0m)
             {
                 discountAmount = Math.Round(grossTotal * discountRate, 2);
@@ -1008,7 +1022,16 @@ public class InvoicesController : ApiControllerBase
                     break;
 
                 case "verify":
+                    if (_gateService != null && (invoice.DiscountAmount > 0m || invoice.DiscountRate > 0m))
+                    {
+                        var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, invoice.InvoiceNo, invoice.DiscountAmount);
+                        if (!gateCheck.IsSatisfied)
+                        {
+                            return BadRequest(new { message = $"Invoice discount strictly requires an in-person CEO/President approval record for invoice '{invoice.InvoiceNo}'. Record CEO approval before verifying/approving invoice." });
+                        }
+                    }
                     invoice.Verify(userId, role);
+                    await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
                     break;
 
                 case "return":
@@ -1022,14 +1045,22 @@ public class InvoicesController : ApiControllerBase
                     break;
 
                 case "approve":
+                    if (_gateService != null && (invoice.DiscountAmount > 0m || invoice.DiscountRate > 0m))
+                    {
+                        var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, invoice.InvoiceNo, invoice.DiscountAmount);
+                        if (!gateCheck.IsSatisfied)
+                        {
+                            return BadRequest(new { message = $"Invoice discount strictly requires an in-person CEO/President approval record for invoice '{invoice.InvoiceNo}'. Record CEO approval before approving invoice." });
+                        }
+                    }
                     invoice.Approve(userId, role);
-                    await BillingComputationService.RecognizeAccrualRevenueAsync(invoice, _context);
                     await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
                     break;
 
                 case "send":
                 case "dispatch":
                     invoice.Send(userId, role);
+                    await BillingComputationService.RecognizeAccrualRevenueAsync(invoice, _context);
                     await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
                     break;
 
@@ -1053,14 +1084,10 @@ public class InvoicesController : ApiControllerBase
                     break;
 
                 case "void":
-                    if (oldStatus == InvoiceDocumentStatus.Approved)
+                    invoice.Void(userId, role, reason);
+                    if (invoice.AccrualRevenueRecognized)
                     {
-                        invoice.Void(userId, role, reason);
                         await BillingComputationService.ReverseAccrualRevenueAsync(invoice, _context, reason);
-                    }
-                    else
-                    {
-                        invoice.Void(userId, role, reason);
                     }
 
                     // Release waybills locked to this invoice so they can be re-billed
@@ -1319,53 +1346,132 @@ public class InvoicesController : ApiControllerBase
 
     [Authorize]
     [HttpGet("aging-report/export")]
-    public async Task<IActionResult> ExportAgingReportExcel([FromQuery] int dueSoonDays = 7)
+    public async Task<IActionResult> ExportAgingReportExcel([FromQuery] int dueSoonDays = 7, [FromQuery] string? format = "xlsx")
     {
         var invoices = await _context.Invoices
-            .Where(i => !i.Archived && i.Balance > 0 && i.DocumentStatus != "Voided")
+            .Where(i => !i.Archived && i.Balance > 0 && i.DocumentStatus != "Void" && i.DocumentStatus != "Voided")
             .ToListAsync();
 
-        var sb = new StringBuilder();
-        // UTF-8 BOM for Excel compatibility
-        sb.Append('\uFEFF');
-        sb.AppendLine("WEEKLY ACCOUNTS RECEIVABLE AGING REPORT");
-        sb.AppendLine($"As of Date: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine();
-        sb.AppendLine("Client ID,Client Name,Invoice No,Document Status,Payment Status,Billing Date,Due Date,Total Amount,Balance,Derived Aging Bucket,Disputed,Dispute Reason");
+        if (string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase))
+        {
+            var sb = new StringBuilder();
+            sb.Append('\uFEFF');
+            sb.AppendLine("WEEKLY ACCOUNTS RECEIVABLE AGING REPORT");
+            sb.AppendLine($"As of Date: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+            sb.AppendLine();
+            sb.AppendLine("Client ID,Client Name,Invoice No,Document Status,Payment Status,Billing Date,Due Date,Total Amount,Balance,Derived Aging Bucket,Disputed,Dispute Reason");
 
-        decimal totalBal = 0m, notYetDueBal = 0m, dueSoonBal = 0m, b1Bal = 0m, b31Bal = 0m, b61Bal = 0m, b90Bal = 0m;
+            decimal totalBal = 0m, notYetDueBal = 0m, dueSoonBal = 0m, b1Bal = 0m, b31Bal = 0m, b61Bal = 0m, b90Bal = 0m;
+            foreach (var inv in invoices)
+            {
+                var bucket = BillingComputationService.ComputeDerivedAgingBucket(inv.DueDate, dueSoonDays);
+                var bal = inv.Balance;
+                totalBal += bal;
+
+                switch (bucket)
+                {
+                    case "Not Yet Due": notYetDueBal += bal; break;
+                    case "Due Soon": dueSoonBal += bal; break;
+                    case "1-30": b1Bal += bal; break;
+                    case "31-60": b31Bal += bal; break;
+                    case "61-90": b61Bal += bal; break;
+                    case "90+": b90Bal += bal; break;
+                }
+
+                sb.AppendLine($"\"{inv.ClientId}\",\"{inv.ClientName}\",\"{inv.InvoiceNo}\",\"{inv.DocumentStatus ?? "Draft"}\",\"{inv.PaymentStatus ?? "Unpaid"}\",\"{inv.BillingDate}\",\"{inv.DueDate}\",{inv.TotalAmount:F2},{inv.Balance:F2},\"{bucket}\",\"{(inv.IsDisputed ? "YES" : "NO")}\",\"{inv.DisputeReasonCode ?? ""}\"");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine($"SUMMARY TOTALS,,,,,,,,{totalBal:F2}");
+            sb.AppendLine($"Not Yet Due: {notYetDueBal:F2}");
+            sb.AppendLine($"Due Soon: {dueSoonBal:F2}");
+            sb.AppendLine($"1-30 Days Overdue: {b1Bal:F2}");
+            sb.AppendLine($"31-60 Days Overdue: {b31Bal:F2}");
+            sb.AppendLine($"61-90 Days Overdue: {b61Bal:F2}");
+            sb.AppendLine($"90+ Days Overdue: {b90Bal:F2}");
+
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            return File(bytes, "text/csv; charset=utf-8", $"Weekly_AR_Aging_Report_{DateTime.UtcNow:yyyyMMdd}.csv");
+        }
+
+        // Default export as real Excel (.xlsx) per ARC-04
+        using var workbook = new XLWorkbook();
+        var ws = workbook.Worksheets.Add("AR Aging Report");
+        ws.Cell(1, 1).Value = "WEEKLY ACCOUNTS RECEIVABLE AGING REPORT";
+        ws.Cell(1, 1).Style.Font.Bold = true;
+        ws.Cell(1, 1).Style.Font.FontSize = 14;
+        ws.Cell(2, 1).Value = $"As of Date: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC";
+
+        var headers = new[]
+        {
+            "Client ID", "Client Name", "Invoice No", "Document Status", "Payment Status",
+            "Billing Date", "Due Date", "Total Amount", "Balance", "Derived Aging Bucket",
+            "Disputed", "Dispute Reason"
+        };
+        for (int c = 0; c < headers.Length; c++)
+        {
+            ws.Cell(4, c + 1).Value = headers[c];
+            ws.Cell(4, c + 1).Style.Font.Bold = true;
+            ws.Cell(4, c + 1).Style.Fill.BackgroundColor = XLColor.FromHtml("#F1F5F9");
+        }
+
+        int row = 5;
+        decimal totalBalXlsx = 0m, notYetDueBalXlsx = 0m, dueSoonBalXlsx = 0m, b1BalXlsx = 0m, b31BalXlsx = 0m, b61BalXlsx = 0m, b90BalXlsx = 0m;
 
         foreach (var inv in invoices)
         {
             var bucket = BillingComputationService.ComputeDerivedAgingBucket(inv.DueDate, dueSoonDays);
             var bal = inv.Balance;
-            totalBal += bal;
+            totalBalXlsx += bal;
 
             switch (bucket)
             {
-                case "Not Yet Due": notYetDueBal += bal; break;
-                case "Due Soon": dueSoonBal += bal; break;
-                case "1-30": b1Bal += bal; break;
-                case "31-60": b31Bal += bal; break;
-                case "61-90": b61Bal += bal; break;
-                case "90+": b90Bal += bal; break;
+                case "Not Yet Due": notYetDueBalXlsx += bal; break;
+                case "Due Soon": dueSoonBalXlsx += bal; break;
+                case "1-30": b1BalXlsx += bal; break;
+                case "31-60": b31BalXlsx += bal; break;
+                case "61-90": b61BalXlsx += bal; break;
+                case "90+": b90BalXlsx += bal; break;
             }
 
-            sb.AppendLine($"\"{inv.ClientId}\",\"{inv.ClientName}\",\"{inv.InvoiceNo}\",\"{inv.DocumentStatus ?? "Draft"}\",\"{inv.PaymentStatus ?? "Unpaid"}\",\"{inv.BillingDate}\",\"{inv.DueDate}\",{inv.TotalAmount:F2},{inv.Balance:F2},\"{bucket}\",\"{(inv.IsDisputed ? "YES" : "NO")}\",\"{inv.DisputeReasonCode ?? ""}\"");
+            ws.Cell(row, 1).Value = inv.ClientId;
+            ws.Cell(row, 2).Value = inv.ClientName ?? "";
+            ws.Cell(row, 3).Value = inv.InvoiceNo;
+            ws.Cell(row, 4).Value = inv.DocumentStatus ?? "Draft";
+            ws.Cell(row, 5).Value = inv.PaymentStatus ?? "Unpaid";
+            ws.Cell(row, 6).Value = inv.BillingDate ?? "";
+            ws.Cell(row, 7).Value = inv.DueDate ?? "";
+            ws.Cell(row, 8).Value = inv.TotalAmount;
+            ws.Cell(row, 9).Value = inv.Balance;
+            ws.Cell(row, 10).Value = bucket;
+            ws.Cell(row, 11).Value = inv.IsDisputed ? "YES" : "NO";
+            ws.Cell(row, 12).Value = inv.DisputeReasonCode ?? "";
+            row++;
         }
 
-        sb.AppendLine();
-        sb.AppendLine($"SUMMARY TOTALS,,,,,,,,{totalBal:F2}");
-        sb.AppendLine($"Not Yet Due: {notYetDueBal:F2}");
-        sb.AppendLine($"Due Soon: {dueSoonBal:F2}");
-        sb.AppendLine($"1-30 Days Overdue: {b1Bal:F2}");
-        sb.AppendLine($"31-60 Days Overdue: {b31Bal:F2}");
-        sb.AppendLine($"61-90 Days Overdue: {b61Bal:F2}");
-        sb.AppendLine($"90+ Days Overdue: {b90Bal:F2}");
+        row++;
+        ws.Cell(row, 8).Value = "TOTAL OUTSTANDING:";
+        ws.Cell(row, 8).Style.Font.Bold = true;
+        ws.Cell(row, 9).Value = totalBalXlsx;
+        ws.Cell(row, 9).Style.Font.Bold = true;
 
-        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
-        var fileName = $"Weekly_AR_Aging_Report_{DateTime.UtcNow:yyyyMMdd}.csv";
-        return File(bytes, "text/csv; charset=utf-8", fileName);
+        row += 2;
+        ws.Cell(row, 1).Value = "Aging Summary";
+        ws.Cell(row, 1).Style.Font.Bold = true;
+        ws.Cell(row + 1, 1).Value = "Not Yet Due"; ws.Cell(row + 1, 2).Value = notYetDueBalXlsx;
+        ws.Cell(row + 2, 1).Value = "Due Soon"; ws.Cell(row + 2, 2).Value = dueSoonBalXlsx;
+        ws.Cell(row + 3, 1).Value = "1-30 Days Overdue"; ws.Cell(row + 3, 2).Value = b1BalXlsx;
+        ws.Cell(row + 4, 1).Value = "31-60 Days Overdue"; ws.Cell(row + 4, 2).Value = b31BalXlsx;
+        ws.Cell(row + 5, 1).Value = "61-90 Days Overdue"; ws.Cell(row + 5, 2).Value = b61BalXlsx;
+        ws.Cell(row + 6, 1).Value = "90+ Days Overdue"; ws.Cell(row + 6, 2).Value = b90BalXlsx;
+
+        ws.Columns().AdjustToContents();
+
+        using var ms = new MemoryStream();
+        workbook.SaveAs(ms);
+        var fileBytes = ms.ToArray();
+        var fileName = $"Weekly_AR_Aging_Report_{DateTime.UtcNow:yyyyMMdd}.xlsx";
+        return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
     // ─────────────────────────────────────────────────────────────────

@@ -31,6 +31,7 @@ export default function LiquidationValidation() {
 
   const [remarks, setRemarks] = useState('');
   const [reviewDecision, setReviewDecision] = useState('Validate Liquidation');
+  const [rejectionReason, setRejectionReason] = useState('wrong receipt date or amount');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<{ name: string; url: string; size: string } | null>(null);
 
@@ -356,7 +357,7 @@ export default function LiquidationValidation() {
       doc.setTextColor(100, 116, 139);
       doc.text('Cash Advance Released:', 113, 46);
       doc.text('Actual Liquidated Expenses:', 113, 51);
-      doc.text(leftover > 0 ? 'Leftover Refund to Cashier:' : reimb > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Balance:', 113, 56);
+      doc.text(leftover > 0 ? 'Leftover Cash Return to Cashier:' : reimb > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Balance:', 113, 56);
       doc.text('Audited Receipts:', 113, 61);
 
       doc.setFont('helvetica', 'bold');
@@ -822,7 +823,7 @@ export default function LiquidationValidation() {
       <div class="info-row"><span class="info-label">Cash Advance Released:</span> <span class="info-val">${formatCurrency(cashAdv)}</span></div>
       <div class="info-row"><span class="info-label">Actual Liquidated Expenses:</span> <span class="info-val" style="color: #0D9488;">${formatCurrency(totalExp)}</span></div>
       <div class="info-row" style="border-top: 1px dashed #CBD5E1; margin-top: 4px; padding-top: 4px;">
-        <span class="info-label">${leftover > 0 ? 'Leftover Refund to Cashier:' : reimb > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Variance:'}</span>
+        <span class="info-label">${leftover > 0 ? 'Leftover Cash Return to Cashier:' : reimb > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Variance:'}</span>
         <span class="info-val fin-highlight" style="color: ${leftover > 0 ? '#166534' : reimb > 0 ? '#B45309' : '#0F172A'};">
           ${formatCurrency(leftover || reimb || 0)}
         </span>
@@ -965,13 +966,21 @@ export default function LiquidationValidation() {
 
   const handleReject = async () => {
     if (!viewRecord) return;
-    if (!remarks.trim()) {
-      toast.error('Please enter remarks for rejection.');
+    if (rejectionReason === 'other with remarks' && !remarks.trim()) {
+      toast.error('Please enter remarks when selecting other with remarks.');
       return;
     }
 
     try {
-      await liquidationsService.update(viewRecord.id, { status: 'Returned', remarks });
+      const finalRemarks = rejectionReason === 'other with remarks'
+        ? remarks.trim()
+        : (remarks.trim() ? `${rejectionReason}: ${remarks.trim()}` : rejectionReason);
+
+      await liquidationsService.update(viewRecord.id, {
+        status: 'For Correction',
+        rejectionReason,
+        remarks: finalRemarks
+      });
 
       await auditLogsService.create({
         userId: user?.employeeId || 'System',
@@ -982,7 +991,7 @@ export default function LiquidationValidation() {
         recordId: viewRecord.id,
         recordType: 'Liquidation',
         ipAddress: '127.0.0.1',
-        details: `Liquidation returned. Reason: ${remarks}`,
+        details: `Liquidation returned for correction. Reason: ${rejectionReason}. ${remarks || ''}`.trim(),
         timestamp: new Date().toISOString()
       });
 
@@ -1205,9 +1214,9 @@ export default function LiquidationValidation() {
               )}
 
               {/* Review Decision & Actions */}
-              {viewRecord.status === 'Pending Validation' ? (
+              {(viewRecord.status === 'Pending Validation' || viewRecord.status === 'Endorsed') ? (
                 <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '16px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: '12px', marginBottom: '14px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: reviewDecision === 'Return for Correction' ? '220px 220px 1fr' : '240px 1fr', gap: '12px', marginBottom: '14px' }}>
                     <div>
                       <label style={{ display: 'block', fontSize: '11.5px', color: '#475569', fontWeight: 700, marginBottom: '4px' }}>
                         Review Decision
@@ -1222,9 +1231,26 @@ export default function LiquidationValidation() {
                         <option value="Return for Correction">Return for correction</option>
                       </select>
                     </div>
+                    {reviewDecision === 'Return for Correction' && (
+                      <div>
+                        <label style={{ display: 'block', fontSize: '11.5px', color: '#475569', fontWeight: 700, marginBottom: '4px' }}>
+                          Rejection Reason
+                        </label>
+                        <select
+                          value={rejectionReason}
+                          onChange={(e) => setRejectionReason(e.target.value)}
+                          style={{ width: '100%', height: '38px', padding: '0 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '12.5px', fontWeight: 600, color: '#0F172A', outline: 'none', background: '#fff' }}
+                        >
+                          <option value="wrong receipt date or amount">wrong receipt date or amount</option>
+                          <option value="manual fuel receipt">manual fuel receipt</option>
+                          <option value="late submission">late submission</option>
+                          <option value="other with remarks">other with remarks</option>
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label style={{ display: 'block', fontSize: '11.5px', color: '#475569', fontWeight: 700, marginBottom: '4px' }}>
-                        Remarks / Validation Notes (Optional)
+                        Remarks {reviewDecision === 'Return for Correction' && rejectionReason === 'other with remarks' ? '(Required)' : '(Optional)'}
                       </label>
                       <input
                         type="text"
@@ -1369,7 +1395,7 @@ export default function LiquidationValidation() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', lineHeight: 2, borderTop: '1px dashed #CBD5E1', marginTop: '4px', paddingTop: '4px' }}>
                       <span style={{ color: (printVoucherRecord.leftoverCash || 0) > 0 ? '#166534' : (printVoucherRecord.reimbursementAmount || 0) > 0 ? '#B45309' : '#64748B', fontWeight: 700 }}>
-                        {(printVoucherRecord.leftoverCash || 0) > 0 ? 'Leftover Refund to Cashier:' : (printVoucherRecord.reimbursementAmount || 0) > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Variance:'}
+                        {(printVoucherRecord.leftoverCash || 0) > 0 ? 'Leftover Cash Return to Cashier:' : (printVoucherRecord.reimbursementAmount || 0) > 0 ? 'Reimbursement Due (Abono):' : 'Reconciliation Variance:'}
                       </span>
                       <span style={{ fontSize: '15px', fontWeight: 800, color: (printVoucherRecord.leftoverCash || 0) > 0 ? '#166534' : (printVoucherRecord.reimbursementAmount || 0) > 0 ? '#B45309' : '#0F172A' }}>
                         {formatCurrency(printVoucherRecord.leftoverCash || printVoucherRecord.reimbursementAmount || 0)}

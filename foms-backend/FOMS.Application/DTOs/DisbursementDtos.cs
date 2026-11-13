@@ -9,14 +9,21 @@ public static class DisbursementCategories
     public static readonly HashSet<string> AllowedCategories = new(StringComparer.OrdinalIgnoreCase)
     {
         "Fuel",
+        "Toll Fees",
         "Toll",
         "Parking",
+        "Food Allowance",
         "Food allowance",
         "Vulcanizing",
         "Repairs and Maintenance",
+        "Hotel",
         "Lodging",
-        "Transportation",
+        "Branch Visits",
+        "Branch Visit",
+        "Office Supplies",
         "Supplies",
+        "Transportation",
+        "Other",
         "Branch Visit - Lodging",
         "Branch Visit - Transportation",
         "Branch Visit - Supplies",
@@ -35,18 +42,27 @@ public static class DisbursementCategories
 
 public static class LiquidationRejectionReasons
 {
-    public const string WrongReceiptDateOrAmount = "wrong receipt date/amount";
+    public const string WrongReceiptDateOrAmount = "wrong receipt date or amount";
     public const string ManualFuelReceipt = "manual fuel receipt";
     public const string LateSubmission = "late submission";
-    public const string OtherRemarks = "other (remarks)";
+    public const string OtherRemarks = "other with remarks";
 
     public static readonly string[] ValidReasons = new[]
     {
         WrongReceiptDateOrAmount,
+        "wrong receipt date/amount",
         ManualFuelReceipt,
         LateSubmission,
-        OtherRemarks
+        OtherRemarks,
+        "other (remarks)"
     };
+
+    public static bool IsValid(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) return false;
+        var r = reason.Trim().ToLowerInvariant();
+        return ValidReasons.Any(v => v.Equals(r, StringComparison.OrdinalIgnoreCase));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +77,7 @@ public class RequestCashAdvanceDto
     [Range(0.01, 100000000, ErrorMessage = "Amount must be greater than zero.")]
     public decimal Amount { get; set; }
     [Required]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
     [Required]
     public string Category { get; set; } = "Fuel";
     public string LocationType { get; set; } = "NCR"; // NCR, Luzon, Out-of-Area
@@ -101,7 +117,7 @@ public class CashAdvanceResponseDto
 public class RequestDirectDisbursementDto
 {
     [Required]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
     [Required]
     public string Category { get; set; } = "Repairs and Maintenance";
     [Range(0.01, 100000000)]
@@ -143,7 +159,7 @@ public class SubmitReimbursementDto
     [Required]
     public string EmployeeName { get; set; } = string.Empty;
     [Required]
-    public string DepartmentCode { get; set; } = "DEP-OPS";
+    public string DepartmentCode { get; set; } = string.Empty;
     [Required]
     public string Category { get; set; } = "Food allowance";
     [Range(0.01, 100000000)]
@@ -214,8 +230,9 @@ public class RejectLiquidationDto
 {
     public int LiquidationId { get; set; }
     [Required]
-    public string Reason { get; set; } = string.Empty; // wrong receipt date/amount, manual fuel receipt, late submission, other (remarks)
+    public string Reason { get; set; } = string.Empty; // wrong receipt date or amount, manual fuel receipt, late submission, other with remarks
     public string? Remarks { get; set; }
+    public string? Status { get; set; } // Optional: "Rejected" (default) or "For Correction"
 }
 
 public class LiquidationResponseDto

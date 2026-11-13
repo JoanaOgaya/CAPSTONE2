@@ -5,8 +5,10 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using FOMS.Api.Controllers;
+using FOMS.Application.Interfaces;
 using FOMS.Application.Services;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
@@ -377,26 +379,51 @@ public class FinanceManagerBackendIntegrationTests
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // TC-015: Adjustment Approval page
-    // Expected: Data from FinancialAdjustments table and approve action.
+    // TC-015: Adjustment Approval page (updated per R4.11 q4 / FIN-23)
+    // Finance Manager approval is now rejected (403) — HA-only rule.
+    // The FM route delegates to ApproveAdjustmentCommandHandler which enforces HA-only.
     // ─────────────────────────────────────────────────────────────────────────
     [Fact]
-    public async Task TC015_ApproveAdjustment_ShouldUpdateStatus()
+    public async Task TC015_ApproveAdjustment_FinanceManager_IsRejectedWith403()
     {
         using var db = CreateInMemoryDbContext();
-        db.FinancialAdjustments.Add(new FinancialAdjustment
+        using var appDb = CreateApplicationInMemoryDbContext();
+
+        // Seed a Pending PaymentAdjustment with string Id "1" so the handler gets past
+        // the null-check and reaches the role check (which then rejects FM with 403).
+        appDb.PaymentAdjustments.Add(new FOMS.Domain.Entities.PaymentAdjustment
         {
-            AdjustmentId = 1,
+            Id = "1",
+            InvoiceNo = "INV-001",
+            AdjustmentType = "Credit",
             Amount = 2000m,
+            Reason = "TC015 test",
+            AdjustedBy = "EMP-001",
             Status = "Pending"
         });
-        await db.SaveChangesAsync();
+        await appDb.SaveChangesAsync();
 
-        var controller = new FinanceManagerController(db);
-        var root = ToJsonElement(await controller.ApproveAdjustment(1));
+        // Wire up IApplicationDbContext so HttpContext.RequestServices can resolve it
+        var services = new ServiceCollection();
+        services.AddSingleton<IApplicationDbContext>(appDb);
+        var sp = services.BuildServiceProvider();
 
-        Assert.True(root.GetProperty("success").GetBoolean());
-        Assert.Equal("Approved", root.GetProperty("data").GetProperty("Status").GetString());
+        var controller = new FinanceManagerController(db)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = CreateFinanceManagerPrincipal(),
+                    RequestServices = sp
+                }
+            }
+        };
+
+        // Handler rejects FM because role is not Head Accountant (UnauthorizedAccessException → 403)
+        var result = await controller.ApproveAdjustment(1);
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(403, statusResult.StatusCode);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

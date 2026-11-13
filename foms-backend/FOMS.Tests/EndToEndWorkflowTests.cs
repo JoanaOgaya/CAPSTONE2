@@ -376,6 +376,18 @@ public class EndToEndWorkflowTests
             IsActive = true
         });
 
+        context.CeoApprovalThresholdSettings.Add(new CeoApprovalThresholdSetting
+        {
+            SettingId = 1,
+            SettingKey = "CSH-09_CEO_THRESHOLD",
+            ThresholdAmount = 10000.00m,
+            Currency = "PHP",
+            EffectiveFrom = DateTime.UtcNow.AddYears(-1),
+            IsActive = true,
+            UpdatedBy = "EMP-001",
+            UpdatedAt = DateTime.UtcNow.AddYears(-1)
+        });
+
         // Seed Go-Live Opening Balances
         context.GoLiveOpeningBalances.AddRange(
             new GoLiveOpeningBalance { AccountCode = "101", AccountName = "Cash in Bank", Debit = 300000m, Credit = 0m, DepartmentCode = "DEP-FIN", Category = "Cash" },
@@ -411,13 +423,22 @@ public class EndToEndWorkflowTests
         Assert.Equal(15000m, lineAfterCaApprove.CommittedAmount);
         Assert.Equal(85000m, lineAfterCaApprove.Available);
 
-        // Release: Above CSH-09 threshold requires CEO/President
-        // Non-CEO release attempt fails!
+        // Release: Above CSH-09 threshold requires CEO/President approval record
+        // Non-approved release attempt fails!
         await Assert.ThrowsAsync<UnauthorizedAccessException>(
             () => disbService.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-001", "Finance Manager"));
 
-        // CEO releases advance -> Outflow executed
-        var releasedCa = await disbService.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-099", "CEO");
+        // FM records in-person CEO approval record, then releases advance (IAM-07 to IAM-10)
+        var gateService = new CeoApprovalGateService(context);
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.CashOutflow,
+            ItemId = ca.AdvanceId,
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        var releasedCa = await disbService.ReleaseCashAdvanceAsync(ca.AdvanceId, "EMP-001", "Finance Manager");
         Assert.Equal("Released", releasedCa.Status);
 
         // ── Step 3: Liquidation ──
@@ -517,11 +538,21 @@ public class EndToEndWorkflowTests
         Assert.Equal(5000m, cashFlow.OutflowsPaidReimbursements);
         Assert.Equal(283000m, cashFlow.EndingNetCash); // 300k + 3k - 15k - 5k = 283,000
 
-        // Governance Approvals: FM reviews, CEO approves annual
+        // Governance Approvals: FM reviews, in-person CEO approval record entered, then approved
         var pkgReviewed = await statementService.ReviewAfsPackageAsync(2026, "Year", 1, "EMP-001", "Finance Manager");
         Assert.Equal("Reviewed", pkgReviewed.Status);
 
-        var pkgApproved = await statementService.ApproveAfsPackageAsync(2026, "Year", 1, "EMP-099", "CEO");
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualFinancialStatement,
+            ItemId = "2026",
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date,
+            AttachmentBytes = System.Text.Encoding.UTF8.GetBytes("%PDF-1.4 Audited Financial Statements"),
+            AttachmentFileName = "audited_afs_2026.pdf"
+        }, "EMP-001", "Finance Manager");
+
+        var pkgApproved = await statementService.ApproveAfsPackageAsync(2026, "Year", 1, "EMP-001", "Finance Manager");
         Assert.Equal("Approved", pkgApproved.Status);
 
         // Attach audited AFS as file reference only

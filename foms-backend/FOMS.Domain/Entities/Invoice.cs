@@ -7,29 +7,52 @@ namespace FOMS.Domain.Entities;
 public static class InvoiceDocumentStatus
 {
     public const string Draft = "Draft";
-    public const string PendingHaVerification = "Pending HA Verification";
-    public const string PendingFmApproval = "Pending FM Approval";
-    public const string ReturnedToCreator = "Returned to Creator";
-    public const string ReturnedToHa = "Returned to HA";
+    public const string ForReview = "For Review";
     public const string Approved = "Approved";
     public const string Sent = "Sent";
     public const string Received = "Received";
     public const string Disputed = "Disputed";
     public const string Void = "Void";
 
+    // Legacy statuses for backward compatibility during transition
+    [Obsolete("Use ForReview instead")]
+    public const string PendingHaVerification = "Pending HA Verification";
+    [Obsolete("Use ForReview instead")]
+    public const string PendingFmApproval = "Pending FM Approval";
+    [Obsolete("Use Draft instead")]
+    public const string ReturnedToCreator = "Returned to Creator";
+    [Obsolete("Use ForReview instead")]
+    public const string ReturnedToHa = "Returned to HA";
+
     public static readonly string[] AllCanonical = new[]
     {
         Draft,
-        PendingHaVerification,
-        PendingFmApproval,
-        ReturnedToCreator,
-        ReturnedToHa,
+        ForReview,
         Approved,
         Sent,
         Received,
         Disputed,
         Void
     };
+
+    public static string Normalize(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status)) return Draft;
+        var trimmed = status.Trim();
+        if (trimmed.Equals(PendingHaVerification, StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals(PendingFmApproval, StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals(ReturnedToHa, StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("Pending Approval", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("Pending", StringComparison.OrdinalIgnoreCase))
+        {
+            return ForReview;
+        }
+        if (trimmed.Equals(ReturnedToCreator, StringComparison.OrdinalIgnoreCase))
+        {
+            return Draft;
+        }
+        return trimmed;
+    }
 }
 
 public static class InvoicePaymentStatus
@@ -157,10 +180,11 @@ public class Invoice
         if (!InvoiceRole.IsStaff(actorRole, actorId))
             throw new UnauthorizedAccessException("Only Staff (EMP-003) can submit an invoice for verification.");
 
-        if (DocumentStatus != InvoiceDocumentStatus.Draft)
+        var normStatus = InvoiceDocumentStatus.Normalize(DocumentStatus);
+        if (normStatus != InvoiceDocumentStatus.Draft)
             throw new InvalidOperationException($"Cannot submit invoice in status '{DocumentStatus}'. Only Draft invoices can be submitted.");
 
-        DocumentStatus = InvoiceDocumentStatus.PendingHaVerification;
+        DocumentStatus = InvoiceDocumentStatus.ForReview;
         LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss");
         UpdatedBy = actorId;
     }
@@ -168,21 +192,20 @@ public class Invoice
     public void Resubmit(string actorId, string actorRole)
     {
         EnsureNotAssistantFm(actorRole, actorId);
-        if (DocumentStatus == InvoiceDocumentStatus.ReturnedToHa)
-        {
-            if (!InvoiceRole.IsHeadAccountant(actorRole, actorId))
-                throw new UnauthorizedAccessException("Only Head Accountant (EMP-002) can resubmit an invoice returned to HA.");
-            DocumentStatus = InvoiceDocumentStatus.PendingFmApproval;
-        }
-        else if (DocumentStatus == InvoiceDocumentStatus.ReturnedToCreator)
+        var normStatus = InvoiceDocumentStatus.Normalize(DocumentStatus);
+        if (normStatus == InvoiceDocumentStatus.Draft)
         {
             if (!InvoiceRole.IsStaff(actorRole, actorId))
                 throw new UnauthorizedAccessException("Only Staff (EMP-003) can resubmit a returned invoice.");
-            DocumentStatus = InvoiceDocumentStatus.PendingHaVerification;
+            DocumentStatus = InvoiceDocumentStatus.ForReview;
+        }
+        else if (normStatus == InvoiceDocumentStatus.ForReview)
+        {
+            DocumentStatus = InvoiceDocumentStatus.ForReview;
         }
         else
         {
-            throw new InvalidOperationException($"Cannot resubmit invoice in status '{DocumentStatus}'. Only invoices in 'Returned to Creator' or 'Returned to HA' can be resubmitted.");
+            throw new InvalidOperationException($"Cannot resubmit invoice in status '{DocumentStatus}'. Only invoices in 'Draft' (or returned) can be resubmitted.");
         }
         LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss");
         UpdatedBy = actorId;
@@ -191,17 +214,25 @@ public class Invoice
     public void Verify(string actorId, string actorRole)
     {
         EnsureNotAssistantFm(actorRole, actorId);
-        if (!InvoiceRole.IsHeadAccountant(actorRole, actorId))
-            throw new UnauthorizedAccessException("Only Head Accountant (EMP-002) can verify an invoice.");
+        bool isHa = InvoiceRole.IsHeadAccountant(actorRole, actorId);
+        bool isFm = InvoiceRole.IsFinanceManager(actorRole, actorId);
 
+        if (!isHa && !isFm)
+            throw new UnauthorizedAccessException("Only Head Accountant (EMP-002) or Finance Manager (EMP-001) can verify an invoice.");
+
+        // Option 1 Approved: If Head Accountant created the invoice, HA cannot verify own invoice (SoD violation).
+        // Finance Manager verifies and approves in this edge case to prevent deadlock.
         EnsureNotSelf(actorId, "verify");
 
-        if (DocumentStatus != InvoiceDocumentStatus.PendingHaVerification && DocumentStatus != InvoiceDocumentStatus.ReturnedToHa)
-            throw new InvalidOperationException($"Cannot verify invoice in status '{DocumentStatus}'. Invoice must be in 'Pending HA Verification' or 'Returned to HA'.");
+        var normStatus = InvoiceDocumentStatus.Normalize(DocumentStatus);
+        if (normStatus != InvoiceDocumentStatus.ForReview)
+            throw new InvalidOperationException($"Cannot verify invoice in status '{DocumentStatus}'. Invoice must be in 'For Review'.");
 
-        DocumentStatus = InvoiceDocumentStatus.PendingFmApproval;
+        DocumentStatus = InvoiceDocumentStatus.Approved;
         VerifiedBy = actorId;
         VerifiedAt = DateTime.UtcNow;
+        ApprovedBy = actorId;
+        ApprovedAt = DateTime.UtcNow;
         LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss");
         UpdatedBy = actorId;
     }
@@ -209,18 +240,19 @@ public class Invoice
     public void ReturnToCreator(string actorId, string actorRole, string reason)
     {
         EnsureNotAssistantFm(actorRole, actorId);
-        if (!InvoiceRole.IsHeadAccountant(actorRole, actorId))
-            throw new UnauthorizedAccessException("Only Head Accountant (EMP-002) can return an invoice to creator.");
+        if (!InvoiceRole.IsHeadAccountant(actorRole, actorId) && !InvoiceRole.IsFinanceManager(actorRole, actorId))
+            throw new UnauthorizedAccessException("Only Head Accountant (EMP-002) or Finance Manager (EMP-001) can return an invoice to creator.");
 
         EnsureNotSelf(actorId, "return to creator");
 
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("A return reason is required and mandatory when returning an invoice to creator.", nameof(reason));
 
-        if (DocumentStatus != InvoiceDocumentStatus.PendingHaVerification && DocumentStatus != InvoiceDocumentStatus.ReturnedToHa)
-            throw new InvalidOperationException($"Cannot return invoice in status '{DocumentStatus}' to creator.");
+        var normStatus = InvoiceDocumentStatus.Normalize(DocumentStatus);
+        if (normStatus != InvoiceDocumentStatus.ForReview)
+            throw new InvalidOperationException($"Cannot return invoice in status '{DocumentStatus}' to creator. Invoice must be in 'For Review'.");
 
-        DocumentStatus = InvoiceDocumentStatus.ReturnedToCreator;
+        DocumentStatus = InvoiceDocumentStatus.Draft;
         ReviewRejectionReason = reason;
         LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss");
         UpdatedBy = actorId;
@@ -237,10 +269,7 @@ public class Invoice
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("A return reason is mandatory when returning an invoice to Head Accountant.", nameof(reason));
 
-        if (DocumentStatus != InvoiceDocumentStatus.PendingFmApproval)
-            throw new InvalidOperationException($"Cannot return invoice in status '{DocumentStatus}' to Head Accountant. Invoice must be in 'Pending FM Approval'.");
-
-        DocumentStatus = InvoiceDocumentStatus.ReturnedToHa;
+        DocumentStatus = InvoiceDocumentStatus.ForReview;
         ReviewRejectionReason = reason;
         LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss");
         UpdatedBy = actorId;
@@ -249,13 +278,17 @@ public class Invoice
     public void Approve(string actorId, string actorRole)
     {
         EnsureNotAssistantFm(actorRole, actorId);
-        if (!InvoiceRole.IsFinanceManager(actorRole, actorId))
-            throw new UnauthorizedAccessException("Only Finance Manager (EMP-001) can approve an invoice.");
+        bool isFm = InvoiceRole.IsFinanceManager(actorRole, actorId);
+        bool isHa = InvoiceRole.IsHeadAccountant(actorRole, actorId);
+
+        if (!isFm && !isHa)
+            throw new UnauthorizedAccessException("Only Finance Manager (EMP-001) or Head Accountant (EMP-002) can approve an invoice.");
 
         EnsureNotSelf(actorId, "approve");
 
-        if (DocumentStatus != InvoiceDocumentStatus.PendingFmApproval)
-            throw new InvalidOperationException($"Cannot approve invoice in status '{DocumentStatus}'. Invoice must be in 'Pending FM Approval'.");
+        var normStatus = InvoiceDocumentStatus.Normalize(DocumentStatus);
+        if (normStatus != InvoiceDocumentStatus.ForReview)
+            throw new InvalidOperationException($"Cannot approve invoice in status '{DocumentStatus}'. Invoice must be in 'For Review'.");
 
         DocumentStatus = InvoiceDocumentStatus.Approved;
         ApprovedBy = actorId;
@@ -267,7 +300,7 @@ public class Invoice
     public void Send(string actorId, string actorRole)
     {
         EnsureNotAssistantFm(actorRole, actorId);
-        if (!InvoiceRole.IsStaff(actorRole, actorId))
+        if (!InvoiceRole.IsStaff(actorRole, actorId) && !InvoiceRole.IsFinanceManager(actorRole, actorId))
             throw new UnauthorizedAccessException("Only Staff (EMP-003) can dispatch/send an invoice.");
 
         if (DocumentStatus != InvoiceDocumentStatus.Approved)
@@ -282,7 +315,7 @@ public class Invoice
     public void MarkReceived(string actorId, string actorRole, DateTime? receivedDate = null)
     {
         EnsureNotAssistantFm(actorRole, actorId);
-        if (!InvoiceRole.IsStaff(actorRole, actorId))
+        if (!InvoiceRole.IsStaff(actorRole, actorId) && !InvoiceRole.IsFinanceManager(actorRole, actorId))
             throw new UnauthorizedAccessException("Only Staff (EMP-003) can record invoice receipt.");
 
         if (DocumentStatus != InvoiceDocumentStatus.Sent)
@@ -352,22 +385,18 @@ public class Invoice
         if (DocumentStatus == InvoiceDocumentStatus.Void)
             throw new InvalidOperationException("Invoice is already Void.");
 
-        if (DocumentStatus == InvoiceDocumentStatus.Approved)
+        var normStatus = InvoiceDocumentStatus.Normalize(DocumentStatus);
+        if (normStatus == InvoiceDocumentStatus.Draft ||
+            normStatus == InvoiceDocumentStatus.ForReview ||
+            normStatus == InvoiceDocumentStatus.Approved)
         {
-            if (!InvoiceRole.IsFinanceManager(actorRole, actorId))
-                throw new UnauthorizedAccessException("Only Finance Manager (EMP-001) can void an Approved invoice.");
+            bool isHa = InvoiceRole.IsHeadAccountant(actorRole, actorId);
+            bool isFm = InvoiceRole.IsFinanceManager(actorRole, actorId);
 
-            EnsureNotSelf(actorId, "void");
-        }
-        else if (DocumentStatus == InvoiceDocumentStatus.Draft ||
-                 DocumentStatus == InvoiceDocumentStatus.PendingHaVerification ||
-                 DocumentStatus == InvoiceDocumentStatus.PendingFmApproval ||
-                 DocumentStatus == InvoiceDocumentStatus.ReturnedToCreator ||
-                 DocumentStatus == InvoiceDocumentStatus.ReturnedToHa)
-        {
-            if (!InvoiceRole.IsHeadAccountant(actorRole, actorId))
-                throw new UnauthorizedAccessException("Only Head Accountant (EMP-002) can void pre-approval invoices.");
+            if (!isHa && !isFm)
+                throw new UnauthorizedAccessException("Only Head Accountant (EMP-002) or Finance Manager (EMP-001) can void pre-dispatch invoices.");
 
+            // Creator cannot void own invoice. If HA created, FM can void.
             EnsureNotSelf(actorId, "void");
         }
         else

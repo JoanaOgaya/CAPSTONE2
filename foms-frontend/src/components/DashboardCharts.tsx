@@ -13,6 +13,7 @@ import {
   Legend
 } from 'recharts';
 import { Card } from './Card';
+import { formatCurrency } from '../utils/format';
 
 const deliveryData = [
   { name: 'Mon', Deliveries: 45, Returned: 4, Failed: 2 },
@@ -213,7 +214,7 @@ export const AgingBarWidget: React.FC<{
 }) => {
   const [chartType, setChartType] = useState<'bar' | 'donut'>(defaultChartType);
   const total = data.reduce((sum, item) => sum + item.value, 0);
-  const displayTotal = totalAmount !== undefined ? totalAmount : `₱${total.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+  const displayTotal = totalAmount !== undefined ? totalAmount : formatCurrency(total);
   const activeDonutData = data.filter(d => d.value > 0);
 
   return (
@@ -340,7 +341,7 @@ export const AgingBarWidget: React.FC<{
                     background: '#FFFFFF'
                   }}
                   formatter={(value: any) => [
-                    `₱${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                    formatCurrency(Number(value)),
                     'Outstanding Balance'
                   ]}
                   labelStyle={{ fontWeight: 700, color: '#0F172A', marginBottom: 4 }}
@@ -376,7 +377,7 @@ export const AgingBarWidget: React.FC<{
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
                   itemStyle={{ fontSize: '13px', fontWeight: 600 }}
                   formatter={(value: any) => [
-                    `₱${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                    formatCurrency(Number(value)),
                     'Outstanding Balance'
                   ]}
                 />
@@ -405,7 +406,7 @@ export const AgingBarWidget: React.FC<{
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: item.color }} />
               <span style={{ fontSize: '12px', color: '#64748B', fontWeight: 500 }}>{item.name}:</span>
               <span style={{ fontSize: '12.5px', color: item.value > 0 ? '#0F172A' : '#94A3B8', fontWeight: item.value > 0 ? 700 : 500 }}>
-                ₱{item.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatCurrency(item.value)}
               </span>
             </div>
           ))}

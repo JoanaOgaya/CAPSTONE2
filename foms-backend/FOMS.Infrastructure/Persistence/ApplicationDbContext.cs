@@ -71,6 +71,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<FOMS.Domain.Entities.SqlServer.CashOutflow> CashOutflows => Set<FOMS.Domain.Entities.SqlServer.CashOutflow>();
     public DbSet<FOMS.Domain.Entities.SqlServer.Waybill> Waybills => Set<FOMS.Domain.Entities.SqlServer.Waybill>();
     public DbSet<FOMS.Domain.Entities.SqlServer.WaybillDuplicateAlert> WaybillDuplicateAlerts => Set<FOMS.Domain.Entities.SqlServer.WaybillDuplicateAlert>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdSetting> CeoApprovalThresholdSettings => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdSetting>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog> CeoApprovalThresholdChangeLogs => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalThresholdChangeLog>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord> CeoApprovalRecords => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalRecord>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation> CeoApprovalConfirmations => Set<FOMS.Domain.Entities.SqlServer.CeoApprovalConfirmation>();
+    public DbSet<FOMS.Domain.Entities.SqlServer.DepartmentChangeLog> DepartmentChangeLogs => Set<FOMS.Domain.Entities.SqlServer.DepartmentChangeLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -120,6 +125,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.PasswordHash).HasMaxLength(500).IsRequired();
             entity.Property(e => e.Phone).HasMaxLength(20);
             entity.Property(e => e.SalaryRate).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.Position).HasMaxLength(100);
+            entity.Property(e => e.MustChangePassword).HasDefaultValue(false);
+            entity.Property(e => e.IsTemporaryPassword).HasDefaultValue(false);
+            entity.Property(e => e.TemporaryPasswordExpiresAt);
 
             entity.HasIndex(e => e.Email).IsUnique();
             entity.HasIndex(e => e.Username).IsUnique();

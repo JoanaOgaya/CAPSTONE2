@@ -9,6 +9,21 @@ namespace FOMS.Infrastructure.Persistence;
 
 public static class ApplicationDbContextSeed
 {
+    public static async Task ValidateNoDemoAccountsInNonDevelopmentAsync(ApplicationDbContext context, bool isDevelopment)
+    {
+        if (isDevelopment) return;
+
+        var demoEmails = new[] { "crystalyn@foms.local", "misty@foms.local", "mariel@foms.local", "joana@foms.local" };
+        var hasDemoAccounts = await context.Employees
+            .AnyAsync(e => demoEmails.Contains(e.Email.ToLower()) || 
+                           e.PasswordHash.Contains("KPxlVQdFsQ14PmZeoVkx/A=="));
+
+        if (hasDemoAccounts)
+        {
+            throw new InvalidOperationException("FATAL SECURITY ERROR: Default seeded demo accounts detected in non-development environment. Remove seeded credentials before starting the application.");
+        }
+    }
+
     public static async Task SeedSampleDataAsync(ApplicationDbContext context, string? defaultPassword = null, bool isDevelopment = false)
     {
         if (!isDevelopment)

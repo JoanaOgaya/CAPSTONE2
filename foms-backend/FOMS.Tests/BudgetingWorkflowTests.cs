@@ -40,6 +40,18 @@ public class BudgetingWorkflowTests
             IsActive = true
         });
 
+        context.CeoApprovalThresholdSettings.Add(new CeoApprovalThresholdSetting
+        {
+            SettingId = 1,
+            SettingKey = "CSH-09_CEO_THRESHOLD",
+            ThresholdAmount = 10000.00m,
+            Currency = "PHP",
+            EffectiveFrom = DateTime.UtcNow.AddYears(-1),
+            IsActive = true,
+            UpdatedBy = "EMP-001",
+            UpdatedAt = DateTime.UtcNow.AddYears(-1)
+        });
+
         context.SaveChanges();
         return context;
     }
@@ -141,22 +153,31 @@ public class BudgetingWorkflowTests
         Assert.Equal("EMP-001", submitted.ReviewedBy);
         Assert.NotNull(submitted.SubmittedAt);
 
-        // 3. Non-CEO/President cannot approve
+        // 3. Non-approved attempt fails without recorded CEO approval
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.ApproveAnnualBudgetAsync(submitted.AnnualBudgetId, "EMP-001", "Finance Manager"));
 
-        // 4. CEO/President rejects with required reason -> returns to Rejected/Draft
-        var rejected = await service.RejectAnnualBudgetAsync(submitted.AnnualBudgetId, "Please optimize fuel estimates by 10%", "EMP-CEO", "CEO");
+        // 4. FM rejects with required reason -> returns to Rejected/Draft
+        var rejected = await service.RejectAnnualBudgetAsync(submitted.AnnualBudgetId, "Please optimize fuel estimates by 10%", "EMP-001", "Finance Manager");
         Assert.Equal("Rejected", rejected.Status);
         Assert.Equal("Please optimize fuel estimates by 10%", rejected.RejectionReason);
 
         // Re-submit
         await service.SubmitBudgetAsync(rejected.AnnualBudgetId, "EMP-001", "Finance Manager");
 
-        // 5. CEO/President approves annual budget
-        var approved = await service.ApproveAnnualBudgetAsync(draft.AnnualBudgetId, "EMP-CEO", "President");
+        // 5. In-person CEO/President approval record entered by FM, then approved
+        var gateService = new CeoApprovalGateService(context);
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.AnnualBudget,
+            ItemId = draft.FiscalYear.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        var approved = await service.ApproveAnnualBudgetAsync(draft.AnnualBudgetId, "EMP-001", "Finance Manager");
         Assert.Equal("Approved", approved.Status);
-        Assert.Equal("EMP-CEO", approved.ApprovedBy);
+        Assert.Equal("EMP-001", approved.ApprovedBy);
         Assert.NotNull(approved.ApprovedAt);
 
         // 6. Finance Manager allocates approved budget by department and category
@@ -293,15 +314,24 @@ public class BudgetingWorkflowTests
         var createdOverride2 = await service.RequestBudgetOverrideAsync(overrideReq2, "EMP-004", "Assistant of Finance Manager");
         Assert.True(createdOverride2.RequiresCeoApproval);
 
-        // FM attempting to approve > threshold must fail
+        // FM attempting to approve > threshold without CEO record must fail
         var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.ApproveBudgetOverrideAsync(createdOverride2.OverrideId, "EMP-001", "Finance Manager"));
         Assert.Contains("requires CEO/President approval", ex.Message);
 
-        // CEO/President approves successfully
-        var approvedOverride2 = await service.ApproveBudgetOverrideAsync(createdOverride2.OverrideId, "EMP-CEO", "CEO");
+        // FM records in-person CEO approval record, then approves override (IAM-07 to IAM-10)
+        var gateService = new CeoApprovalGateService(context);
+        await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetOverride,
+            ItemId = createdOverride2.OverrideId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        var approvedOverride2 = await service.ApproveBudgetOverrideAsync(createdOverride2.OverrideId, "EMP-001", "Finance Manager");
         Assert.Equal("Approved", approvedOverride2.Status);
-        Assert.Equal("EMP-CEO", approvedOverride2.ApprovedBy);
+        Assert.Equal("EMP-001", approvedOverride2.ApprovedBy);
     }
 
     [Fact]
@@ -359,12 +389,23 @@ public class BudgetingWorkflowTests
         var requestedTransfer = await service.RequestBudgetTransferAsync(transferReq, "EMP-001", "Finance Manager");
         Assert.Equal("Pending", requestedTransfer.Status);
 
-        // 2. FM cannot self-approve transfer
+        // 2. FM cannot approve transfer without in-person CEO approval record
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             service.ApproveBudgetTransferAsync(requestedTransfer.TransferId, "EMP-001", "Finance Manager"));
 
-        // 3. CEO/President approves
-        var approvedTransfer = await service.ApproveBudgetTransferAsync(requestedTransfer.TransferId, "EMP-CEO", "President");
+        // 3. FM records CEO approval record and HA confirms recording (IAM-07 to IAM-10, R5.11 item 1)
+        var gateService = new CeoApprovalGateService(context);
+        var rec = await gateService.RecordApprovalAsync(new CreateCeoApprovalRecordRequest
+        {
+            ItemType = CeoApprovalItemTypes.BudgetTransfer,
+            ItemId = requestedTransfer.TransferId.ToString(),
+            Status = "Approved",
+            ApprovalDate = DateTime.UtcNow.Date
+        }, "EMP-001", "Finance Manager");
+
+        await gateService.ConfirmRecordAsync(rec.RecordId, "Recording", "EMP-002", "Head Accountant");
+
+        var approvedTransfer = await service.ApproveBudgetTransferAsync(requestedTransfer.TransferId, "EMP-001", "Finance Manager");
         Assert.Equal("Approved", approvedTransfer.Status);
 
         // 4. Verify balances:

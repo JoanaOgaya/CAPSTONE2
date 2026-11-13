@@ -1,3 +1,5 @@
+using FOMS.Application.Interfaces;
+using FOMS.Application.DTOs;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -11,6 +13,7 @@ using Microsoft.EntityFrameworkCore;
 using FOMS.Application.Services;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
+using FOMS.Domain.Constants;
 
 namespace FOMS.Api.Controllers;
 
@@ -28,9 +31,12 @@ public class AccountantController : ControllerBase
 {
     private readonly FomsDbContext _fomsDb;
 
-    public AccountantController(FomsDbContext fomsDb)
+    private readonly ICeoApprovalGateService? _gateService;
+
+    public AccountantController(FomsDbContext fomsDb, ICeoApprovalGateService? gateService = null)
     {
         _fomsDb = fomsDb;
+        _gateService = gateService;
     }
 
     private string CurrentRole() =>
@@ -269,6 +275,17 @@ public class AccountantController : ControllerBase
             {
                 return BadRequest(new { success = false, message = discountError });
             }
+
+            if (_gateService != null)
+            {
+                string discountItemId = (string?)body?.invoiceNumber ?? (string?)body?.clientId ?? "NEW_INVOICE";
+                var gateCheck = await _gateService.CheckGateAsync(CeoApprovalItemTypes.InvoiceDiscount, discountItemId, discountAmount);
+                if (!gateCheck.IsSatisfied)
+                {
+                    return BadRequest(new { success = false, message = $"Invoice discount strictly requires an in-person CEO/President approval record for item '{discountItemId}'." });
+                }
+            }
+
             if (discountRate > 0m && discountAmount == 0m)
             {
                 discountAmount = Math.Round(grossTotal * discountRate, 2);
@@ -688,6 +705,11 @@ public class AccountantController : ControllerBase
     [HttpPost("financial-adjustments")]
     public async Task<IActionResult> CreateFinancialAdjustment([FromBody] dynamic body)
     {
+        var role = FomsRoles.GetClaimRole(User);
+        if (!FomsRoles.IsFinanceManager(role))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Only the Finance Manager can create adjusting entries (FIN-23)." });
+        }
         int invId = (int?)body?.invoiceId ?? 1;
         var adj = new FinancialAdjustment
         {

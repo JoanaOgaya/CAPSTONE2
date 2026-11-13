@@ -1,8 +1,10 @@
 using System.Threading.Tasks;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using FOMS.Application.Features;
+using FOMS.Domain.Constants;
 
 namespace FOMS.Api.Controllers;
 
@@ -58,14 +60,26 @@ public class AdjustmentsController : ApiControllerBase
     }
 
     /// <summary>
-    /// POST /api/v1/adjustments — Create a new pending adjustment request.
-    /// Bookkeepers submit; Accountants also allowed to create.
+    /// POST /api/v1/adjustments — Create a new pending adjustment request (FIN-23).
+    /// Strictly created by Finance Manager only. Requires a non-empty reason and approval before posting.
+    /// There is no Bookkeeper role (IAM-01).
     /// </summary>
     [Authorize]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateAdjustmentDto dto)
     {
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
+        var role = FomsRoles.GetClaimRole(User);
+        if (!FomsRoles.IsFinanceManager(role))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only the Finance Manager can create adjusting entries (FIN-23)." });
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+        {
+            return BadRequest(new { message = "A reason is strictly required when creating an adjusting entry (FIN-23)." });
+        }
+
+        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Finance Manager";
         var invoiceNo = !string.IsNullOrWhiteSpace(dto.InvoiceNo) ? dto.InvoiceNo : (dto.AffectedRecordId ?? string.Empty);
         var rawType = !string.IsNullOrWhiteSpace(dto.AdjustmentType) ? dto.AdjustmentType : (dto.Type ?? "Credit");
 
@@ -73,9 +87,10 @@ public class AdjustmentsController : ApiControllerBase
             InvoiceNo: invoiceNo,
             AdjustmentType: rawType,
             Amount: dto.Amount,
-            Reason: dto.Reason ?? string.Empty,
+            Reason: dto.Reason.Trim(),
             AdjustedBy: user,
-            ApprovedBy: dto.ApprovedBy ?? string.Empty
+            ApprovedBy: dto.ApprovedBy ?? string.Empty,
+            Role: role
         );
 
         try
@@ -126,12 +141,24 @@ public class AdjustmentsController : ApiControllerBase
     [HttpPost("{id}/approve")]
     public async Task<IActionResult> Approve(string id)
     {
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
-        var result = await Mediator.Send(new AdjustmentFeatures.ApproveAdjustmentCommand(id, user));
-        if (result == null)
-            return NotFound(new { message = "Adjustment not found or is no longer pending." });
+        var user = User.FindFirst("employee_id")?.Value ?? User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown User";
+        var role = User.FindFirst(ClaimTypes.Role)?.Value ?? User.FindFirst("role")?.Value ?? string.Empty;
+        try
+        {
+            var result = await Mediator.Send(new AdjustmentFeatures.ApproveAdjustmentCommand(id, user, role));
+            if (result == null)
+                return NotFound(new { message = "Adjustment not found or is no longer pending." });
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     /// <summary>

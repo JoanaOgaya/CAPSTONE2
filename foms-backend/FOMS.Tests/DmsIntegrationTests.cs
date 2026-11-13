@@ -201,7 +201,8 @@ public class DmsIntegrationTests : IDisposable
             DeliveryReference = "TRIP-999",
             RequesterName = "Driver Juan",
             Purpose = "Fuel and Toll",
-            RequestedAmount = 1500.00m
+            RequestedAmount = 1500.00m,
+            DepartmentCode = "DEP-DSP"
         });
 
         Assert.True(caResult.IsSuccess);

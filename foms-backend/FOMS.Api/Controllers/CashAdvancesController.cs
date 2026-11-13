@@ -157,6 +157,21 @@ public class CashAdvancesController : ControllerBase
         if (dto.Amount <= 0) return BadRequest(new { message = "Amount must be greater than 0." });
         if (string.IsNullOrWhiteSpace(dto.Purpose)) return BadRequest(new { message = "Purpose is required." });
 
+        string rawDept = dto.DepartmentCode ?? Request.Headers["X-Department"].FirstOrDefault() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(rawDept))
+        {
+            return BadRequest(new { message = "Department is strictly required with no default." });
+        }
+        string normDept;
+        try
+        {
+            normDept = FomsDepartments.Normalize(rawDept, role, isNewRequest: true);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+
         DateTime? neededDate = null;
         if (!string.IsNullOrWhiteSpace(dto.DateNeeded) && DateTime.TryParse(dto.DateNeeded, out var parsedDate))
         {
@@ -173,6 +188,7 @@ public class CashAdvancesController : ControllerBase
             ReleaseDate = neededDate ?? DateTime.UtcNow,
             ReleasedBy = employeeId,
             SubmittedByEmployeeId = employeeId,
+            DepartmentCode = normDept,
             Status = "Draft",
             Notes = !string.IsNullOrWhiteSpace(dto.Remarks) ? $"{dto.Purpose.Trim()} - {dto.Remarks.Trim()}" : dto.Purpose.Trim(),
             CreatedAt = DateTime.UtcNow
@@ -380,4 +396,5 @@ public class CashAdvanceCreateDto
     public string Purpose { get; set; } = string.Empty;
     public string? DateNeeded { get; set; }
     public string? Remarks { get; set; }
+    public string? DepartmentCode { get; set; }
 }

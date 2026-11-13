@@ -31,8 +31,7 @@ public static class FomsRoles
 
         var trimmed = rawRole.Trim();
         if (string.Equals(trimmed, FinanceManager, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "FinanceManager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "Financial Manager", StringComparison.OrdinalIgnoreCase))
+            string.Equals(trimmed, "FinanceManager", StringComparison.OrdinalIgnoreCase))
         {
             return FinanceManager;
         }
@@ -50,10 +49,7 @@ public static class FomsRoles
         }
 
         if (string.Equals(trimmed, AssistantFinanceManager, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "Assistant Finance Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "AssistantFinanceManager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "Assistant Financial Manager", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(trimmed, "Assistant of Financial Manager", StringComparison.OrdinalIgnoreCase))
+            string.Equals(trimmed, "AssistantFinanceManager", StringComparison.OrdinalIgnoreCase))
         {
             return AssistantFinanceManager;
         }

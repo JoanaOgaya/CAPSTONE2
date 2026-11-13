@@ -1,3 +1,5 @@
+using FOMS.Application.Services;
+using FOMS.Domain.Constants;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,10 +14,16 @@ namespace FOMS.Application.Services;
 public class DisbursementAndReimbursementService : IDisbursementAndReimbursementService
 {
     private readonly IApplicationDbContext _context;
+    private readonly ICeoApprovalGateService _gateService;
 
-    public DisbursementAndReimbursementService(IApplicationDbContext context)
+    public DisbursementAndReimbursementService(IApplicationDbContext context) : this(context, new CeoApprovalGateService(context))
+    {
+    }
+
+    public DisbursementAndReimbursementService(IApplicationDbContext context, ICeoApprovalGateService gateService)
     {
         _context = context;
+        _gateService = gateService;
     }
 
     private void EnsureValidCategory(string category)
@@ -23,34 +31,31 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         if (!DisbursementCategories.IsValidCategory(category))
         {
             throw new ArgumentException(
-                $"Category '{category}' is invalid. Allowed categories: Fuel, Toll, Parking, Food allowance, Vulcanizing, Repairs and Maintenance, or supervisor branch-visit items (Lodging, Transportation, Supplies).");
+                $"Category '{category}' is invalid. Allowed categories: Fuel, Toll Fees, Parking, Food Allowance, Vulcanizing, Repairs and Maintenance, plus Hotel, Branch Visits, Office Supplies and Other.");
         }
-    }
-
-    private bool IsCeoOrPresident(string role)
-    {
-        if (string.IsNullOrWhiteSpace(role)) return false;
-        var r = role.ToLowerInvariant();
-        return r.Contains("ceo") || r.Contains("president") || r.Contains("executive") || r.Contains("general manager");
     }
 
     private bool IsFinanceManager(string role)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
+        if (FomsRoles.IsFinanceManager(role)) return true;
         var r = role.ToLowerInvariant();
-        return r.Contains("finance manager") || r.Contains("admin") || IsCeoOrPresident(role);
+        if (r.Contains("assistant")) return false;
+        return r.Contains("finance manager") || r.Contains("admin");
     }
 
     private bool IsAssistantFinanceManager(string role)
     {
         if (string.IsNullOrWhiteSpace(role)) return false;
+        if (FomsRoles.IsAssistantFinanceManager(role)) return true;
         var r = role.ToLowerInvariant();
         return r.Contains("assistant") || IsFinanceManager(role);
     }
 
-    private async Task<decimal> GetCsh09ThresholdAsync()
+    private async Task<decimal> GetCsh09ThresholdAsync(DateTime? targetDate = null)
     {
-        return await ThresholdConfigHelper.GetAssistantFmThresholdAsync(_context, "CashOutflow");
+        var setting = await _gateService.GetCurrentThresholdAsync(targetDate ?? DateTime.UtcNow);
+        return setting.EffectiveCeoLimit;
     }
 
     private async Task<MonthlyBudgetLine?> GetBudgetLineAsync(int fiscalYear, string departmentCode, string category, int month)
@@ -69,6 +74,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     public async Task<CashAdvanceResponseDto> RequestCashAdvanceAsync(RequestCashAdvanceDto dto, string userId, string userRole)
     {
         EnsureValidCategory(dto.Category);
+        dto.DepartmentCode = FomsDepartments.Normalize(dto.DepartmentCode, userRole, isNewRequest: false);
 
         // Budget check
         var line = await GetBudgetLineAsync(dto.FiscalYear, dto.DepartmentCode, dto.Category, dto.Month);
@@ -91,7 +97,8 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             dueDate = reqDate.AddDays(1);
         }
 
-        decimal threshold = await GetCsh09ThresholdAsync();
+        // CSH-09 threshold evaluated as of request creation date (reqDate)
+        decimal threshold = await GetCsh09ThresholdAsync(reqDate);
         bool requiresCeo = dto.Amount > threshold;
 
         var advanceId = $"CA-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
@@ -112,7 +119,8 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             RequiresCeoApproval = requiresCeo,
             Notes = dto.Notes,
             Status = "Requested",
-            CreatedAt = reqDate
+            CreatedAt = reqDate,
+            SubmittedByEmployeeId = userId
         };
 
         _context.CashAdvances.Add(advance);
@@ -125,7 +133,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     {
         if (!IsFinanceManager(userRole))
         {
-            throw new UnauthorizedAccessException("Only Finance Manager (or CEO/President) can approve cash advances.");
+            throw new UnauthorizedAccessException("Only Finance Manager can approve cash advances.");
         }
 
         var advance = await _context.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == advanceId);
@@ -134,6 +142,11 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         if (advance.Status != "Requested")
         {
             throw new InvalidOperationException($"Cannot approve advance in status '{advance.Status}'. Must be 'Requested'.");
+        }
+
+        if (!string.IsNullOrEmpty(advance.SubmittedByEmployeeId) && FomsRoles.IsSameEmployeeId(advance.SubmittedByEmployeeId, userId))
+        {
+            throw new UnauthorizedAccessException("Separation of duties violation: Requester cannot approve their own cash advance.");
         }
 
         // Commitment: budget committed amount increases
@@ -162,15 +175,12 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot release advance in status '{advance.Status}'. Must be 'Approved'.");
         }
 
-        // Above CSH-09 threshold needs CEO/President approval first before release
-        if (advance.RequiresCeoApproval)
-        {
-            if (!IsCeoOrPresident(userRole) && advance.ApprovedBy != "EMP-CEO" && !advance.ApprovedBy!.ToLower().Contains("ceo"))
-            {
-                throw new UnauthorizedAccessException(
-                    $"Cash advance amount of ₱{advance.AmountGiven:N2} exceeds CSH-09 threshold and strictly requires CEO/President approval prior to release.");
-            }
-        }
+        // Gate check for CashOutflow above CSH-09 threshold (Decision E: unset threshold mandates CEO approval for all outflows)
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.CashOutflow,
+            advanceId,
+            advance.AmountGiven,
+            advance.CreatedAt);
 
         advance.Status = "Released";
         advance.ReleasedBy = userId;
@@ -252,6 +262,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     public async Task<DirectDisbursementResponseDto> RequestDirectDisbursementAsync(RequestDirectDisbursementDto dto, string userId, string userRole)
     {
         EnsureValidCategory(dto.Category);
+        dto.DepartmentCode = FomsDepartments.Normalize(dto.DepartmentCode, userRole, isNewRequest: false);
 
         var line = await GetBudgetLineAsync(dto.FiscalYear, dto.DepartmentCode, dto.Category, dto.Month);
         if (line != null && line.Available < dto.Amount)
@@ -297,6 +308,11 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot approve disbursement in status '{disb.Status}'.");
         }
 
+        if (!string.IsNullOrEmpty(disb.RequestedBy) && FomsRoles.IsSameEmployeeId(disb.RequestedBy, userId))
+        {
+            throw new UnauthorizedAccessException("Separation of duties violation: Requester cannot approve their own direct disbursement.");
+        }
+
         // Commit budget amount
         var line = await GetBudgetLineAsync(disb.FiscalYear, disb.DepartmentCode, disb.Category, disb.Month);
         if (line != null)
@@ -322,6 +338,13 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         {
             throw new InvalidOperationException($"Cannot release disbursement in status '{disb.Status}'. Must be 'Approved'.");
         }
+
+        // Gate check for CashOutflow above CSH-09 threshold (Decision E: unset threshold mandates CEO approval for all outflows)
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.CashOutflow,
+            disbursementId.ToString(),
+            disb.Amount,
+            disb.CreatedAt);
 
         // CSH-12: Actual at release, NO liquidation!
         // Move from Committed -> Actual
@@ -404,13 +427,14 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     public async Task<ReimbursementResponseDto> SubmitReimbursementAsync(SubmitReimbursementDto dto, string userId, string userRole)
     {
         EnsureValidCategory(dto.Category);
+        dto.DepartmentCode = FomsDepartments.Normalize(dto.DepartmentCode, userRole, isNewRequest: false);
 
         var refNo = $"REIM-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
 
         var reim = new Reimbursement
         {
             ReferenceNumber = refNo,
-            EmployeeId = dto.EmployeeId,
+            EmployeeId = !string.IsNullOrWhiteSpace(dto.EmployeeId) ? dto.EmployeeId : userId,
             EmployeeName = dto.EmployeeName,
             DepartmentCode = dto.DepartmentCode,
             Category = dto.Category,
@@ -445,6 +469,11 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new InvalidOperationException($"Cannot validate reimbursement in status '{reim.Status}'. Must be 'Submitted'.");
         }
 
+        if (!string.IsNullOrEmpty(reim.EmployeeId) && FomsRoles.IsSameEmployeeId(reim.EmployeeId, userId))
+        {
+            throw new UnauthorizedAccessException("Separation of duties violation: Submitter cannot validate their own reimbursement.");
+        }
+
         reim.Status = "Validated";
         reim.ValidatedBy = userId;
         reim.ValidatedAt = DateTime.UtcNow;
@@ -468,6 +497,18 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         {
             throw new InvalidOperationException($"Cannot approve reimbursement in status '{reim.Status}'. Must be 'Validated'.");
         }
+
+        if (!string.IsNullOrEmpty(reim.EmployeeId) && FomsRoles.IsSameEmployeeId(reim.EmployeeId, userId))
+        {
+            throw new UnauthorizedAccessException("Separation of duties violation: Submitter cannot approve their own reimbursement.");
+        }
+
+        // Gate check for Reimbursement approval above CSH-09 threshold (Decision E: unset threshold mandates CEO approval)
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.Reimbursement,
+            reimbursementId.ToString(),
+            reim.Amount,
+            reim.SubmittedAt);
 
         // Commit budget amount
         var line = await GetBudgetLineAsync(reim.FiscalYear, reim.DepartmentCode, reim.Category, reim.Month);
@@ -495,6 +536,13 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         {
             throw new InvalidOperationException($"Cannot pay reimbursement in status '{reim.Status}'. Must be 'Approved'.");
         }
+
+        // Gate check for Reimbursement payment outflow above CSH-09 threshold (Decision E: unset threshold mandates CEO approval)
+        await _gateService.EnsureGateSatisfiedAsync(
+            CeoApprovalItemTypes.CashOutflow,
+            reim.ReferenceNumber,
+            reim.Amount,
+            reim.SubmittedAt);
 
         // Convert Committed -> Actual
         var line = await GetBudgetLineAsync(reim.FiscalYear, reim.DepartmentCode, reim.Category, reim.Month);
@@ -594,6 +642,9 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         {
             ReferenceNumber = refNo,
             SubmittedByName = dto.SubmittedByName,
+            SubmittedByEmployeeId = (!string.IsNullOrWhiteSpace(dto.SubmittedByName) && dto.SubmittedByName.Trim().StartsWith("EMP-", StringComparison.OrdinalIgnoreCase))
+                ? dto.SubmittedByName.Trim()
+                : ((advance.CourierName ?? "").StartsWith("EMP-", StringComparison.OrdinalIgnoreCase) ? advance.CourierName : null),
             TotalAmount = totalExpenses,
             LeftoverCash = leftoverCash,
             ReimbursementAmount = reimbursementAmount,
@@ -637,12 +688,6 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
 
     public async Task<LiquidationResponseDto> ValidateLiquidationAsync(ValidateLiquidationDto dto, string userId, string userRole)
     {
-        // Validated by Assistant of Finance Manager
-        if (!IsAssistantFinanceManager(userRole))
-        {
-            throw new UnauthorizedAccessException("Liquidation must be validated by Assistant of Finance Manager.");
-        }
-
         var liq = await _context.Liquidations
             .Include(l => l.LineItems)
             .FirstOrDefaultAsync(l => l.LiquidationId == dto.LiquidationId);
@@ -652,6 +697,20 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
         if (liq.Status != "Pending" && liq.Status != "For Correction")
         {
             throw new InvalidOperationException($"Cannot validate liquidation in status '{liq.Status}'. Must be 'Pending' or 'For Correction'.");
+        }
+
+        // SoD check: Submitter cannot validate their own liquidation
+        if ((!string.IsNullOrEmpty(liq.SubmittedByEmployeeId) && FomsRoles.IsSameEmployeeId(liq.SubmittedByEmployeeId, userId)) ||
+            (!string.IsNullOrEmpty(liq.SubmittedByName) && (string.Equals(liq.SubmittedByName, userId, StringComparison.OrdinalIgnoreCase) || string.Equals(liq.SubmittedByName, "EMP-" + userId, StringComparison.OrdinalIgnoreCase))))
+        {
+            throw new UnauthorizedAccessException("Separation of duties violation: Submitter cannot validate their own liquidation.");
+        }
+
+        // Assistant of Finance Manager validates alone at or below threshold. Above threshold, Finance Manager also signs off.
+        // Validated by Assistant of Finance Manager (or Finance Manager)
+        if (!IsAssistantFinanceManager(userRole))
+        {
+            throw new UnauthorizedAccessException("Liquidation must be validated by Assistant of Finance Manager.");
         }
 
         // Check for manual fuel receipt rejection requirement
@@ -727,9 +786,14 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             throw new UnauthorizedAccessException("Liquidation rejection must be performed by Assistant of Finance Manager (or FM).");
         }
 
-        if (string.IsNullOrWhiteSpace(dto.Reason))
+        if (string.IsNullOrWhiteSpace(dto.Reason) || !LiquidationRejectionReasons.IsValid(dto.Reason))
         {
-            throw new ArgumentException("Rejection reason is required. Options: wrong receipt date/amount, manual fuel receipt, late submission, other (remarks).");
+            throw new ArgumentException("Rejection reason is required. Allowed options: wrong receipt date or amount, manual fuel receipt, late submission, other with remarks.");
+        }
+
+        if (dto.Reason.Trim().ToLowerInvariant().Contains("other") && string.IsNullOrWhiteSpace(dto.Remarks))
+        {
+            throw new ArgumentException("Remarks are required when rejection reason is 'other with remarks'.");
         }
 
         var liq = await _context.Liquidations
@@ -738,7 +802,7 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
 
         if (liq == null) throw new KeyNotFoundException($"Liquidation {dto.LiquidationId} not found.");
 
-        liq.Status = "Rejected";
+        liq.Status = !string.IsNullOrWhiteSpace(dto.Status) ? dto.Status : "Rejected";
         liq.RejectionReason = dto.Reason.Trim();
         liq.Remarks = dto.Remarks;
         liq.ValidatedAt = DateTime.UtcNow;

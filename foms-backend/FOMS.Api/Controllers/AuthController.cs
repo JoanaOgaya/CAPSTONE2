@@ -56,7 +56,10 @@ public class AuthController : ControllerBase
                 userId = parsedUserId,
                 employeeNumber = result.User.EmployeeNumber ?? result.User.Id,
                 fullName = result.User.FullName,
-                role = result.User.Role
+                role = result.User.Role,
+                position = result.User.Position,
+                mustChangePassword = result.User.MustChangePassword,
+                isTemporaryPassword = result.User.IsTemporaryPassword
             };
 
             return Ok(new
@@ -116,7 +119,10 @@ public class AuthController : ControllerBase
                 userId = parsedUserId,
                 employeeNumber = result.User.EmployeeNumber ?? result.User.Id,
                 fullName = result.User.FullName,
-                role = result.User.Role
+                role = result.User.Role,
+                position = result.User.Position,
+                mustChangePassword = result.User.MustChangePassword,
+                isTemporaryPassword = result.User.IsTemporaryPassword
             };
 
             return Ok(new

@@ -99,6 +99,14 @@ public class AuthService : IAuthService
                 "Your account has been locked after too many failed attempts. Contact an Accountant to unlock it.");
         }
 
+        // Step 3.5: Reject expired temporary passwords
+        if (user.IsTemporaryPassword && user.TemporaryPasswordExpiresAt.HasValue && user.TemporaryPasswordExpiresAt.Value < DateTime.UtcNow)
+        {
+            await WriteAuditAsync(user.Id, user.Id, "Login Denied",
+                $"Login denied for expired temporary password: {employeeNumber}.");
+            throw new UnauthorizedAccessException("Temporary password has expired. Please contact an administrator to reset your password.");
+        }
+
 
         if (!isPasswordValid)
         {
@@ -247,6 +255,9 @@ public class AuthService : IAuthService
 
         user.PasswordHash = HashPassword(newPassword);
         user.FailedLoginCount = 0;
+        user.MustChangePassword = false;
+        user.IsTemporaryPassword = false;
+        user.TemporaryPasswordExpiresAt = null;
 
         await WriteAuditAsync(userId, userId, "Change Password",
             $"User {user.Username} successfully changed their password.");
@@ -304,7 +315,7 @@ public class AuthService : IAuthService
 
     public string GenerateJwtToken(Employee user)
     {
-        var claims = new[]
+        var claimsList = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
@@ -312,8 +323,15 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim("name", user.Name),
-            new Claim("role", user.Role)
+            new Claim("role", user.Role),
+            new Claim("must_change_password", user.MustChangePassword ? "true" : "false"),
+            new Claim("is_temporary_password", user.IsTemporaryPassword ? "true" : "false")
         };
+        if (user.TemporaryPasswordExpiresAt.HasValue)
+        {
+            claimsList.Add(new Claim("temp_pw_expires_at", user.TemporaryPasswordExpiresAt.Value.ToString("o")));
+        }
+        var claims = claimsList.ToArray();
 
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Secret));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
@@ -431,6 +449,9 @@ public class AuthService : IAuthService
         FullName = user.Name,
         Email = user.Email,
         Role = user.Role,
+        Position = user.Position,
+        MustChangePassword = user.MustChangePassword,
+        IsTemporaryPassword = user.IsTemporaryPassword,
         IsActive = user.IsActive,
         CreatedAt = user.CreatedAt
     };
@@ -543,6 +564,15 @@ public class AuthService : IAuthService
         {
             throw new UnauthorizedAccessException("Account is not active in FOMS. Contact your system administrator.");
         }
+
+        var normalizedRole = NormalizeStaffRole(user.Role);
+        if (normalizedRole == null)
+        {
+            await WriteAuditAsync(user.Id, user.Id, "Login Denied",
+                $"SSO exchange denied for unauthorized role '{user.Role}'. Only the four approved staff roles receive FOMS sessions.");
+            throw new UnauthorizedAccessException("User is not assigned an authorized FOMS staff role.");
+        }
+        user.Role = normalizedRole;
 
         user.FailedLoginCount = 0;
         user.LockedAt = null;
