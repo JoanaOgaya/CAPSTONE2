@@ -278,7 +278,7 @@ main {
 
 .btn-ghost:hover:not(:disabled),
 .btn--ghost:hover:not(:disabled) {
-  background: var(--s2, #F0F4FF);
+  background: var(--teal-bg);
   color: var(--tp, #0F172A);
 }
 

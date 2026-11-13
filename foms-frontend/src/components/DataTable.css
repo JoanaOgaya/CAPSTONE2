@@ -227,7 +227,7 @@
   border-color: transparent;
   color: var(--tt, #6B7280);
 }
-.dt-btn--ghost:hover { background: var(--s2, #F0F4FF); }
+.dt-btn--ghost:hover { background: var(--teal-bg); }
 
 .dt-btn--primary {
   background: var(--teal, #00A99D);
