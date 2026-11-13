@@ -1,0 +1,36 @@
+using System.Threading.Tasks;
+using FOMS.Application.DTOs;
+
+namespace FOMS.Application.Interfaces;
+
+public interface IAuthService
+{
+    Task<AuthResultDto> LoginAsync(string username, string password);
+    Task<AuthResultDto> RefreshTokenAsync(string refreshToken);
+    Task<bool> LogoutAsync(string refreshToken);
+    Task<UserDto?> GetProfileAsync(string userId);
+
+    /// <summary>
+    /// Changes the password for an authenticated user.
+    /// Requires the current password to be correct before accepting the new one.
+    /// </summary>
+    Task<bool> ChangePasswordAsync(string userId, string currentPassword, string newPassword);
+
+    /// <summary>
+    /// Unlocks a locked employee account.
+    /// Can only be called by a user with the Accountant role.
+    /// Resets FailedLoginCount and Status back to Active.
+    /// </summary>
+    Task<bool> UnlockAccountAsync(string targetUserId, string adminUserId);
+
+    /// <summary>
+    /// Retrieves recent authentication and login attempts for the specified user.
+    /// </summary>
+    Task<List<object>> GetLoginHistoryAsync(string userId, int count = 20);
+
+    /// <summary>
+    /// Authenticates an incoming STARS JWT token, verifies identity, auto-provisions if needed,
+    /// and issues native FOMS access and refresh tokens for single sign-on.
+    /// </summary>
+    Task<AuthResultDto?> SsoExchangeAsync(string starsToken);
+}
