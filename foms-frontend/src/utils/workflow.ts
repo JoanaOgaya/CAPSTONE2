@@ -18,6 +18,7 @@ import {
 export type WorkflowKind = 'standard' | 'liquidation';
 export type WorkflowStatus =
   | 'DRAFT'
+  | 'FOR_REVIEW'
   | 'SUBMITTED'
   | 'VERIFIED'
   | 'VALIDATED'
@@ -44,6 +45,7 @@ export type Tone = 'success' | 'warning' | 'danger' | 'info' | 'primary' | 'neut
 
 export const STATUS_LABEL: Record<WorkflowStatus, string> = {
   DRAFT: 'Draft',
+  FOR_REVIEW: 'Pending Approval',
   SUBMITTED: 'Submitted',
   VERIFIED: 'Verified',
   VALIDATED: 'Validated',
@@ -69,6 +71,7 @@ export const STATUS_LABEL: Record<WorkflowStatus, string> = {
 
 export const STATUS_TONE: Record<WorkflowStatus, Tone> = {
   DRAFT: 'neutral',
+  FOR_REVIEW: 'warning',
   SUBMITTED: 'info',
   VERIFIED: 'primary',
   VALIDATED: 'primary',

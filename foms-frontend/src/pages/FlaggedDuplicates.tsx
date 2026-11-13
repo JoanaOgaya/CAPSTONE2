@@ -161,12 +161,12 @@ export const FlaggedDuplicates: React.FC = () => {
     },
     {
       key: 'uploadedNumber',
-      label: isHeadAccountant ? 'Submitted Number' : 'Uploaded Number',
+      label: isHeadAccountant ? 'SUBMITTED NUMBER' : 'UPLOADED NUMBER',
       render: (row) => <span>{row.uploadedNumber ?? 'N/A'}</span>,
     },
     {
       key: 'existingRecord',
-      label: 'Existing Record',
+      label: 'EXISTING RECORD',
       render: (row) => <span style={{ color: '#4338CA', fontWeight: 600 }}>{row.existingRecord ?? 'N/A'}</span>,
     },
     {

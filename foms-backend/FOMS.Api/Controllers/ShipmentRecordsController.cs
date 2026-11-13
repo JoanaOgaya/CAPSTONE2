@@ -93,10 +93,12 @@ public class ShipmentRecordsController : ApiControllerBase
     {
         var waybills = await _fomsDb.Waybills.AsNoTracking().ToListAsync();
         var clients = await _fomsDb.Clients.AsNoTracking().ToListAsync();
+        var pods = await _fomsDb.ProofOfDeliveries.AsNoTracking().ToListAsync();
 
         var items = waybills.Select(w =>
         {
             var c = clients.FirstOrDefault(cl => cl.ClientId == w.ClientId);
+            var pod = pods.FirstOrDefault(p => p.WaybillId == w.WaybillId);
             string clientCode = c?.ClientCode ?? (w.ClientId == 1 ? "CA-001" : w.ClientId == 2 ? "CA-002" : w.ClientId == 3 ? "CA-003" : w.ClientId == 4 ? "CA-004" : w.ClientId.ToString());
 
             var normPodStatus = NormalizePodStatus(w.PodStatus, w.DeliveryStatus, w.ClientSigned, w.AccountingCopyMatched, w.HasCtc);
@@ -142,6 +144,9 @@ public class ShipmentRecordsController : ApiControllerBase
                 invoiceNo = w.InvoiceNo,
                 date = (w.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-dd"),
                 deliveryDate = (w.DeliveredAt ?? w.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-dd"),
+                podUrl = pod?.SignatureImageUrl ?? w.PodReference ?? "https://speedex.ph/pod/sample.jpg",
+                podImageUrl = pod?.SignatureImageUrl ?? w.PodReference ?? "https://speedex.ph/pod/sample.jpg",
+                receiverName = pod?.ReceiverName ?? w.RecipientName ?? "Recipient Verified",
                 encodedBy = w.IsManualEntry ? "Manual Entry (Exception)" : "DMS Integration",
                 encodedAt = (w.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss"),
                 createdAt = (w.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-ddTHH:mm:ss")

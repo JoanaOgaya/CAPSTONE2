@@ -50,7 +50,7 @@ export const MODULES: readonly ModuleDef[] = [
   { key: 'waybills', label: 'Waybills & POD', group: 'Client Management', icon: 'ti ti-truck-delivery', path: '/waybills', detailPath: '/waybills/:id', nav: false, roles: {} },
 
   // Create Invoice is strictly Accountant-only
-  { key: 'invoiceCreate', label: 'Create Invoice', group: 'Invoicing', icon: 'ti ti-file-plus', path: '/invoice-create', nav: true, roles: { [ACC]: ['view', 'create'] } },
+  { key: 'invoiceCreate', label: 'Create Invoice', group: 'Invoicing', icon: 'ti ti-file-plus', path: '/invoice-create', nav: false, roles: { [ACC]: ['view', 'create'] } },
   { key: 'invoicingDesk', label: 'Invoice List', group: 'Invoicing', icon: 'ti ti-file-invoice', path: '/invoicing-desk', detailPath: '/invoicing-desk/:id', nav: true, roles: { [ACC]: ['view', 'edit', 'submit'], [HA]: ['view', 'verify', 'return'], [FM]: ['view', 'approve', 'return'] } },
   { key: 'billingValidation', label: 'Billing Validation', group: 'Invoicing', icon: 'ti ti-file-check', path: '/billing-validation', nav: true, roles: { [ACC]: ['view'], [HA]: ['view', 'verify', 'return'], [FM]: ['view'] } },
   { key: 'dmsIntake', label: 'DMS Billing & Holds', group: 'Invoicing', icon: 'ti ti-truck-loading', path: '/dms-billing-intake', nav: true, roles: { [ACC]: ['view', 'create'], [HA]: ['view', 'verify'] } },

@@ -177,8 +177,8 @@ public class Invoice
     public void Submit(string actorId, string actorRole)
     {
         EnsureNotAssistantFm(actorRole, actorId);
-        if (!InvoiceRole.IsStaff(actorRole, actorId))
-            throw new UnauthorizedAccessException("Only Staff (EMP-003) can submit an invoice for verification.");
+        if (!InvoiceRole.IsStaff(actorRole, actorId) && !InvoiceRole.IsFinanceManager(actorRole, actorId) && !InvoiceRole.IsHeadAccountant(actorRole, actorId))
+            throw new UnauthorizedAccessException("Only Staff (EMP-003), Head Accountant (EMP-002), or Finance Manager (EMP-001) can submit an invoice for verification.");
 
         var normStatus = InvoiceDocumentStatus.Normalize(DocumentStatus);
         if (normStatus != InvoiceDocumentStatus.Draft)
@@ -195,8 +195,8 @@ public class Invoice
         var normStatus = InvoiceDocumentStatus.Normalize(DocumentStatus);
         if (normStatus == InvoiceDocumentStatus.Draft)
         {
-            if (!InvoiceRole.IsStaff(actorRole, actorId))
-                throw new UnauthorizedAccessException("Only Staff (EMP-003) can resubmit a returned invoice.");
+            if (!InvoiceRole.IsStaff(actorRole, actorId) && !InvoiceRole.IsFinanceManager(actorRole, actorId) && !InvoiceRole.IsHeadAccountant(actorRole, actorId))
+                throw new UnauthorizedAccessException("Only Staff (EMP-003), Head Accountant (EMP-002), or Finance Manager (EMP-001) can resubmit a returned invoice.");
             DocumentStatus = InvoiceDocumentStatus.ForReview;
         }
         else if (normStatus == InvoiceDocumentStatus.ForReview)

@@ -527,6 +527,7 @@ body.modal-open .app-layout {
   position: sticky;
   top: 0;
   height: 100vh;
+  max-height: 100vh;
   flex-shrink: 0;
   overflow: hidden;
   transition: width var(--mt-std) var(--ease-std);
@@ -548,6 +549,7 @@ body.modal-open .app-layout {
   overflow: hidden;
   width: 100%;
   position: relative;
+  flex-shrink: 0;
 }
 
 .collapsed .sidebar-logo {
@@ -608,10 +610,11 @@ body.modal-open .app-layout {
 }
 
 .sidebar-nav {
-  flex: 1;
+  flex: 1 1 0%;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
+  padding: 6px 10px 28px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -620,12 +623,21 @@ body.modal-open .app-layout {
 }
 
 .sidebar-nav::-webkit-scrollbar {
-  width: 3px;
+  width: 5px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
 }
 
 .sidebar-nav::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .nav-module-label {
@@ -818,9 +830,12 @@ body.modal-open .app-layout {
 }
 
 .sidebar-footer {
-  padding: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: #080F2A;
   position: relative;
+  flex-shrink: 0;
+  z-index: 10;
 }
 
 .profile-card {

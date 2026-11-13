@@ -107,6 +107,8 @@ export interface CashAdvanceItem {
 }
 
 export interface DmsLiquidationItemDto {
+  expenseDate: string;
+  category: string;
   description: string;
   amount: number;
   receiptUrl?: string;

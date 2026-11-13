@@ -257,6 +257,23 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
       toast.error('Total expenses must be greater than 0.');
       return;
     }
+    if (!liqForm.expenseDescription.trim()) {
+      toast.error('Each expense requires a description.');
+      return;
+    }
+    if (!liqForm.receiptUrl.trim()) {
+      toast.error('Attach an official receipt or valid proof for every expense.');
+      return;
+    }
+    const cashVariance = expensesVal + (Number(liqForm.leftoverCash) || 0) - Number(selectedAdvance?.amountGiven ?? 0);
+    if (cashVariance > 0 && Number(liqForm.reimbursementAmount) !== cashVariance) {
+      toast.error(`Expense total exceeds the advance by ${formatCurrency(cashVariance)}. Record this as a reimbursement request.`);
+      return;
+    }
+    if (cashVariance < 0 && Number(liqForm.leftoverCash) !== -cashVariance) {
+      toast.error(`Record and return the remaining ${formatCurrency(-cashVariance)} with an official receipt.`);
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -270,6 +287,8 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
         reimbursementAmount: Number(liqForm.reimbursementAmount) || 0,
         expenses: [
           {
+            expenseDate: new Date().toISOString(),
+            category: 'Operating Expense',
             description: liqForm.expenseDescription || 'Operating Expenses',
             amount: expensesVal,
             receiptUrl: liqForm.receiptUrl || undefined,

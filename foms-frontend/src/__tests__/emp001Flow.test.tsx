@@ -619,10 +619,23 @@ describe('EMP-001 (Finance Manager) — Complete Page-by-Page Workflow & Verific
   describe('Page 3: /invoicing-desk (Invoice List)', () => {
     it('loads invoices and calls update on submit for approval', async () => {
       mockAuthUser();
-      renderWithContext(<InvoicingDesk />, '/invoicing-desk');
+      const { unmount } = renderWithContext(<InvoicingDesk />, '/invoicing-desk');
 
       await waitFor(() => {
         expect(screen.getAllByText('Apex Logistics Inc.').length).toBeGreaterThan(0);
+      });
+
+      // Segregation of Duties: Draft invoices (INV-2026-002) are hidden from Finance Manager
+      expect(screen.queryByText('INV-2026-002')).toBeNull();
+      expect(screen.queryByTitle('Submit for Approval')).toBeNull();
+      unmount();
+
+      // For Accountant role, Draft invoices are displayed and can be submitted for approval
+      mockAuthUser({ role: ROLES.ACCOUNTANT, employeeId: 'EMP-002', fullName: 'Staff Accountant' });
+      renderWithContext(<InvoicingDesk />, '/invoicing-desk');
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Metro Cargo Corp.').length).toBeGreaterThan(0);
       });
 
       // Submit for Approval action button on Draft invoice
@@ -630,9 +643,7 @@ describe('EMP-001 (Finance Manager) — Complete Page-by-Page Workflow & Verific
       fireEvent.click(submitBtn);
 
       await waitFor(() => {
-        expect(onInvoiceUpdate).toHaveBeenCalledWith('INV-002', expect.objectContaining({
-          status: 'Pending Approval',
-        }));
+        expect(onInvoiceAct).toHaveBeenCalledWith('INV-002', 'submit');
       });
     });
   });

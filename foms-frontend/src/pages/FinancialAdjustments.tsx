@@ -25,7 +25,7 @@ export default function FinancialAdjustments() {
   const { data: clientData } = useQuery('adj:clients', () => clientsService.list({ pageSize: 100 }));
 
   const financialAdjustments: FinancialAdjustment[] = adjData?.items || [];
-  const invoices: Invoice[] = invData?.items || [];
+  const invoices: Invoice[] = (invData?.items || []).filter((inv: Invoice) => !inv.invoiceNumber?.startsWith('BI-'));
   const clients: Client[] = clientData?.items || [];
 
   const [isModalOpen, setIsModalOpen] = useState(false);

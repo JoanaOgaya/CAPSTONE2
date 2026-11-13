@@ -78,13 +78,20 @@ public class FomsDbContext : DbContext
         modelBuilder.Entity<Client>().ToTable("Clients", "dbo");
         modelBuilder.Entity<ClientFinanceSetting>().ToTable("ClientFinanceSettings", "dbo");
         modelBuilder.Entity<ClientRate>().ToTable("ClientRates", "dbo");
-        modelBuilder.Entity<Invoice>().ToTable("Invoices", "dbo");
+        // These tables have database-side synchronization triggers. SQL Server's
+        // OUTPUT clause cannot target a table with enabled triggers, so have EF
+        // use its trigger-compatible OUTPUT INTO strategy for writes.
+        modelBuilder.Entity<Invoice>().ToTable("Invoices", "dbo", table => table.UseSqlOutputClause(false));
         modelBuilder.Entity<AccountsReceivable>().ToTable("AccountsReceivable", "dbo");
-        modelBuilder.Entity<Payment>().ToTable("Payments", "dbo");
+        modelBuilder.Entity<Payment>().ToTable("Payments", "dbo", table => table.UseSqlOutputClause(false));
         modelBuilder.Entity<PaymentHistory>().ToTable("PaymentHistory", "dbo");
         modelBuilder.Entity<Notification>().ToTable("Notifications", "dbo");
         modelBuilder.Entity<AuditLog>().ToTable("AuditLogs", "dbo");
-        modelBuilder.Entity<Waybill>().ToTable("Waybills", "dbo");
+        modelBuilder.Entity<Waybill>(entity =>
+        {
+            entity.ToTable("Waybills", "dbo");
+            entity.Property(w => w.HasCtc).ValueGeneratedOnAddOrUpdate();
+        });
         modelBuilder.Entity<WaybillDuplicateAlert>().ToTable("WaybillDuplicateAlerts", "dbo");
         modelBuilder.Entity<ProofOfDelivery>().ToTable("ProofOfDeliveries", "dbo");
         modelBuilder.Entity<BillingDocument>().ToTable("BillingDocuments", "dbo");
@@ -94,7 +101,15 @@ public class FomsDbContext : DbContext
         modelBuilder.Entity<CashInflow>().ToTable("CashInflows", "dbo");
         modelBuilder.Entity<CashOutflow>().ToTable("CashOutflows", "dbo");
         modelBuilder.Entity<CashAdvance>().ToTable("CashAdvances", "dbo");
-        modelBuilder.Entity<Liquidation>().ToTable("Liquidations", "dbo");
+        modelBuilder.Entity<Liquidation>(entity =>
+        {
+            entity.ToTable("Liquidations", "dbo");
+            entity.HasOne(l => l.SourceAdvance).WithMany()
+                .HasForeignKey(l => l.CashAdvanceReference)
+                .HasPrincipalKey(a => a.AdvanceId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(l => l.CashAdvanceReference).IsUnique();
+        });
         modelBuilder.Entity<LiquidationLineItem>().ToTable("LiquidationLineItems", "dbo");
         modelBuilder.Entity<LiquidationDocument>().ToTable("LiquidationDocuments", "dbo");
         modelBuilder.Entity<FinancialAdjustment>().ToTable("FinancialAdjustments", "dbo");

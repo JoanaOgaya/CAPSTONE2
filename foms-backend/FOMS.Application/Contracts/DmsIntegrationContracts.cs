@@ -44,6 +44,8 @@ public class DmsDeliveryCompletedDto
     public decimal DeclaredValue { get; set; } = 0m;
 
     public string? DeliveryRemarks { get; set; }
+
+    public bool AutoGenerateInvoice { get; set; } = false;
 }
 
 /// <summary>
@@ -123,6 +125,10 @@ public class DmsCashAdvanceRequestDto
 /// </summary>
 public class DmsLiquidationReceiptItemDto
 {
+    [Required]
+    public DateTime ExpenseDate { get; set; }
+    [Required]
+    public string Category { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string? ReceiptUrl { get; set; }

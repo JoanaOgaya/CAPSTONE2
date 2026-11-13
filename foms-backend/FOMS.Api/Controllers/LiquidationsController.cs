@@ -14,6 +14,7 @@ namespace FOMS.Api.Controllers;
 
 public class LiquidationDto
 {
+    public string? CashAdvanceReference { get; set; }
     public string? Id { get; set; }
     public string? ReferenceNumber { get; set; }
     public string? SubmittedByName { get; set; }
@@ -26,6 +27,7 @@ public class LiquidationDto
     public string? Status { get; set; }
     public string? Purpose { get; set; }
     public string? Notes { get; set; }
+    public List<LiquidationLineItem> LineItems { get; set; } = new();
 }
 
 [Authorize]
@@ -132,6 +134,9 @@ public class LiquidationsController : ControllerBase
         var item = await _fomsDb.Liquidations.AsNoTracking().FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (item == null) return NotFound(new { message = "Liquidation not found" });
 
+        if (item.Status is "Approved" or "Closed")
+            return Conflict(new { message = "Approved and closed liquidation reports are immutable. Submit a formal adjustment entry." });
+
         var lineItems = await _fomsDb.LiquidationLineItems.Where(li => li.LiquidationId == id).AsNoTracking().ToListAsync();
         var docs = await _fomsDb.LiquidationDocuments.Where(d => d.LiquidationId == id).AsNoTracking().ToListAsync();
 
@@ -179,21 +184,51 @@ public class LiquidationsController : ControllerBase
             return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to create liquidation vouchers. Only Assistant of Finance Manager (EMP-004) or Head Accountant (EMP-002) may initiate liquidations." });
         }
 
+        if (string.IsNullOrWhiteSpace(dto.CashAdvanceReference))
+            return BadRequest(new { errors = new { cashAdvanceReference = new[] { "An approved, released cash advance is required." } } });
+        if (dto.LineItems == null || dto.LineItems.Count == 0)
+            return BadRequest(new { errors = new { lineItems = new[] { "At least one itemized expense is required." } } });
+        var source = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == dto.CashAdvanceReference);
+        if (source == null)
+            return BadRequest(new { errors = new { cashAdvanceReference = new[] { "The linked cash advance does not exist." } } });
+        if (source.Status != "Released" && source.Status != "Disbursed")
+            return BadRequest(new { errors = new { cashAdvanceReference = new[] { "The linked cash advance must be approved and released, and cannot be cancelled." } } });
+        if (await _fomsDb.Liquidations.AnyAsync(l => l.CashAdvanceReference == source.AdvanceId))
+            return Conflict(new { errors = new { cashAdvanceReference = new[] { "This cash advance already has a liquidation report." } } });
+        if (dto.LineItems.Any(li => li.Amount <= 0 || string.IsNullOrWhiteSpace(li.Description) || string.IsNullOrWhiteSpace(li.Category) || !li.ReceiptDate.HasValue || string.IsNullOrWhiteSpace(li.SupportingDocumentPath)))
+            return BadRequest(new { errors = new { lineItems = new[] { "Every line item requires an expense date, category, description, positive amount, and supporting document." } } });
+        var expenses = dto.LineItems.Sum(li => li.Amount);
+        var returned = dto.LeftoverCash ?? 0m;
+        var variance = expenses + returned - source.AmountGiven;
+        if (variance != 0m && variance > 0m && (dto.ReimbursementAmount ?? 0m) != variance)
+            return BadRequest(new { errors = new { variance = new[] { $"Expense total plus returned cash differs from the advance by {variance:C}; create a reimbursement request for this amount." } } });
+        if (variance < 0m && returned != -variance)
+            return BadRequest(new { errors = new { variance = new[] { $"Expense total plus returned cash is short by {-variance:C}. Record the full cash return and attach its official receipt." } } });
+
         var item = new Liquidation
         {
             ReferenceNumber = dto.ReferenceNumber ?? $"LIQ-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}",
+            CashAdvanceReference = source.AdvanceId,
+            CashAdvanceId = int.TryParse(source.AdvanceId.Replace("CA-", "", StringComparison.OrdinalIgnoreCase), out var sourceId) ? sourceId : null,
             SubmittedByName = dto.SubmittedByName ?? dto.SubmittedBy ?? (!string.IsNullOrWhiteSpace(username) ? username : "Employee"),
             SubmittedByEmployeeId = !string.IsNullOrWhiteSpace(empId) ? empId : dto.SubmittedByEmployeeId,
             TotalAmount = dto.TotalAmount ?? dto.Amount ?? 0m,
             LeftoverCash = dto.LeftoverCash ?? 0m,
             ReimbursementAmount = dto.ReimbursementAmount ?? 0m,
-            Status = dto.Status ?? "Pending Validation",
+            Status = "Draft",
             CreatedAt = DateTime.UtcNow,
             DateSubmitted = DateTime.UtcNow,
             IsDeleted = false
         };
 
         _fomsDb.Liquidations.Add(item);
+        await _fomsDb.SaveChangesAsync();
+        foreach (var line in dto.LineItems)
+        {
+            line.LiquidationId = item.LiquidationId;
+            line.ReceiptAttached = true;
+            _fomsDb.LiquidationLineItems.Add(line);
+        }
         await _fomsDb.SaveChangesAsync();
 
         _fomsDb.AuditLogs.Add(new AuditLog
@@ -257,7 +292,31 @@ public class LiquidationsController : ControllerBase
         }
 
         if (!string.IsNullOrEmpty(dto.Status))
+        {
+            var transitions = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Draft"] = new[] { "Submitted" },
+                ["Submitted"] = new[] { "Under Review" },
+                ["Under Review"] = new[] { "Approved", "Rejected" },
+                ["Rejected"] = new[] { "Draft" }
+            };
+            if (!transitions.TryGetValue(item.Status ?? "Draft", out var allowed) || !allowed.Contains(dto.Status, StringComparer.OrdinalIgnoreCase))
+                return BadRequest(new { errors = new { status = new[] { $"Transition from '{item.Status}' to '{dto.Status}' is not allowed." } } });
+            if (dto.Status.Equals("Submitted", StringComparison.OrdinalIgnoreCase))
+            {
+                var lines = await _fomsDb.LiquidationLineItems.Where(li => li.LiquidationId == id).ToListAsync();
+                if (lines.Count == 0 || lines.Any(li => !li.ReceiptDate.HasValue || string.IsNullOrWhiteSpace(li.Category) || string.IsNullOrWhiteSpace(li.Description) || li.Amount <= 0 || string.IsNullOrWhiteSpace(li.SupportingDocumentPath)))
+                    return BadRequest(new { errors = new { lineItems = new[] { "Submission requires at least one complete item with a valid supporting document." } } });
+                var advance = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == item.CashAdvanceReference);
+                if (advance == null) return BadRequest(new { errors = new { cashAdvanceReference = new[] { "The linked approved cash advance could not be found." } } });
+                var variance = lines.Sum(li => li.Amount) + (item.LeftoverCash ?? 0m) - advance.AmountGiven;
+                if (variance != 0m && (variance < 0m || (item.ReimbursementAmount ?? 0m) != variance))
+                    return BadRequest(new { errors = new { variance = new[] { $"Liquidation variance is {variance:C}. Record the cash return or reimbursement request before submission." } } });
+            }
+            if (dto.Status.Equals("Rejected", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(dto.Notes))
+                return BadRequest(new { errors = new { reason = new[] { "A rejection reason is required." } } });
             item.Status = dto.Status;
+        }
 
         if (dto.TotalAmount.HasValue || dto.Amount.HasValue)
             item.TotalAmount = dto.TotalAmount ?? dto.Amount!.Value;
@@ -299,6 +358,9 @@ public class LiquidationsController : ControllerBase
         var item = await _fomsDb.Liquidations.FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (item == null) return NotFound(new { message = "Liquidation not found" });
 
+        if (item.Status is "Approved" or "Closed")
+            return Conflict(new { message = "Approved and closed liquidation reports are immutable. Submit a formal adjustment entry." });
+
         var normAction = actionName.ToLowerInvariant();
         var (_, userRole, callerUsername, callerEmpId) = GetCallerInfo();
 
@@ -327,7 +389,8 @@ public class LiquidationsController : ControllerBase
                 return Conflict(new { message = "This liquidation has already been validated and signed off." });
             }
 
-            item.Status = "Endorsed";
+            if (item.Status != "Submitted") return BadRequest(new { message = "Only submitted liquidation reports can enter review." });
+            item.Status = "Under Review";
 
             _fomsDb.Notifications.Add(new Notification
             {
@@ -361,7 +424,8 @@ public class LiquidationsController : ControllerBase
                 return BadRequest(new { message = "Skipped tier: Liquidation must be endorsed by Assistant of Finance Manager before final Finance Manager sign-off." });
             }
 
-            item.Status = "Validated";
+            if (item.Status != "Under Review") return BadRequest(new { message = "Only reports under review can be approved." });
+            item.Status = "Approved";
             item.ValidatedAt = DateTime.UtcNow;
             item.ValidatedBy = 1;
 
@@ -427,7 +491,10 @@ public class LiquidationsController : ControllerBase
         }
         else if (normAction is "reject")
         {
-            item.Status = "Rejected";
+            if (item.Status != "Under Review") return BadRequest(new { message = "Only reports under review can be rejected." });
+            if (string.IsNullOrWhiteSpace(dto?.Notes)) return BadRequest(new { errors = new { reason = new[] { "A rejection reason is required." } } });
+            item.RejectionReason = dto.Notes.Trim();
+            item.Status = "Draft";
         }
         else if (normAction is "return" or "for_correction" or "for-correction")
         {
@@ -435,7 +502,8 @@ public class LiquidationsController : ControllerBase
         }
         else if (normAction is "submit")
         {
-            item.Status = "Pending Validation";
+            if (item.Status != "Draft") return BadRequest(new { message = "Only draft liquidation reports can be submitted." });
+            item.Status = "Submitted";
         }
 
         await _fomsDb.SaveChangesAsync();

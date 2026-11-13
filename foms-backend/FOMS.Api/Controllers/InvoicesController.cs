@@ -238,7 +238,7 @@ public class InvoicesController : ApiControllerBase
     [HttpGet]
     public async Task<IActionResult> GetInvoices([FromQuery] string? clientId = null)
     {
-        var invoicesQuery = _context.Invoices.AsQueryable();
+        var invoicesQuery = _context.Invoices.Where(invoice => !invoice.InvoiceNo.StartsWith("BI-")).AsQueryable();
         if (!ArchivedRecordAccess.CanViewArchivedRecords(User))
             invoicesQuery = invoicesQuery.Where(invoice => !invoice.Archived || invoice.Balance > 0m);
 
@@ -800,7 +800,10 @@ public class InvoicesController : ApiControllerBase
             AmountPaid = 0m,
             Balance = totalAmount,
             PaymentStatus = "Unpaid",
-            DocumentStatus = "Draft",
+            DocumentStatus = !string.IsNullOrWhiteSpace(submission.Status) &&
+                             !submission.Status.Equals("Draft", StringComparison.OrdinalIgnoreCase)
+                ? InvoiceDocumentStatus.ForReview
+                : InvoiceDocumentStatus.Draft,
             PaymentValidationStatus = null,
             AgingBucket = "Current",
             DaysOverdue = 0,
@@ -853,7 +856,10 @@ public class InvoicesController : ApiControllerBase
             });
         }
 
-        // Lock waybills to this invoice: A waybill bills once and locks to its invoice
+        // 1. Save invoice entity first
+        await _context.SaveChangesAsync(default);
+
+        // 2. Lock waybills to this invoice: A waybill bills once and locks to its invoice
         if (resolvedWaybills.Count > 0)
         {
             foreach (var wb in resolvedWaybills)
@@ -871,8 +877,6 @@ public class InvoicesController : ApiControllerBase
                 // Non-critical if waybills sync encounters schema difference
             }
         }
-
-        await _context.SaveChangesAsync(default);
         await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
         await BillingComputationService.SyncClientBalanceAsync(invoice.ClientId, _context);
         await _context.SaveChangesAsync(default);

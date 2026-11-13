@@ -55,7 +55,7 @@ public class DmsDeliveryCompletedRequest
     public string? DriverEmployeeId { get; set; }
     public string? PackageDescription { get; set; }
     public string? DeliveryRemarks { get; set; }
-    public bool AutoGenerateInvoice { get; set; } = true;
+    public bool AutoGenerateInvoice { get; set; } = false;
 
     public string EffectivePodUrl =>
         !string.IsNullOrWhiteSpace(PodImageUrl) ? PodImageUrl : (PodUrl ?? string.Empty);
@@ -78,7 +78,8 @@ public class DmsDeliveryCompletedRequest
         ItemCount = ItemCount ?? NumberOfBoxes ?? 1,
         ActualWeight = ActualWeight > 0 ? ActualWeight : 1.0m,
         DeclaredValue = DeclaredValue ?? 1000.0m,
-        DeliveryRemarks = DeliveryRemarks
+        DeliveryRemarks = DeliveryRemarks,
+        AutoGenerateInvoice = AutoGenerateInvoice
     };
 }
 
@@ -197,6 +198,8 @@ public class DmsCashAdvanceRequest
 
 public class DmsLiquidationItemRequest
 {
+    public DateTime ExpenseDate { get; set; }
+    public string Category { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string? ReceiptUrl { get; set; }
@@ -244,6 +247,8 @@ public class DmsLiquidationRequest
         {
             receiptItems.AddRange(Expenses.Select(e => new DmsLiquidationReceiptItemDto
             {
+                ExpenseDate = e.ExpenseDate,
+                Category = e.Category,
                 Description = e.Description,
                 Amount = e.Amount,
                 ReceiptUrl = e.ReceiptUrl

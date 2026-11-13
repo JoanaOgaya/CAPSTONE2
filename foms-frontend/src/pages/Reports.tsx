@@ -68,7 +68,7 @@ const ReportsContent: React.FC = () => {
   const { data: uniqueData } = useQuery('reports:unique-docs', () => duplicatesService.uniqueDocuments({ pageSize: 100 }));
   const { data: historyData } = useQuery('reports:review-history', () => duplicatesService.reviewHistory({ pageSize: 100 }));
 
-  const invoices: Invoice[] = invData?.items || [];
+  const invoices: Invoice[] = (invData?.items || []).filter((inv: Invoice) => !inv.invoiceNumber?.startsWith('BI-'));
   const clients: Client[] = clientData?.items || [];
   const arRecords: AccountsReceivableRecord[] = arData?.items || [];
   const payments: Payment[] = pmtData?.items || [];

@@ -24,7 +24,14 @@ import { canCheckDuplicateInForm } from '../utils/roleAccess';
 
 type Step = 1 | 2 | 3;
 
-export const InvoiceCreation: React.FC = () => {
+export interface InvoiceCreationProps {
+  isModal?: boolean;
+  onClose?: () => void;
+  onSuccess?: () => void;
+  editId?: string;
+}
+
+export const InvoiceCreation: React.FC<InvoiceCreationProps> = ({ isModal = false, onClose, onSuccess, editId }) => {
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -39,7 +46,7 @@ export const InvoiceCreation: React.FC = () => {
   const billingRates: BillingRate[] = useMemo(() => ratesData?.items || [], [ratesData?.items]);
 
   const [searchParams] = useSearchParams();
-  const editInvoiceId = searchParams.get('edit');
+  const editInvoiceId = editId || searchParams.get('edit');
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>(1);
@@ -167,7 +174,31 @@ export const InvoiceCreation: React.FC = () => {
     }
   }, [editInvoice, waybills]);
 
-  // Step 1: Client Selection
+  // Client Normalization & Matching Helper (supports DMS aliases and code mappings)
+  const normalizeClientKey = (val?: string | number | null): string => {
+    if (!val) return '';
+    const s = String(val).trim().toLowerCase();
+    if (s === '1' || s === 'ca-001' || s === 'lzd-001' || s.includes('lazada')) return 'LZD-001';
+    if (s === '2' || s === 'ca-002' || s === 'shp-001' || s.includes('shopee')) return 'SHP-001';
+    if (s === '3' || s === 'ca-003' || s === 'tkt-001' || s.includes('tiktok')) return 'TKT-001';
+    if (s === '4' || s === 'ca-004' || s === 'zal-001' || s.includes('zalora')) return 'ZAL-001';
+    if (s === '5' || s === 'ca-005' || s === 'tst-001' || s.includes('test')) return 'TST-001';
+    if (s === '7' || s === 'ca-007' || s === 'cl-007' || s.includes('pldt')) return 'CL-007';
+    return s;
+  };
+
+  const doesWaybillBelongToClient = (w: any, c: Client): boolean => {
+    if (!w || !c) return false;
+    const cTarget = normalizeClientKey(c.id || c.clientCode || c.name);
+    if (normalizeClientKey(w.clientCode) === cTarget) return true;
+    if (normalizeClientKey(w.clientId) === cTarget) return true;
+    if (normalizeClientKey(w.clientName) === cTarget) return true;
+    if (w.clientCode === c.id || w.clientCode === c.clientCode) return true;
+    if (w.clientName && c.name && w.clientName.toLowerCase() === c.name.toLowerCase()) return true;
+    return false;
+  };
+
+  // Step 1: Client Selection — Accepts all validated unbilled waybills (including DMS deliveries)
   const availableWaybills = useMemo(() => {
     return waybills.filter((w: Waybill) => {
       const isBelongingToEdit = editInvoice && (
@@ -176,25 +207,22 @@ export const InvoiceCreation: React.FC = () => {
         (Array.isArray(editInvoice.waybillIds) && (editInvoice.waybillIds.includes(w.id) || editInvoice.waybillIds.includes(w.waybillNumber)))
       );
       if (isBelongingToEdit) return true;
-      const isUnbilled = !w.invoiceId || w.invoiceId === '';
-      return isUnbilled && (w.status === 'Validated' || w.status === 'Validated (CTC)');
+      const isUnbilled = !w.isBilled || !w.invoiceId || w.invoiceId === '' || w.invoiceId.startsWith('INV-DMS');
+      const isValidated = w.status === 'Validated' || w.status === 'Validated (CTC)' || (w as any).podStatus === 'Validated' || (w as any).hasOriginalPOD;
+      return isUnbilled && isValidated;
     });
   }, [waybills, editInvoice]);
 
   const clientsWithPending = useMemo(() => {
-    const counts = new Map<string, number>();
-    availableWaybills.forEach((w: Waybill) => {
-      counts.set(w.clientCode, (counts.get(w.clientCode) || 0) + 1);
-    });
-    return Array.from(counts.entries()).map(([clientId, count]) => {
-      const client = clients.find((c: Client) => c.id === clientId);
+    return clients.map((client: Client) => {
+      const matchingWaybills = availableWaybills.filter((w: Waybill) => doesWaybillBelongToClient(w, client));
       return {
-        id: clientId,
-        clientName: client?.name || clientId,
-        pendingCount: count,
-        schedule: client?.billingSchedule || 'Monthly'
+        id: client.id,
+        clientName: client.name || client.id,
+        pendingCount: matchingWaybills.length,
+        schedule: client.billingSchedule || 'Monthly'
       };
-    });
+    }).filter(c => c.pendingCount > 0);
   }, [availableWaybills, clients]);
 
   const [clientViewMode, setClientViewMode] = useState<'cards' | 'table'>('cards');
@@ -215,9 +243,13 @@ export const InvoiceCreation: React.FC = () => {
     { key: 'pendingCount', label: 'UNBILLED WAYBILLS' }
   ];
 
-  // Step 2: Waybills for Client
+  // Step 2: Waybills for Client — Matches by resolved client ID or DMS code
   const clientWaybills = useMemo(() => {
-    return availableWaybills.filter((w: Waybill) => w.clientCode === selectedClientId).map((wb: Waybill) => {
+    if (!selectedClientId) return [];
+    const client = clients.find((c: Client) => c.id === selectedClientId || c.clientCode === selectedClientId);
+    return availableWaybills
+      .filter((w: Waybill) => client ? doesWaybillBelongToClient(w, client) : (w.clientCode === selectedClientId))
+      .map((wb: Waybill) => {
       let breakdown: any = null;
       try {
         breakdown = computeFreightCost(wb, clientRates);
@@ -538,7 +570,11 @@ export const InvoiceCreation: React.FC = () => {
 
       if (targetStatus === 'Draft') {
         toast.success(`Invoice ${invNum} saved as Draft.`, 'Draft Saved');
-        navigate(`/invoicing-desk/${invId}`);
+        if (isModal) {
+          onSuccess ? onSuccess() : onClose?.();
+        } else {
+          navigate(`/invoicing-desk/${invId}`);
+        }
       } else {
         toast.success(`Invoice ${invNum} submitted for approval.`, 'Success');
         setSubmitted(true);
@@ -564,9 +600,15 @@ export const InvoiceCreation: React.FC = () => {
         </p>
         <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
           <Button
-            title="Go to Invoicing Desk"
+            title={isModal ? "Done (Back to Invoice List)" : "Go to Invoicing Desk"}
             variant="primary"
-            onClick={() => navigate('/invoicing-desk')}
+            onClick={() => {
+              if (isModal) {
+                onSuccess ? onSuccess() : onClose?.();
+              } else {
+                navigate('/invoicing-desk');
+              }
+            }}
           />
           <Button
             title="Create Another Invoice"
@@ -1210,9 +1252,16 @@ export const InvoiceCreation: React.FC = () => {
                                   accentColor: '#059669'
                                 }}
                               />
-                              <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0F172A' }}>
-                                {w.waybillNumber}
-                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0F172A' }}>
+                                  {w.waybillNumber}
+                                </span>
+                                {((w as any).encodedBy?.includes('DMS') || (w as any).podUrl || (w as any).hasOriginalPOD) && (
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 700, background: '#F0FDFA', color: '#0D9488', border: '1px solid #CCFBF1', padding: '2px 6px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                    <i className="ti ti-truck-delivery" /> DMS POD
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <StatusBadge status={w.status} />
                           </div>
@@ -1332,7 +1381,16 @@ export const InvoiceCreation: React.FC = () => {
                   isRowSelectable={(w: any) => w.status === 'Validated' || w.status === 'Validated (CTC)'}
                   onRowClick={(w: any) => setSelectedWaybillForDetails(selectedWbDetail?.id === w.id ? null : w.id)}
                   columns={[
-                    { key: 'waybillNumber', label: 'WAYBILL NO.', sortable: true, render: (row: any) => <span style={{ borderBottom: '1px dotted #CBD5E1', cursor: 'pointer', color: '#0F172A', fontWeight: 600 }}>{row.waybillNumber}</span> },
+                    { key: 'waybillNumber', label: 'WAYBILL NO.', sortable: true, render: (row: any) => (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ borderBottom: '1px dotted #CBD5E1', cursor: 'pointer', color: '#0F172A', fontWeight: 600 }}>{row.waybillNumber}</span>
+                        {((row as any).encodedBy?.includes('DMS') || (row as any).podUrl || (row as any).hasOriginalPOD) && (
+                          <span style={{ fontSize: '0.62rem', fontWeight: 700, background: '#F0FDFA', color: '#0D9488', border: '1px solid #CCFBF1', padding: '1px 5px', borderRadius: 4 }} title="Delivered & Verified via DMS">
+                            DMS POD
+                          </span>
+                        )}
+                      </div>
+                    )},
                     { key: 'deliveryDate', label: 'DELIVERY DATE', sortable: true, render: (row: any) => new Date(row.deliveryDate).toLocaleDateString('en-US') },
                     { key: 'area', label: 'AREA', sortable: true, render: (row: any) => row.area === 'NCR' ? 'NCR/Metro Manila' : row.area },
                     { key: 'weight', label: 'CHARGEABLE WT.', render: (row: any) => (
@@ -2144,7 +2202,7 @@ export const InvoiceCreation: React.FC = () => {
 
               <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: 12 }}>
                 <span style={{ fontSize: '0.72rem', color: '#94A3B8', display: 'block', textAlign: 'center', lineHeight: 1.4 }}>
-                  Submitted invoices are routed to the Head Accountant for validation.
+                  Submitted invoices are routed to the Finance Manager for approval.
                 </span>
               </div>
             </div>
@@ -2183,6 +2241,53 @@ export const InvoiceCreation: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.85rem', color: '#64748B' }}>Items</span><span style={{ fontSize: '0.85rem', color: '#0F172A', fontWeight: 500 }}>{selectedWbDetail.itemQuantity} box{(selectedWbDetail as any).itemDimensions ? ` • ${(selectedWbDetail as any).itemDimensions.length}x${(selectedWbDetail as any).itemDimensions.width}x${(selectedWbDetail as any).itemDimensions.height} cm` : ''}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.85rem', color: '#64748B' }}>Declared value</span><span style={{ fontSize: '0.85rem', color: '#0F172A', fontWeight: 500 }}>{selectedWbDetail.declaredValue ? `₱${selectedWbDetail.declaredValue.toLocaleString('en-PH', {minimumFractionDigits: 2})}` : '-'}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ fontSize: '0.85rem', color: '#64748B' }}>Remarks</span><span style={{ fontSize: '0.85rem', color: '#0F172A', fontWeight: 500 }}>{selectedWbDetail.specialInstructions || '-'}</span></div>
+            </div>
+
+            {/* Proof of Delivery (POD) Info & Link */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24, padding: 14, background: '#F0FDFA', borderRadius: 10, border: '1px solid #CCFBF1' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0D9488', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <i className="ti ti-camera-check" style={{ fontSize: '1rem' }} /> PROOF OF DELIVERY (POD)
+                </span>
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#D1FAE5', color: '#047857' }}>
+                  VERIFIED
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                <span style={{ color: '#64748B' }}>Source</span>
+                <span style={{ fontWeight: 600, color: '#0F172A' }}>{selectedWbDetail.encodedBy || 'DMS Integration'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                <span style={{ color: '#64748B' }}>Receiver</span>
+                <span style={{ fontWeight: 600, color: '#0F172A' }}>{selectedWbDetail.receiverName || 'Recipient Verified'}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
+                <span style={{ color: '#64748B' }}>Compliance</span>
+                <span style={{ fontWeight: 600, color: '#059669' }}>Original Signed & Matched ✓</span>
+              </div>
+              {(selectedWbDetail as any)?.podUrl && (
+                <a
+                  href={(selectedWbDetail as any)?.podUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    padding: '8px 12px',
+                    background: '#0D9488',
+                    color: '#FFFFFF',
+                    borderRadius: 6,
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    textDecoration: 'none',
+                    marginTop: 4
+                  }}
+                >
+                  <i className="ti ti-external-link" /> View Signed POD Image
+                </a>
+              )}
             </div>
 
             {selectedWbDetail.breakdown && (

@@ -131,9 +131,26 @@ public class AiDuplicatesController : ApiControllerBase
         }
         catch { }
 
-        var invoices = await _fomsDb.Invoices.AsNoTracking().ToListAsync();
-        var receipts = await _fomsDb.OfficialReceipts.AsNoTracking().ToListAsync();
-        var liquidations = await _fomsDb.Liquidations.AsNoTracking().Where(l => l.IsDeleted != true).ToListAsync();
+        var invoices = new List<Invoice>();
+        try
+        {
+            invoices = await _fomsDb.Invoices.AsNoTracking().ToListAsync();
+        }
+        catch { }
+
+        var receipts = new List<FomsOfficialReceipt>();
+        try
+        {
+            receipts = await _fomsDb.OfficialReceipts.AsNoTracking().ToListAsync();
+        }
+        catch { }
+
+        var liquidations = new List<Liquidation>();
+        try
+        {
+            liquidations = await _fomsDb.Liquidations.AsNoTracking().Where(l => l.IsDeleted != true).ToListAsync();
+        }
+        catch { }
         var appInvoices = await _context.Invoices.AsNoTracking().ToListAsync();
         var appPayments = await _context.Payments.AsNoTracking().ToListAsync();
         var appClients = await _context.Clients.AsNoTracking().ToListAsync();
@@ -666,9 +683,26 @@ public class AiDuplicatesController : ApiControllerBase
         }
         catch { }
 
-        var invoices = await _fomsDb.Invoices.AsNoTracking().ToListAsync();
-        var receipts = await _fomsDb.OfficialReceipts.AsNoTracking().ToListAsync();
-        var liquidations = await _fomsDb.Liquidations.AsNoTracking().Where(l => l.IsDeleted != true).ToListAsync();
+        var invoices = new List<Invoice>();
+        try
+        {
+            invoices = await _fomsDb.Invoices.AsNoTracking().ToListAsync();
+        }
+        catch { }
+
+        var receipts = new List<FomsOfficialReceipt>();
+        try
+        {
+            receipts = await _fomsDb.OfficialReceipts.AsNoTracking().ToListAsync();
+        }
+        catch { }
+
+        var liquidations = new List<Liquidation>();
+        try
+        {
+            liquidations = await _fomsDb.Liquidations.AsNoTracking().Where(l => l.IsDeleted != true).ToListAsync();
+        }
+        catch { }
 
         var items = new List<object>();
 

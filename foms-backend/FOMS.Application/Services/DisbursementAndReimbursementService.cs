@@ -605,18 +605,29 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
     // ─────────────────────────────────────────────────────────────────────────
     public async Task<LiquidationResponseDto> SubmitLiquidationAsync(SubmitLiquidationDto dto, string userId, string userRole)
     {
+        if (dto.LineItems == null || dto.LineItems.Count == 0)
+            throw new ArgumentException("At least one itemized expense is required.");
+        if (string.IsNullOrWhiteSpace(dto.AdvanceId))
+            throw new ArgumentException("An approved, released cash advance is required.");
         var advance = await _context.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == dto.AdvanceId);
         if (advance == null) throw new KeyNotFoundException($"Cash advance {dto.AdvanceId} not found.");
 
         if (advance.Status != "Released")
         {
-            throw new InvalidOperationException($"Cannot liquidate advance in status '{advance.Status}'. Advance must be 'Released'.");
+            throw new InvalidOperationException($"Cannot liquidate advance in status '{advance.Status}'. Advance must be approved and released.");
         }
+        if (await _context.Liquidations.AnyAsync(l => l.CashAdvanceId.HasValue &&
+            (l.CashAdvanceId.Value.ToString() == dto.AdvanceId || $"CA-{l.CashAdvanceId.Value}" == dto.AdvanceId) &&
+            l.Status != "Rejected" && l.Status != "Draft"))
+            throw new InvalidOperationException($"Cash advance {dto.AdvanceId} already has a liquidation report.");
 
         // Validate line items have receipts attached & valid category
         foreach (var item in dto.LineItems)
         {
             EnsureValidCategory(item.Category);
+            if (item.Amount <= 0) throw new ArgumentException("Each line item amount must be greater than zero.");
+            if (string.IsNullOrWhiteSpace(item.Description)) throw new ArgumentException("Each line item requires a description.");
+            if (!item.ReceiptDate.HasValue) throw new ArgumentException($"Line item '{item.Description}' requires an expense date.");
             if (!item.ReceiptAttached)
             {
                 throw new ArgumentException($"Line item '{item.Description}' must have an original receipt attached.");
@@ -636,11 +647,17 @@ public class DisbursementAndReimbursementService : IDisbursementAndReimbursement
             reimbursementAmount = totalExpenses - advance.AmountGiven;
         }
 
+        var variance = totalExpenses + leftoverCash - advance.AmountGiven;
+        if (variance != 0m && reimbursementAmount == 0m)
+            throw new InvalidOperationException($"Liquidation variance is {variance:C}. Expense total plus returned cash must equal the advance amount.");
+
         var refNo = $"LIQ-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..6].ToUpper()}";
 
         var liq = new Liquidation
         {
             ReferenceNumber = refNo,
+            CashAdvanceReference = advance.AdvanceId,
+            CashAdvanceId = int.TryParse(dto.AdvanceId.Replace("CA-", "", StringComparison.OrdinalIgnoreCase), out var advanceId) ? advanceId : null,
             SubmittedByName = dto.SubmittedByName,
             SubmittedByEmployeeId = (!string.IsNullOrWhiteSpace(dto.SubmittedByName) && dto.SubmittedByName.Trim().StartsWith("EMP-", StringComparison.OrdinalIgnoreCase))
                 ? dto.SubmittedByName.Trim()

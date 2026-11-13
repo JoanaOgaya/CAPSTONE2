@@ -31,7 +31,7 @@ export const InvoiceReview: React.FC = () => {
   const { data: clientData } = useQuery('review:clients', () => clientsService.list({ pageSize: 100 }));
   const { data: rateData } = useQuery('review:rates', () => ratesService.list({ pageSize: 100 }));
 
-  const invoices: Invoice[] = invData?.items || [];
+  const invoices: Invoice[] = (invData?.items || []).filter((inv: Invoice) => !inv.invoiceNumber?.startsWith('BI-'));
   const waybills: Waybill[] = wbData?.items || [];
   const clients: Client[] = clientData?.items || [];
   const billingRates: BillingRate[] = rateData?.items || [];

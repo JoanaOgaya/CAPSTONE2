@@ -200,39 +200,49 @@ export const StarsCollectionWorkflow: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }}>
-      {/* ─── Top Actions Bar ──────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
-        <Button
-          title="Refresh Engine"
-          variant="secondary"
-          onClick={() => {
-            refetchMetrics();
-            refetchTasks();
-            toast.info('Refreshed collection metrics and tasks.');
-          }}
-        >
-          <i className="ti ti-refresh" style={{ marginRight: '6px' }} />
-          Refresh Engine
-        </Button>
-        {canDispatchFollowUp(user?.role) && (
+      {/* Header with Title & Action Buttons */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
+            STARS Collection
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: '13.5px', color: '#64748B' }}>
+            Automated accounts receivable follow-up dispatch, graph routing engine, and coordinator tracking.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <Button
-            title="Dispatch New Follow-Up"
-            variant="primary"
+            title="Refresh Engine"
+            variant="secondary"
             onClick={() => {
-              setDispatchInvoiceNo('');
-              setDispatchClient('');
-              setDispatchAmount('');
-              setDispatchDaysOverdue('');
-              setShowDispatchModal(true);
+              refetchMetrics();
+              refetchTasks();
+              toast.info('Refreshed collection metrics and tasks.');
             }}
           >
-            <i className="ti ti-plus" style={{ marginRight: '6px' }} />
-            Dispatch New Follow-Up
+            <i className="ti ti-refresh" style={{ marginRight: '6px' }} />
+            Refresh Engine
           </Button>
-        )}
+          {canDispatchFollowUp(user?.role) && (
+            <Button
+              title="Dispatch New Follow-Up"
+              variant="primary"
+              onClick={() => {
+                setDispatchInvoiceNo('');
+                setDispatchClient('');
+                setDispatchAmount('');
+                setDispatchDaysOverdue('');
+                setShowDispatchModal(true);
+              }}
+            >
+              <i className="ti ti-plus" style={{ marginRight: '6px' }} />
+              Dispatch New Follow-Up
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* ─── KPI Cards Banner ────────────────────────────────────────────── */}
+      {/* KPI Cards Banner */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
         <div style={{ background: '#fff', borderRadius: '12px', padding: '18px 20px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ color: '#64748b', fontSize: '13px', fontWeight: 600 }}>Active Collection Tasks</div>
@@ -303,49 +313,53 @@ export const StarsCollectionWorkflow: React.FC = () => {
                   transition: 'all 0.2s',
                 }}
               >
-                {coord.isOptimalCandidate && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: '12px',
-                      right: '12px',
-                      background: '#10b981',
-                      color: '#fff',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      letterSpacing: '0.5px',
-                    }}
-                  >
-                    ★ OPTIMAL CANDIDATE
-                  </span>
-                )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      background: coord.isOptimalCandidate ? '#10b981' : '#94a3b8',
-                      color: '#fff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 700,
-                      fontSize: '14px',
-                    }}
-                  >
-                    {coord.fullName
-                      .split(' ')
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join('')}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        background: coord.isOptimalCandidate ? '#10b981' : '#94a3b8',
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 700,
+                        fontSize: '14px',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {coord.fullName
+                        .split(' ')
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join('')}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {coord.fullName}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>Coordinator ID: {coord.coordinatorId}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>{coord.fullName}</div>
-                    <div style={{ fontSize: '12px', color: '#64748b' }}>Coordinator ID: {coord.coordinatorId}</div>
-                  </div>
+                  {coord.isOptimalCandidate && (
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        background: '#10b981',
+                        color: '#fff',
+                        fontSize: '10.5px',
+                        fontWeight: 800,
+                        padding: '3px 8px',
+                        borderRadius: '12px',
+                        letterSpacing: '0.3px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      ★ OPTIMAL CANDIDATE
+                    </span>
+                  )}
                 </div>
 
                 <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' }}>
@@ -424,7 +438,7 @@ export const StarsCollectionWorkflow: React.FC = () => {
               borderRadius: '6px',
               border: '1px solid #cbd5e1',
               fontSize: '13px',
-              width: '280px',
+              width: '350px',
               color: '#1e293b',
             }}
           />

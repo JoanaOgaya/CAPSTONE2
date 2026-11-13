@@ -97,13 +97,19 @@ public class DmsIntegrationService : IDmsIntegrationService
             };
         }
 
+        // Match client by code, dms id, or company name
+        var matchedClient = await _fomsDb.Clients.FirstOrDefaultAsync(c =>
+            (!string.IsNullOrEmpty(dto.ClientCode) && (c.ClientCode == dto.ClientCode || c.DmsClientId == dto.ClientCode)) ||
+            (!string.IsNullOrEmpty(dto.ClientName) && c.CompanyName == dto.ClientName));
+        int resolvedClientId = matchedClient?.ClientId ?? 1;
+
         // Upsert Waybill in FOMS SQL Server Waybills table
         if (existingWaybill == null)
         {
             existingWaybill = new Waybill
             {
                 WaybillNumber = waybillNo,
-                ClientId = 1,
+                ClientId = resolvedClientId,
                 Origin = "Manila Hub",
                 Destination = dto.RecipientAddress ?? "Metro Manila",
                 DeliveryArea = dto.DeliveryArea ?? "NCR",
@@ -125,6 +131,7 @@ public class DmsIntegrationService : IDmsIntegrationService
         }
         else
         {
+            existingWaybill.ClientId = resolvedClientId;
             existingWaybill.DeliveryStatus = "Delivered";
             existingWaybill.PodStatus = "Validated";
             existingWaybill.ClientSigned = true;
@@ -176,81 +183,97 @@ public class DmsIntegrationService : IDmsIntegrationService
                                 ? 100.00m : 0m;
         decimal computedAmount = Math.Round(baseRate + excessWeightCharge + areaSurcharge, 2);
 
-        // Generate Invoice (FR-015 to FR-020)
-        var invoiceNo = $"INV-DMS-{waybillNo}";
-        var invoice = await _appDb.Invoices.FirstOrDefaultAsync(i => i.InvoiceNo == invoiceNo);
-        if (invoice == null)
+        string? invoiceNo = null;
+
+        if (dto.AutoGenerateInvoice)
         {
-            invoice = new AppInvoice
+            // Generate Invoice (FR-015 to FR-020) only when explicitly opted in
+            invoiceNo = $"INV-DMS-{waybillNo}";
+            var invoice = await _appDb.Invoices.FirstOrDefaultAsync(i => i.InvoiceNo == invoiceNo);
+            if (invoice == null)
             {
-                Id = Guid.NewGuid().ToString("N"),
-                InvoiceNo = invoiceNo,
-                ClientId = "CA-001",
-                ClientName = !string.IsNullOrWhiteSpace(dto.ClientName) ? dto.ClientName.Trim() : "Lazada Philippines",
-                BillingDate = now.ToString("yyyy-MM-dd"),
-                DueDate = now.AddDays(30).ToString("yyyy-MM-dd"),
-                TotalAmount = computedAmount,
-                AmountPaid = 0m,
-                Balance = computedAmount,
-                PaymentStatus = "Unpaid",
-                PaymentValidationStatus = "Validated",
-                LastUpdated = now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                UpdatedBy = "DMS Integration"
-            };
-            _appDb.Invoices.Add(invoice);
+                invoice = new AppInvoice
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    InvoiceNo = invoiceNo,
+                    ClientId = matchedClient?.ClientCode ?? (resolvedClientId == 1 ? "CA-001" : resolvedClientId == 2 ? "CA-002" : resolvedClientId == 3 ? "CA-003" : "CA-004"),
+                    ClientName = !string.IsNullOrWhiteSpace(dto.ClientName) ? dto.ClientName.Trim() : (matchedClient?.CompanyName ?? "Lazada Philippines"),
+                    BillingDate = now.ToString("yyyy-MM-dd"),
+                    DueDate = now.AddDays(30).ToString("yyyy-MM-dd"),
+                    TotalAmount = computedAmount,
+                    AmountPaid = 0m,
+                    Balance = computedAmount,
+                    PaymentStatus = "Unpaid",
+                    PaymentValidationStatus = "Validated",
+                    LastUpdated = now.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    UpdatedBy = "DMS Integration"
+                };
+                _appDb.Invoices.Add(invoice);
+            }
+            else
+            {
+                invoice.TotalAmount = computedAmount;
+                invoice.Balance = computedAmount;
+                invoice.LastUpdated = now.ToString("yyyy-MM-ddTHH:mm:ss");
+            }
+
+            // Mark Waybill as billed and save
+            existingWaybill.IsBilled = true;
+            existingWaybill.InvoiceNo = invoiceNo;
+            existingWaybill.UpdatedAt = now;
+            await _appDb.SaveChangesAsync();
+            await _fomsDb.SaveChangesAsync();
+
+            // Safely record in Accounts Receivable if table / schema supports it
+            try
+            {
+                var ar = await _fomsDb.AccountsReceivable.FirstOrDefaultAsync(a => a.InvoiceId == existingWaybill.WaybillId);
+                if (ar == null)
+                {
+                    _fomsDb.AccountsReceivable.Add(new SqlAccountsReceivable
+                    {
+                        InvoiceId = existingWaybill.WaybillId,
+                        ClientId = existingWaybill.ClientId,
+                        InvoiceAmount = computedAmount,
+                        OutstandingBalance = computedAmount,
+                        DueDate = DateOnly.FromDateTime(now.AddDays(30)),
+                        ArStatus = "Current",
+                        CreatedAt = now
+                    });
+                    await _fomsDb.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation("AccountsReceivable optional tracking skipped: {Message}", ex.Message);
+            }
+
+            _logger.LogInformation("DMS completed delivery processed for waybill {WaybillNo}: Generated Invoice {InvoiceNo} (₱{Amount})",
+                waybillNo, invoiceNo, computedAmount);
         }
         else
         {
-            invoice.TotalAmount = computedAmount;
-            invoice.Balance = computedAmount;
-            invoice.LastUpdated = now.ToString("yyyy-MM-ddTHH:mm:ss");
+            // Standard Flow: Waybill is delivered with verified POD and remains unbilled so it reflects in Create Invoice
+            existingWaybill.IsBilled = false;
+            existingWaybill.InvoiceNo = null;
+            existingWaybill.UpdatedAt = now;
+            await _fomsDb.SaveChangesAsync();
+            _logger.LogInformation("DMS completed delivery processed for waybill {WaybillNo}: Recorded as unbilled with validated POD for Create Invoice", waybillNo);
         }
-
-        // Mark Waybill as billed and save
-        existingWaybill.IsBilled = true;
-        existingWaybill.InvoiceNo = invoiceNo;
-        existingWaybill.UpdatedAt = now;
-        await _appDb.SaveChangesAsync();
-        await _fomsDb.SaveChangesAsync();
-
-        // Safely record in Accounts Receivable if table / schema supports it
-        try
-        {
-            var ar = await _fomsDb.AccountsReceivable.FirstOrDefaultAsync(a => a.InvoiceId == existingWaybill.WaybillId);
-            if (ar == null)
-            {
-                _fomsDb.AccountsReceivable.Add(new SqlAccountsReceivable
-                {
-                    InvoiceId = existingWaybill.WaybillId,
-                    ClientId = existingWaybill.ClientId,
-                    InvoiceAmount = computedAmount,
-                    OutstandingBalance = computedAmount,
-                    DueDate = DateOnly.FromDateTime(now.AddDays(30)),
-                    ArStatus = "Current",
-                    CreatedAt = now
-                });
-                await _fomsDb.SaveChangesAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogInformation("AccountsReceivable optional tracking skipped: {Message}", ex.Message);
-        }
-
-        _logger.LogInformation("DMS completed delivery processed for waybill {WaybillNo}: Generated Invoice {InvoiceNo} (₱{Amount})",
-            waybillNo, invoiceNo, computedAmount);
 
         return new DmsIntegrationResponseDto
         {
             IsSuccess = true,
             WaybillNumber = waybillNo,
-            InvoiceNumber = invoiceNo,
+            InvoiceNumber = existingWaybill.InvoiceNo,
             ComputedAmount = computedAmount,
-            BillingHoldActive = false,
-            Status = "Billed",
-            Message = $"Completed delivery processed. Invoice {invoiceNo} created for ₱{computedAmount:N2} and recorded in Accounts Receivable."
+            Status = existingWaybill.IsBilled ? "Billed" : "Validated",
+            Message = existingWaybill.IsBilled
+                ? $"DMS Completed delivery for waybill '{waybillNo}' processed successfully. Invoice '{invoiceNo}' created (₱{computedAmount:N2})."
+                : $"DMS Completed delivery for waybill '{waybillNo}' processed successfully. Waybill with verified POD is now available in Create Invoice."
         };
     }
+
 
     /// <summary>
     /// Integration 2 (DMS → FOMS - Trigger A): Driver records a failed delivery in DMS.
@@ -656,18 +679,29 @@ public class DmsIntegrationService : IDmsIntegrationService
                 .FirstOrDefaultAsync(c => c.Notes != null && c.Notes.Contains($"[DMS {dto.RequestId}]"));
         }
 
+        if (matchAdv == null)
+            return new DmsIntegrationResponseDto { IsSuccess = false, Message = "An approved and released cash advance must be linked before liquidation can be submitted." };
+        if (!string.Equals(matchAdv.Status, "Released", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(matchAdv.Status, "Disbursed", StringComparison.OrdinalIgnoreCase))
+            return new DmsIntegrationResponseDto { IsSuccess = false, Message = $"Cash advance '{matchAdv.AdvanceId}' is '{matchAdv.Status}'. It must be approved and released before liquidation." };
+        if (await _fomsDb.Liquidations.AnyAsync(l => l.CashAdvanceId == dto.FomsCashAdvanceId && dto.FomsCashAdvanceId.HasValue && l.Status != "Rejected" && l.Status != "Draft"))
+            return new DmsIntegrationResponseDto { IsSuccess = false, Message = $"Cash advance '{matchAdv.AdvanceId}' already has a liquidation report." };
+        if (dto.Receipts == null || dto.Receipts.Count == 0 || dto.Receipts.Any(r => r.ExpenseDate == default || string.IsNullOrWhiteSpace(r.Category) || string.IsNullOrWhiteSpace(r.ReceiptUrl) || string.IsNullOrWhiteSpace(r.Description) || r.Amount <= 0))
+            return new DmsIntegrationResponseDto { IsSuccess = false, Message = "Each liquidation line requires an expense date, category, description, positive amount, and supporting receipt document." };
+        if (dto.Receipts.Sum(r => r.Amount) != dto.TotalAmount)
+            return new DmsIntegrationResponseDto { IsSuccess = false, Message = $"Receipt line total ({dto.Receipts.Sum(r => r.Amount):C}) must equal the reported expense total ({dto.TotalAmount:C})." };
+
         // Create Liquidation record (FR-048–053)
         var liquidation = new Liquidation
         {
             ReferenceNumber = refNumber,
+            CashAdvanceReference = matchAdv.AdvanceId,
             CashAdvanceId = dto.FomsCashAdvanceId,
             SubmittedByName = dto.SubmittedByName,
             TotalAmount = dto.TotalAmount,
             LeftoverCash = dto.LeftoverCash,
             ReimbursementAmount = dto.ReimbursementAmount,
-            Status = "Validated",
-            ValidatedBy = 1,
-            ValidatedAt = now,
+            Status = "Submitted",
             DateSubmitted = ToUtc(dto.SubmissionDate),
             CreatedAt = now
         };
@@ -682,9 +716,12 @@ public class DmsIntegrationService : IDmsIntegrationService
                 _fomsDb.LiquidationLineItems.Add(new LiquidationLineItem
                 {
                     LiquidationId = liquidation.LiquidationId,
+                    Category = r.Category,
                     Description = r.Description,
                     Amount = r.Amount,
                     ReceiptAttached = !string.IsNullOrWhiteSpace(r.ReceiptUrl),
+                    ReceiptDate = ToUtc(r.ExpenseDate),
+                    SupportingDocumentPath = r.ReceiptUrl,
                     CreatedAt = now
                 });
 

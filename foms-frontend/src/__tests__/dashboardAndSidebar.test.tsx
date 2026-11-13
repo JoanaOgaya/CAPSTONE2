@@ -132,7 +132,7 @@ describe('Job B & Job A: Sidebar and Dashboard Verification Suite', () => {
       // Verifies all other Accountant modules remain accessible
       expect(allLabels).toContain('Dashboard');
       expect(allLabels).toContain('Client Accounts');
-      expect(allLabels).toContain('Create Invoice');
+      expect(allLabels).not.toContain('Create Invoice');
       expect(allLabels).toContain('Invoice List');
       expect(allLabels).toContain('Billing Validation');
       expect(allLabels).toContain('Accounts Receivable');
@@ -150,7 +150,7 @@ describe('Job B & Job A: Sidebar and Dashboard Verification Suite', () => {
       expect(allLabels).toContain('AI Output History');
 
       // Total nav items for Accountant is 20 (including Create Invoice)
-      expect(allLabels).toHaveLength(20);
+      expect(allLabels).toHaveLength(19);
 
       // Render actual Sidebar component
       render(
@@ -161,7 +161,7 @@ describe('Job B & Job A: Sidebar and Dashboard Verification Suite', () => {
 
       expect(screen.queryByText('Rate Configuration')).toBeNull();
       expect(screen.queryByText('Waybills & POD')).toBeNull();
-      expect(screen.getByText('Create Invoice')).toBeDefined();
+      expect(screen.queryByText('Create Invoice')).toBeNull();
       expect(screen.getByText('Client Accounts')).toBeDefined();
     });
 
@@ -371,9 +371,9 @@ describe('Job B & Job A: Sidebar and Dashboard Verification Suite', () => {
       {
         role: ROLES.ACCOUNTANT,
         name: 'Accountant',
-        expectedItemCount: 20,
+        expectedItemCount: 19,
         expectedKeys: [
-          'dashboard', 'clients', 'invoiceCreate', 'invoicingDesk', 'billingValidation',
+          'dashboard', 'clients', 'invoicingDesk', 'billingValidation',
           'dmsIntake', 'accountsReceivable', 'starsCollection', 'payments', 'receipts',
           'settlements', 'adjustments', 'myCashAdvances', 'duplicateScan', 'uniqueDocuments',
           'flaggedDuplicates', 'reviewHistory', 'documentExtraction', 'reports', 'aiHistory',

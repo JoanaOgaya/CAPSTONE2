@@ -459,6 +459,7 @@ public static class BillingComputationService
                 billingInvoice.LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-dd");
                 billingInvoice.UpdatedBy = invoice.UpdatedBy;
                 billingInvoice.Archived = invoice.Archived;
+                billingInvoice.DocumentStatus = invoice.DocumentStatus;
 
                 context.Invoices.Update(billingInvoice);
             }
@@ -497,7 +498,8 @@ public static class BillingComputationService
                     DateEncoded = invoice.DateEncoded,
                     LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-dd"),
                     UpdatedBy = invoice.UpdatedBy,
-                    Archived = invoice.Archived
+                    Archived = invoice.Archived,
+                    DocumentStatus = invoice.DocumentStatus
                 };
                 context.Invoices.Add(billingInvoice);
             }

@@ -51,9 +51,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
 
   // Status and type filter parameters from URL
   const typeParam = searchParams.get('type') || 'ALL';
-  const statusParam = searchParams.has('status')
-    ? (searchParams.get('status') || 'ALL')
-    : (mode === 'escalated' ? 'PendingFinanceManager' : 'ALL');
+  const statusParam = searchParams.get('status') || 'ALL';
 
   // Raw items from API (unfiltered) and UI states
   const [allItems, setAllItems] = useState<ApprovalRequest[]>([]);
@@ -186,7 +184,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
   const hasActiveFilters = statusParam !== 'ALL' || typeParam !== 'ALL' || Boolean(searchTerm.trim());
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: '1440px', margin: '0 auto', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '20px' }}>
       {/* Page Header */}
       <div
         style={{
@@ -288,7 +286,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
           {/* Left Controls: Search + Type + Status */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 auto' }}>
             {/* Search Input */}
-            <div style={{ position: 'relative', width: '260px' }}>
+            <div style={{ position: 'relative', width: '320px' }}>
               <i
                 className="ti ti-search"
                 style={{

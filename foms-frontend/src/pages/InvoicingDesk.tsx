@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { DataTable } from '../components/DataTable';
 import { StatusBadge } from '../components/shared/StatusBadge';
@@ -6,6 +6,7 @@ import { Button } from '../components/Buttons';
 import { Card } from '../components/Card';
 import { InvoiceDocument } from '../components/InvoiceDocument';
 import { InvoiceModal } from '../components/InvoiceModal';
+import { InvoiceCreation } from './InvoiceCreation';
 import { useQuery } from '../hooks/useQuery';
 import { invoicesService } from '../services/invoicesService';
 import { clientsService } from '../services/clientsService';
@@ -33,18 +34,19 @@ function derivePaymentStatus(inv: Invoice): 'Unpaid' | 'Due Soon' | 'Overdue' | 
 
 /** Single status-to-actions map defining allowed actions per invoice status */
 const STATUS_ACTIONS_MAP: Record<string, string[]> = {
-  'Draft': ['View', 'Edit Draft', 'Submit for Verification'],
-  'Pending HA Verification': ['View'],
-  'Pending FM Approval': ['View'],
+  'Draft': ['View', 'Edit Draft', 'Submit for Approval', 'Send to STARS for Integration'],
+  'Pending HA Verification': ['View', 'Approve', 'Return for Revision'],
+  'Pending FM Approval': ['View', 'Approve', 'Return for Revision'],
+  'Pending Approval': ['View', 'Approve', 'Return for Revision'],
+  'For Review': ['View', 'Approve', 'Return for Revision'],
   'Returned to Creator': ['View', 'Edit', 'Resubmit'],
   'Returned to HA': ['View'],
-  'Approved': ['View', 'Print', 'Dispatch'],
+  'Approved': ['View', 'Print', 'Dispatch', 'Send to STARS for Integration'],
   'Sent': ['View', 'Print', 'Mark Received'],
   'Received': ['View', 'Print'],
   'Disputed': ['View', 'Print'],
   'Void': ['View'],
-  'Pending Approval': ['View'],
-  'Needs Revision': ['View', 'Edit', 'Resubmit'],
+  'Needs Revision': ['View', 'Edit', 'Resubmit', 'Send to STARS for Integration'],
 };
 
 export const InvoicingDesk: React.FC = () => {
@@ -55,12 +57,24 @@ export const InvoicingDesk: React.FC = () => {
   const { toast } = useToast();
   const { user } = useAuth();
 
+  const userRoleStr = String(user?.role || '');
+  const isFinanceManager = userRoleStr.toUpperCase().includes('FINANCE_MANAGER') || userRoleStr.toLowerCase().includes('finance manager');
+  const isAccountant = userRoleStr.toUpperCase().includes('ACCOUNTANT') || (!isFinanceManager && !userRoleStr.toUpperCase().includes('HEAD_ACCOUNTANT') && !userRoleStr.toUpperCase().includes('ASSISTANT_FM'));
+
   const { data: invData, refetch: refetchInvoices } = useQuery('desk:invoices', () => invoicesService.list({ pageSize: 100 }));
   const { data: clientData } = useQuery('desk:clients', () => clientsService.list({ pageSize: 100 }));
   const { data: payData } = useQuery('desk:payments', () => paymentsService.list({ pageSize: 100 }));
   const { data: waybillData } = useQuery('desk:waybills', () => waybillsService.list({ pageSize: 100 }));
 
-  const invoices: Invoice[] = invData?.items || [];
+  // Finance Manager must not see draft invoices (SOD / creator workflow boundary)
+  const invoices: Invoice[] = useMemo(() => {
+    return (invData?.items || []).filter((inv: Invoice) => {
+      if (inv.invoiceNumber?.startsWith('BI-')) return false;
+      const statusStr = String(inv.status || '');
+      if (isFinanceManager && (statusStr === 'Draft' || statusStr === 'Listed')) return false;
+      return true;
+    });
+  }, [invData?.items, isFinanceManager]);
   const clients: Client[] = clientData?.items || [];
   const payments: Payment[] = payData?.items || [];
   const allWaybills: Waybill[] = waybillData?.items || [];
@@ -87,23 +101,33 @@ export const InvoicingDesk: React.FC = () => {
   const initialTabParam = searchParams.get('tab') || searchParams.get('status') || 'All';
   const initialNormalizedTab: InvoiceTab =
     initialTabParam.toLowerCase().includes('pending') ? 'Pending' :
-    initialTabParam.toLowerCase().includes('draft') || initialTabParam.toLowerCase().includes('listed') ? 'Listed' :
+    (!isFinanceManager && (initialTabParam.toLowerCase().includes('draft') || initialTabParam.toLowerCase().includes('listed'))) ? 'Listed' :
     initialTabParam.toLowerCase().includes('approved') ? 'Approved' :
     initialTabParam.toLowerCase().includes('revision') ? 'Needs Revision' : 'All';
 
   const [activeTab, setActiveTab] = useState<InvoiceTab>(initialNormalizedTab);
+
+  useEffect(() => {
+    if (isFinanceManager && activeTab === 'Listed') {
+      setActiveTab('All');
+    }
+  }, [isFinanceManager, activeTab]);
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedClientName, setSelectedClientName] = useState('All');
+  const [transitioningId, setTransitioningId] = useState<string | null>(null);
+  const [sendingToStarsId, setSendingToStarsId] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
 
   // Tab counts for quick lifecycle overview
   const tabCounts = useMemo(() => {
     return {
       all: invoices.length,
-      pending: invoices.filter(i => ['Pending HA Verification', 'Pending FM Approval', 'Pending Approval', 'Pending'].includes(i.status as string)).length,
+      pending: invoices.filter(i => ['Pending HA Verification', 'Pending FM Approval', 'Pending Approval', 'Pending', 'For Review'].includes(i.status as string)).length,
       listed: invoices.filter(i => ['Draft', 'Listed'].includes(i.status as string)).length,
       approved: invoices.filter(i => ['Approved', 'Sent', 'Received', 'Endorsed', 'Validated'].includes(i.status as string)).length,
       needsRevision: invoices.filter(i => ['Returned to Creator', 'Returned to HA', 'Needs Revision', 'Returned for revision'].includes(i.status as string)).length,
@@ -118,7 +142,7 @@ export const InvoicingDesk: React.FC = () => {
       : invoices;
 
     const activeInvoices = base.filter((inv: Invoice) => {
-      if (!['Draft', 'Needs Revision', 'Pending Approval', 'Approved', 'Sent', 'Received', 'Endorsed', 'Validated'].includes(inv.status)) return false;
+      if (!['Draft', 'Needs Revision', 'Pending Approval', 'For Review', 'Pending HA Verification', 'Pending FM Approval', 'Pending', 'Approved', 'Sent', 'Received', 'Endorsed', 'Validated'].includes(inv.status)) return false;
       if (filterDateFrom || filterDateTo) {
         const itemDate = new Date(inv.createdAt);
         itemDate.setHours(0, 0, 0, 0);
@@ -165,7 +189,7 @@ export const InvoicingDesk: React.FC = () => {
       // Explicit Tab Lifecycle Filtering
       const invStatus = inv.status as string;
       if (activeTab === 'Pending') {
-        if (!['Pending HA Verification', 'Pending FM Approval', 'Pending Approval', 'Pending'].includes(invStatus)) return false;
+        if (!['Pending HA Verification', 'Pending FM Approval', 'Pending Approval', 'Pending', 'For Review'].includes(invStatus)) return false;
       } else if (activeTab === 'Listed') {
         if (invStatus !== 'Draft' && invStatus !== 'Listed') return false;
       } else if (activeTab === 'Approved') {
@@ -190,28 +214,57 @@ export const InvoicingDesk: React.FC = () => {
     }))).filter(Boolean);
   }, [invoices, clients]);
 
-  const handleTransition = async (invId: string, newStatus: Invoice['status'], successMsg: string, updates?: Partial<Invoice>) => {
-    const inv = invoices.find(i => i.id === invId);
+  const handleTransition = async (
+    invId: string,
+    actionOrStatus: string,
+    successMsg: string,
+    payload?: any
+  ) => {
+    const inv = invoices.find((i) => i.id === invId);
     if (!inv) return;
 
+    setTransitioningId(invId);
+
+    let action = 'submit';
+    const lower = (actionOrStatus || '').toLowerCase();
+    if (lower.includes('submit') || lower.includes('pending ha') || lower.includes('pending approval') || lower.includes('for review') || lower.includes('verification')) {
+      action = (inv.status === 'Needs Revision' || inv.status === 'Returned to Creator') ? 'resubmit' : 'submit';
+    } else if (lower.includes('approve')) {
+      action = 'approve';
+    } else if (lower.includes('verify')) {
+      action = 'verify';
+    } else if (lower.includes('dispatch') || lower.includes('send') || lower.includes('sent')) {
+      action = 'send';
+    } else if (lower.includes('receive') || lower.includes('received')) {
+      action = 'receive';
+    } else if (lower.includes('return') || lower.includes('revision') || lower.includes('reject')) {
+      action = 'return';
+    } else if (lower.includes('void')) {
+      action = 'void';
+    }
+
     try {
-      await invoicesService.update(invId, { status: newStatus, ...updates });
+      await invoicesService.act(invId, action as any, payload || {});
       await auditLogsService.create({
         action: 'INVOICE_STATUS_CHANGE',
         module: 'InvoicingDesk',
         recordId: invId,
         recordType: 'Invoice',
-        details: `Changed status to ${newStatus}`,
+        details: `Action: ${action} on invoice ${inv.invoiceNumber}`,
         ipAddress: '127.0.0.1',
-      });
-      refetchInvoices();
+      }).catch(() => {});
+      await refetchInvoices();
       toast.success(successMsg, 'Success');
-    } catch {
-      toast.error('Failed to update invoice status.', 'Error');
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || err?.message || 'Failed to update invoice status.';
+      toast.error(errMsg, 'Error');
+    } finally {
+      setTransitioningId(null);
     }
   };
 
   const handleSendToStars = async (inv: Invoice) => {
+    setSendingToStarsId(inv.id);
     try {
       await invoicesService.sendToStars(inv.invoiceNumber);
       await auditLogsService.create({
@@ -221,11 +274,14 @@ export const InvoicingDesk: React.FC = () => {
         recordType: 'Invoice',
         details: `Dispatched invoice ${inv.invoiceNumber} to STARS integration`,
         ipAddress: '127.0.0.1',
-      });
+      }).catch(() => {});
       toast.success(`Invoice ${inv.invoiceNumber} successfully sent to STARS for integration endorsement.`, 'STARS Integration');
       refetchInvoices();
-    } catch {
-      toast.error('Failed to dispatch invoice to STARS.', 'STARS Error');
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || err?.message || 'Failed to dispatch invoice to STARS.';
+      toast.error(errMsg, 'STARS Error');
+    } finally {
+      setSendingToStarsId(null);
     }
   };
 
@@ -289,7 +345,10 @@ export const InvoicingDesk: React.FC = () => {
     'Edit Draft': {
       label: 'Edit Draft',
       icon: 'ti-pencil',
-      onClick: (row: any) => navigate(`/invoice-create?edit=${row.id}`),
+      onClick: (row: any) => {
+        setEditingInvoiceId(row.id);
+        setShowCreateModal(true);
+      },
     },
     'Edit': {
       label: 'Edit',
@@ -379,7 +438,7 @@ export const InvoicingDesk: React.FC = () => {
           {[
             { key: 'All', label: 'All Invoices', count: tabCounts.all, icon: 'ti-files' },
             { key: 'Pending', label: 'Pending', count: tabCounts.pending, icon: 'ti-clock' },
-            { key: 'Listed', label: 'Listed', count: tabCounts.listed, icon: 'ti-list-details' },
+            ...(!isFinanceManager ? [{ key: 'Listed', label: 'Listed', count: tabCounts.listed, icon: 'ti-list-details' }] : []),
             { key: 'Approved', label: 'Approved', count: tabCounts.approved, icon: 'ti-check' },
             ...(tabCounts.needsRevision > 0 ? [{ key: 'Needs Revision', label: 'Needs Revision', count: tabCounts.needsRevision, icon: 'ti-alert-circle' }] : []),
           ].map((tab) => {
@@ -433,7 +492,38 @@ export const InvoicingDesk: React.FC = () => {
             <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748B' }}>Client sales invoices, status tracking, and dispatch records</p>
           </div>
 
-          {/* Cards vs Table View Switcher */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {user?.role === 'ACCOUNTANT' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingInvoiceId(null);
+                  setShowCreateModal(true);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  background: '#0D9488',
+                  color: '#FFFFFF',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  border: 'none',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 4px rgba(13, 148, 136, 0.25)',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#0F766E')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = '#0D9488')}
+              >
+                <i className="ti ti-plus" style={{ fontSize: '15px' }} />
+                <span>Create Invoice</span>
+              </button>
+            )}
+
+            {/* Cards vs Table View Switcher */}
           <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid #E2E8F0', overflow: 'hidden', background: '#F8FAFC' }}>
             <button
               type="button"
@@ -475,6 +565,7 @@ export const InvoicingDesk: React.FC = () => {
               <i className="ti ti-table" style={{ fontSize: '15px' }} />
               Table
             </button>
+          </div>
           </div>
         </div>
 
@@ -539,7 +630,7 @@ export const InvoicingDesk: React.FC = () => {
               }}
             >
               <option value="All">All Statuses</option>
-              <option value="Draft">Draft</option>
+              {!isFinanceManager && <option value="Draft">Draft</option>}
               <option value="Pending Approval">Pending Approval</option>
               <option value="Approved">Approved</option>
               <option value="Needs Revision">Needs Revision</option>
@@ -699,11 +790,11 @@ export const InvoicingDesk: React.FC = () => {
                     </button>
 
                     <div style={{ display: 'flex', gap: '6px' }}>
-                      {(inv.status === 'Draft' || inv.status === 'Needs Revision') && (
+                      {(inv.status === 'Draft' || inv.status === 'Needs Revision') && isAccountant && (
                         <>
                           <button
                             type="button"
-                            onClick={() => navigate(`/invoice-create?edit=${inv.id}`)}
+                            onClick={() => { setEditingInvoiceId(inv.id); setShowCreateModal(true); }}
                             style={{
                               padding: '8px 10px',
                               background: '#F1F5F9',
@@ -713,30 +804,161 @@ export const InvoicingDesk: React.FC = () => {
                               fontSize: '0.8rem',
                               fontWeight: 600,
                               cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#E2E8F0';
+                              e.currentTarget.style.transform = 'translateY(-1px)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = '#F1F5F9';
+                              e.currentTarget.style.transform = 'translateY(0)';
                             }}
                             title="Edit Invoice"
                           >
                             <i className="ti ti-pencil" />
                           </button>
+
                           <button
                             type="button"
+                            disabled={transitioningId === inv.id}
                             onClick={() => handleTransition(inv.id, 'Pending Approval', `Invoice ${inv.invoiceNumber} submitted for approval`)}
                             style={{
-                              padding: '8px 10px',
-                              background: '#F0FDFA',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '8px 11px',
+                              background: transitioningId === inv.id ? '#99F6E4' : '#F0FDFA',
                               color: '#0D9488',
                               border: '1px solid #99F6E4',
                               borderRadius: '8px',
-                              fontSize: '0.8rem',
-                              fontWeight: 600,
-                              cursor: 'pointer',
+                              fontSize: '0.85rem',
+                              fontWeight: 700,
+                              cursor: transitioningId === inv.id ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                              boxShadow: '0 1px 2px rgba(13, 148, 136, 0.08)',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (transitioningId !== inv.id) {
+                                e.currentTarget.style.background = '#0D9488';
+                                e.currentTarget.style.color = '#FFFFFF';
+                                e.currentTarget.style.borderColor = '#0D9488';
+                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(13, 148, 136, 0.25)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (transitioningId !== inv.id) {
+                                e.currentTarget.style.background = '#F0FDFA';
+                                e.currentTarget.style.color = '#0D9488';
+                                e.currentTarget.style.borderColor = '#99F6E4';
+                                e.currentTarget.style.boxShadow = '0 1px 2px rgba(13, 148, 136, 0.08)';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                              }
                             }}
                             title="Submit for Approval"
                           >
-                            <i className="ti ti-send" />
+                            {transitioningId === inv.id ? (
+                              <i className="ti ti-loader-2 btn-spinner" />
+                            ) : (
+                              <i className="ti ti-cloud-upload" />
+                            )}
                           </button>
                         </>
                       )}
+
+                      {(inv.status === 'Pending Approval' || inv.status === 'Pending HA Verification' || inv.status === 'For Review' || inv.status === 'Pending') && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={transitioningId === inv.id}
+                            onClick={() => handleTransition(inv.id, 'approve', `Invoice ${inv.invoiceNumber} approved`)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '8px 11px',
+                              background: '#ECFDF5',
+                              color: '#059669',
+                              border: '1px solid #A7F3D0',
+                              borderRadius: '8px',
+                              fontSize: '0.85rem',
+                              fontWeight: 700,
+                              cursor: transitioningId === inv.id ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                              boxShadow: '0 1px 2px rgba(5, 150, 105, 0.08)',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (transitioningId !== inv.id) {
+                                e.currentTarget.style.background = '#059669';
+                                e.currentTarget.style.color = '#FFFFFF';
+                                e.currentTarget.style.borderColor = '#059669';
+                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(5, 150, 105, 0.25)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (transitioningId !== inv.id) {
+                                e.currentTarget.style.background = '#ECFDF5';
+                                e.currentTarget.style.color = '#059669';
+                                e.currentTarget.style.borderColor = '#A7F3D0';
+                                e.currentTarget.style.boxShadow = '0 1px 2px rgba(5, 150, 105, 0.08)';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                              }
+                            }}
+                            title="Approve Invoice"
+                          >
+                            {transitioningId === inv.id ? (
+                              <i className="ti ti-loader-2 btn-spinner" />
+                            ) : (
+                              <i className="ti ti-check" />
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={transitioningId === inv.id}
+                            onClick={() => handleTransition(inv.id, 'return', `Invoice ${inv.invoiceNumber} returned for revision`, { remarks: 'Returned for revision' })}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '8px 11px',
+                              background: '#FEF2F2',
+                              color: '#DC2626',
+                              border: '1px solid #FECACA',
+                              borderRadius: '8px',
+                              fontSize: '0.85rem',
+                              fontWeight: 700,
+                              cursor: transitioningId === inv.id ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                              boxShadow: '0 1px 2px rgba(220, 38, 38, 0.08)',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (transitioningId !== inv.id) {
+                                e.currentTarget.style.background = '#DC2626';
+                                e.currentTarget.style.color = '#FFFFFF';
+                                e.currentTarget.style.borderColor = '#DC2626';
+                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.25)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (transitioningId !== inv.id) {
+                                e.currentTarget.style.background = '#FEF2F2';
+                                e.currentTarget.style.color = '#DC2626';
+                                e.currentTarget.style.borderColor = '#FECACA';
+                                e.currentTarget.style.boxShadow = '0 1px 2px rgba(220, 38, 38, 0.08)';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                              }
+                            }}
+                            title="Return for Revision"
+                          >
+                            <i className="ti ti-rotate-2" />
+                          </button>
+                        </>
+                      )}
+
                       {inv.status === 'Approved' && (
                         <>
                           <button
@@ -754,82 +976,74 @@ export const InvoicingDesk: React.FC = () => {
                               fontSize: '0.8rem',
                               fontWeight: 700,
                               cursor: 'pointer',
-                              transition: 'background 0.15s ease',
+                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                              boxShadow: '0 2px 6px rgba(13, 148, 136, 0.2)',
                               whiteSpace: 'nowrap',
                             }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = '#0F766E')}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = '#0D9488')}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#0F766E';
+                              e.currentTarget.style.transform = 'translateY(-1px)';
+                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(13, 148, 136, 0.35)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = '#0D9488';
+                              e.currentTarget.style.transform = 'translateY(0)';
+                              e.currentTarget.style.boxShadow = '0 2px 6px rgba(13, 148, 136, 0.2)';
+                            }}
                             title="Send to STARS for Integration"
                           >
                             <i className="ti ti-cloud-upload" />
-                            Send to STARS for Integration
+                            Send to STARS
                           </button>
+
                           <button
                             type="button"
-                            onClick={() => {
-                              setModalInvoice(inv);
-                              setModalInvoiceId(inv.id);
-                              setIsAutoPrint(true);
-                            }}
+                            disabled={transitioningId === inv.id}
+                            onClick={() => handleTransition(inv.id, 'send', `Invoice ${inv.invoiceNumber} dispatched`)}
                             style={{
-                              padding: '8px 10px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '8px 11px',
                               background: '#F0FDFA',
                               color: '#0D9488',
                               border: '1px solid #99F6E4',
                               borderRadius: '8px',
-                              fontSize: '0.8rem',
-                              fontWeight: 600,
-                              cursor: 'pointer',
+                              fontSize: '0.85rem',
+                              fontWeight: 700,
+                              cursor: transitioningId === inv.id ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                             }}
-                            title="Download PDF"
+                            title="Dispatch Invoice"
                           >
-                            <i className="ti ti-file-type-pdf" />
+                            <i className="ti ti-truck-delivery" />
                           </button>
                         </>
                       )}
-                      {inv.status === 'Pending Approval' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleTransition(inv.id, 'Approved', `Invoice ${inv.invoiceNumber} approved`)}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '8px 12px',
-                              background: '#0D9488',
-                              color: '#FFFFFF',
-                              border: 'none',
-                              borderRadius: '8px',
-                              fontSize: '0.8rem',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                            }}
-                            title="Approve Invoice"
-                          >
-                            <i className="ti ti-check" /> Approve
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleTransition(inv.id, 'Needs Revision', `Invoice ${inv.invoiceNumber} returned for revision`)}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '8px 10px',
-                              background: '#FEF2F2',
-                              color: '#DC2626',
-                              border: '1px solid #FECACA',
-                              borderRadius: '8px',
-                              fontSize: '0.8rem',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                            title="Return for Revision"
-                          >
-                            <i className="ti ti-rotate-2" />
-                          </button>
-                        </>
+
+                      {inv.status === 'Sent' && (
+                        <button
+                          type="button"
+                          disabled={transitioningId === inv.id}
+                          onClick={() => handleTransition(inv.id, 'receive', `Invoice ${inv.invoiceNumber} marked as received`)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '8px 11px',
+                            background: '#EFF6FF',
+                            color: '#2563EB',
+                            border: '1px solid #BFDBFE',
+                            borderRadius: '8px',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            cursor: transitioningId === inv.id ? 'not-allowed' : 'pointer',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                          }}
+                          title="Mark Received"
+                        >
+                          <i className="ti ti-check-double" />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -853,6 +1067,91 @@ export const InvoicingDesk: React.FC = () => {
           </TableContainer>
         )}
       </div>
+      )}
+
+      {/* Create / Edit Invoice Popup Modal */}
+      {showCreateModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+          }}
+          onClick={() => {
+            setShowCreateModal(false);
+            setEditingInvoiceId(null);
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#F8FAFC',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '1240px',
+              maxHeight: '92vh',
+              overflowY: 'auto',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              border: '1px solid #E2E8F0',
+              padding: '24px',
+              display: 'flex',
+              flexDirection: 'column',
+              boxSizing: 'border-box',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #E2E8F0', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <i className="ti ti-file-plus" style={{ fontSize: '20px', color: '#0D9488' }} />
+                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#0F172A' }}>
+                  {editingInvoiceId ? 'Edit Invoice' : 'Create New Invoice'}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setEditingInvoiceId(null);
+                  refetchInvoices();
+                }}
+                style={{
+                  background: '#F1F5F9',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#64748B',
+                }}
+              >
+                <i className="ti ti-x" style={{ fontSize: '16px' }} />
+              </button>
+            </div>
+
+            <InvoiceCreation
+              isModal={true}
+              editId={editingInvoiceId || undefined}
+              onClose={() => {
+                setShowCreateModal(false);
+                setEditingInvoiceId(null);
+                refetchInvoices();
+              }}
+              onSuccess={() => {
+                setShowCreateModal(false);
+                setEditingInvoiceId(null);
+                refetchInvoices();
+              }}
+            />
+          </div>
+        </div>
       )}
 
       {/* Modal on top of list without route change */}

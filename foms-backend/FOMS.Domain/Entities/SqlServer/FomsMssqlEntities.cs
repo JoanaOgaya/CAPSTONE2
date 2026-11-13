@@ -1188,6 +1188,10 @@ public class Liquidation
     [Column("cash_advance_id")]
     public int? CashAdvanceId { get; set; }
 
+    // Canonical FK to CashAdvances.AdvanceId. CashAdvanceId is retained for legacy integrations.
+    [Column("cash_advance_reference")]
+    public string CashAdvanceReference { get; set; } = string.Empty;
+
     [Column("submitted_by")]
     public int? SubmittedBy { get; set; }
 
@@ -1252,6 +1256,7 @@ public class Liquidation
     public bool IsLate => DueDate.HasValue && (DateSubmitted ?? DateTime.UtcNow).Date > DueDate.Value.Date;
 
     public List<LiquidationLineItem> LineItems { get; set; } = new();
+    public CashAdvance? SourceAdvance { get; set; }
 }
 
 [Table("LiquidationLineItems")]
@@ -1278,6 +1283,9 @@ public class LiquidationLineItem
 
     [Column("ReceiptDate")]
     public DateTime? ReceiptDate { get; set; }
+
+    [Column("supporting_document_path")]
+    public string? SupportingDocumentPath { get; set; }
 
     [Column("ReceiptNumber")]
     public string? ReceiptNumber { get; set; }

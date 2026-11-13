@@ -3,7 +3,7 @@
  * and the user card from the user record.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation, matchPath } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ROLE_LABELS, getNavGroups, moduleLabel } from "../utils/roleAccess";
 import { getInitials } from "../utils/format";
@@ -17,7 +17,15 @@ export interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ logoUrl = "/logo.png" }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const activeNavRef = useRef<HTMLAnchorElement>(null);
   const navGroups = getNavGroups(user?.role);
+
+  useEffect(() => {
+    if (activeNavRef.current) {
+      activeNavRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [location.pathname]);
 
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === "true");
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -75,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ logoUrl = "/logo.png" }) => {
       </div>
 
       {!collapsed && user && (
-        <div style={{ padding: '0 24px', marginBottom: '24px' }}>
+        <div style={{ padding: '0 20px', marginBottom: '12px', flexShrink: 0 }}>
           <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', padding: '8px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
             {ROLE_LABELS[user.role]}
           </div>
@@ -94,9 +102,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ logoUrl = "/logo.png" }) => {
                   ? pendingCounts.escalatedApprovals
                   : undefined;
 
+              const isCurrent = location.pathname === item.path || (item.detailPath ? matchPath({ path: item.detailPath, end: true }, location.pathname) !== null : false);
+
               return (
                 <div key={item.key} className="nav-item-container">
-                  <NavLink to={item.path} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                  <NavLink
+                    to={item.path}
+                    ref={isCurrent ? activeNavRef : undefined}
+                    className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}
+                  >
                     <span className="nav-icon" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
                       <i className={item.icon} style={{ fontSize: "18px" }} />
                     </span>

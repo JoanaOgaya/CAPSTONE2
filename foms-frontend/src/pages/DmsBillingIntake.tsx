@@ -88,7 +88,7 @@ export const DmsBillingIntake: React.FC = () => {
     podUrl: '',
     recipientName: '',
     driverName: '',
-    autoGenerateInvoice: true,
+    autoGenerateInvoice: false,
   });
 
   // Failed Delivery Form (all fields empty)
@@ -169,7 +169,7 @@ export const DmsBillingIntake: React.FC = () => {
           podUrl: '',
           recipientName: '',
           driverName: '',
-          autoGenerateInvoice: true,
+          autoGenerateInvoice: false,
         });
         setShowCompletedModal(false);
         refetchWaybills();
@@ -1008,7 +1008,7 @@ export const DmsBillingIntake: React.FC = () => {
                   onChange={(e) => setCompletedForm({ ...completedForm, autoGenerateInvoice: e.target.checked })}
                 />
                 <label htmlFor="autoInvoice" style={{ fontSize: '13px', color: '#334155', fontWeight: 500 }}>
-                  Auto-bundle into draft Invoice for validation review
+                  Auto-generate draft Invoice (Leave unchecked to bill manually via Create Invoice)
                 </label>
               </div>
 
@@ -1017,7 +1017,7 @@ export const DmsBillingIntake: React.FC = () => {
                   Cancel
                 </Button>
                 <Button title="Ingest Delivery & Generate Draft Invoice" variant="primary" type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? 'Computing Rates...' : 'Ingest Delivery & Generate Draft Invoice'}
+                  {isSubmitting ? 'Computing Rates...' : (completedForm.autoGenerateInvoice ? 'Ingest Delivery & Generate Draft Invoice' : 'Ingest Delivery (Reflect in Create Invoice)')}
                 </Button>
               </div>
             </form>

@@ -102,6 +102,8 @@ export interface Waybill {
   
   // Verification features
   pod_image_url?: string;
+  podUrl?: string;
+  podImageUrl?: string;
   uploaded_by?: string;
   uploaded_date?: string;
   is_ctc?: boolean;
