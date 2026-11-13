@@ -1,4 +1,6 @@
 using FOMS.Domain.Constants;
+using FOMS.Application.Services;
+using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -21,11 +23,17 @@ public class ApprovalsController : ControllerBase
     private readonly FomsDbContext _fomsDb;
     private readonly ILogger<ApprovalsController> _logger;
 
-    public ApprovalsController(FomsDbContext fomsDb, ILogger<ApprovalsController> logger)
+    private readonly ApplicationDbContext? _appDb;
+
+    public ApprovalsController(FomsDbContext fomsDb, ILogger<ApprovalsController> logger, ApplicationDbContext? appDb = null)
     {
         _fomsDb = fomsDb;
         _logger = logger;
+        _appDb = appDb;
     }
+
+    private ApplicationDbContext? GetAppDb() =>
+        _appDb ?? HttpContext?.RequestServices?.GetService<ApplicationDbContext>();
 
     private (int userId, string username, string role, string employeeId) GetCurrentUserInfo()
     {
@@ -287,18 +295,8 @@ public class ApprovalsController : ControllerBase
                              string.Equals(role, "Assistant of Finance Manager", StringComparison.OrdinalIgnoreCase) ||
                              string.Equals(role, "Assistant of Finance Manager", StringComparison.OrdinalIgnoreCase);
 
-        // Fetch active threshold from MSSQL (Section 6)
-        var activeThreshold = await _fomsDb.ApprovalThresholdSettings
-            .AsNoTracking()
-            .Where(t => t.IsActive && (t.TransactionType == "CashOutflow" || t.TransactionType == "All"))
-            .OrderByDescending(t => t.UpdatedAt)
-            .FirstOrDefaultAsync();
-
-        if (activeThreshold == null)
-        {
-            _logger.LogError("Approval threshold setting missing in MSSQL for CashOutflow approval attempt.");
-            return StatusCode(500, new { success = false, message = "Approval threshold configuration missing in database. Approval blocked per security policy." });
-        }
+        // Fetch active threshold from centralized configuration source
+        decimal activeLimit = await ThresholdConfigHelper.GetAssistantFmThresholdAsync(_fomsDb.ApprovalThresholdSettings, req.Category ?? "CashOutflow");
 
         using var transaction = await _fomsDb.Database.BeginTransactionAsync();
         try
@@ -306,15 +304,15 @@ public class ApprovalsController : ControllerBase
             if (isAssistantFm && !isFm)
             {
                 // TC-004: Assistant cannot approve high-value requests exceeding threshold
-                if (req.Amount > activeThreshold.MaximumAmount)
+                if (ThresholdConstants.ExceedsThreshold(req.Amount, activeLimit))
                 {
                     _logger.LogWarning("Unauthorized approval attempt by Assistant {User}: Amount ₱{Amount} exceeds threshold ₱{Limit}",
-                        username, req.Amount, activeThreshold.MaximumAmount);
+                        username, req.Amount, activeLimit);
 
                     return StatusCode(403, new
                     {
                         success = false,
-                        message = $"Transaction amount of ₱{req.Amount:N2} exceeds Assistant of Finance Manager authorization limit (₱{activeThreshold.MaximumAmount:N2}). Escalation to Finance Manager is required."
+                        message = $"Transaction amount of ₱{req.Amount:N2} exceeds Assistant of Finance Manager authorization limit (₱{activeLimit:N2}). Escalation to Finance Manager is required."
                     });
                 }
 
@@ -339,7 +337,7 @@ public class ApprovalsController : ControllerBase
                     Action = "Approved",
                     PreviousStatus = oldStatus,
                     NewStatus = req.Status,
-                    Remarks = $"Approved by Assistant of Finance Manager within limit (₱{activeThreshold.MaximumAmount:N2}). Cash outflow posted.",
+                    Remarks = $"Approved by Assistant of Finance Manager within limit (₱{activeLimit:N2}). Cash outflow posted.",
                     CreatedAt = DateTime.UtcNow
                 });
 
@@ -369,6 +367,21 @@ public class ApprovalsController : ControllerBase
             }
             else if (isFm)
             {
+                // Strict Two-Tier Check for Escalated Requests:
+                // Requests exceeding threshold must be endorsed by Assistant FM before FM final sign-off!
+                if (ThresholdConstants.ExceedsThreshold(req.Amount, activeLimit))
+                {
+                    if (string.Equals(req.Status, "Pending Assistant Review", StringComparison.OrdinalIgnoreCase) ||
+                        (!req.IsEscalated && string.Equals(req.ApprovalLevel, "Level 1", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return BadRequest(new
+                        {
+                            success = false,
+                            message = $"Two-tier endorsement required: High-value request exceeding threshold (₱{activeLimit:N2}) must be endorsed by Assistant of Finance Manager before Finance Manager sign-off."
+                        });
+                    }
+                }
+
                 // TC-007: Finance Manager Approval
                 var oldStatus = req.Status;
                 req.Status = "Approved by Finance Manager";
@@ -476,6 +489,15 @@ public class ApprovalsController : ControllerBase
         if (req == null)
         {
             return NotFound(new { success = false, message = $"Approval request '{id}' not found." });
+        }
+
+        // Separation of Duties: Submitter cannot endorse or escalate their own request
+        if (FomsRoles.IsSameEmployeeId(req.SubmittedById, employeeId) ||
+            FomsRoles.IsSameEmployeeId(req.SubmittedBy, employeeId) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedBy) && req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
         }
 
         var oldStatus = req.Status;
@@ -600,6 +622,15 @@ public class ApprovalsController : ControllerBase
             return NotFound(new { success = false, message = $"Approval request '{id}' not found." });
         }
 
+        // Separation of Duties: Submitter cannot endorse or escalate their own request
+        if (FomsRoles.IsSameEmployeeId(req.SubmittedById, employeeId) ||
+            FomsRoles.IsSameEmployeeId(req.SubmittedBy, employeeId) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedBy) && req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
+        }
+
         var oldStatus = req.Status;
         req.Status = "Returned for Correction";
         req.Remarks = remarks.Trim();
@@ -700,6 +731,15 @@ public class ApprovalsController : ControllerBase
             return NotFound(new { success = false, message = $"Approval request '{id}' not found." });
         }
 
+        // Separation of Duties: Submitter cannot endorse or escalate their own request
+        if (FomsRoles.IsSameEmployeeId(req.SubmittedById, employeeId) ||
+            FomsRoles.IsSameEmployeeId(req.SubmittedBy, employeeId) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedBy) && req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
+        }
+
         var oldStatus = req.Status;
         req.Status = "Pending Finance Manager Approval";
         req.ApprovalLevel = "Level 2";
@@ -780,13 +820,7 @@ public class ApprovalsController : ControllerBase
     {
         var (userId, username, role, employeeId) = GetCurrentUserInfo();
 
-        var activeThreshold = await _fomsDb.ApprovalThresholdSettings
-            .AsNoTracking()
-            .Where(t => t.IsActive && (t.TransactionType == "CashOutflow" || t.TransactionType == "All"))
-            .OrderByDescending(t => t.UpdatedAt)
-            .FirstOrDefaultAsync();
-
-        var maxLimit = activeThreshold?.MaximumAmount ?? 50000m;
+        var maxLimit = await ThresholdConfigHelper.GetAssistantFmThresholdAsync(_fomsDb.ApprovalThresholdSettings, "CashAdvance");
 
         if (string.Equals(entityType, "CashAdvance", StringComparison.OrdinalIgnoreCase))
         {
@@ -798,7 +832,7 @@ public class ApprovalsController : ControllerBase
 
             ca.Status = "Pending Assistant Review";
 
-            bool exceedsThreshold = ca.AmountGiven > maxLimit;
+            bool exceedsThreshold = ThresholdConstants.ExceedsThreshold(ca.AmountGiven, maxLimit);
             string initialStatus = "Pending Assistant Review";
 
             var existingReq = await _fomsDb.CashOutflowApprovalRequests
@@ -828,7 +862,7 @@ public class ApprovalsController : ControllerBase
                     Purpose = ca.Notes ?? ca.TripReference ?? "Cash advance request",
                     Amount = ca.AmountGiven,
                     Currency = "PHP",
-                    ApprovalLevel = "Level 1",
+                    ApprovalLevel = exceedsThreshold ? "Level 2" : "Level 1",
                     AssignedRole = "Assistant of Finance Manager",
                     Status = initialStatus,
                     IsEscalated = exceedsThreshold,
@@ -971,6 +1005,28 @@ public class ApprovalsController : ControllerBase
                 ca.Status = "Approved";
                 ca.ApprovedBy = username;
                 ca.ApprovedAt = DateTime.UtcNow;
+            }
+        }
+
+        // Sync with Treasury (CashFlowTransactions in ApplicationDbContext) once only
+        var appDb = GetAppDb();
+        if (appDb != null)
+        {
+            var existingTreasury = await appDb.CashFlowTransactions
+                .FirstOrDefaultAsync(c => c.ReferenceNo == req.TransactionReference || c.ReferenceNo == req.CashOutflowId);
+            if (existingTreasury == null)
+            {
+                appDb.CashFlowTransactions.Add(new FOMS.Domain.Entities.CashFlowTransaction
+                {
+                    Date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                    TransactionDate = DateTime.UtcNow,
+                    Type = "Outflow",
+                    Category = req.Category ?? "Disbursement",
+                    Amount = req.Amount,
+                    ReferenceNo = req.TransactionReference,
+                    Description = req.Purpose ?? $"Approved cash outflow {req.TransactionReference}"
+                });
+                await appDb.SaveChangesAsync();
             }
         }
     }

@@ -1132,3 +1132,54 @@ html.dark .sidebar {
     margin: 0 !important;
   }
 }
+
+/* ================================================================
+   Desktop Accessibility & Usability Enhancements
+   ================================================================ */
+
+/* Global Keyboard Navigation Focus Visible Ring */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[tabindex="0"]:focus-visible,
+a:focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(0, 169, 157, 0.28) !important;
+  border-color: #00A99D !important;
+}
+
+/* Polished Desktop Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+  background-clip: padding-box;
+}
+
+/* Table Text Contrast & Desktop Readability */
+.dt-th, th {
+  color: #475569 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+}
+
+/* Card Subtle Elevation for Desktop */
+.foms-card, .table-container {
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
+}

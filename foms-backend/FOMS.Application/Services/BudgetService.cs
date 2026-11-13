@@ -330,17 +330,8 @@ public class BudgetService : IBudgetService
                 l.Category == request.Category &&
                 l.Month == request.Month);
 
-        // Fetch CSH-09 active threshold limit (default 10,000)
-        decimal threshold = 10000.00m;
-        var thresholdSetting = await _context.ApprovalThresholdSettings
-            .Where(t => t.TransactionType == "CashOutflow" && t.IsActive)
-            .OrderByDescending(t => t.MaximumAmount)
-            .FirstOrDefaultAsync();
-
-        if (thresholdSetting != null)
-        {
-            threshold = thresholdSetting.MaximumAmount;
-        }
+        // Fetch CSH-09 active threshold limit from single configuration source
+        decimal threshold = await ThresholdConfigHelper.GetAssistantFmThresholdAsync(_context, "CashOutflow");
 
         if (line == null)
         {
@@ -421,17 +412,8 @@ public class BudgetService : IBudgetService
         decimal available = line.Available;
         decimal overBudgetAmount = request.RequestedAmount > available ? request.RequestedAmount - available : 0m;
 
-        // Fetch CSH-09 active threshold limit (default 10,000)
-        decimal threshold = 10000.00m;
-        var thresholdSetting = await _context.ApprovalThresholdSettings
-            .Where(t => t.TransactionType == "CashOutflow" && t.IsActive)
-            .OrderByDescending(t => t.MaximumAmount)
-            .FirstOrDefaultAsync();
-
-        if (thresholdSetting != null)
-        {
-            threshold = thresholdSetting.MaximumAmount;
-        }
+        // Fetch CSH-09 active threshold limit from single configuration source
+        decimal threshold = await ThresholdConfigHelper.GetAssistantFmThresholdAsync(_context, "CashOutflow");
 
         bool requiresCeo = overBudgetAmount > threshold;
 

@@ -181,6 +181,48 @@ public class FinanceManagerController : ControllerBase
         });
     }
 
+    [HttpPost("liquidations/{id}/approve")]
+    public async Task<IActionResult> ApproveLiquidation(int id, [FromBody] LiquidationDto? dto)
+    {
+        if (!IsAuthorizedFinanceManager())
+            return StatusCode(403, new { success = false, message = "Access denied. Finance Manager role required." });
+
+        var appDb = HttpContext.RequestServices.GetService<ApplicationDbContext>();
+        var liqCtrl = new LiquidationsController(_fomsDb, appDb)
+        {
+            ControllerContext = ControllerContext
+        };
+        return await liqCtrl.Act(id, "approve", dto);
+    }
+
+    [HttpPost("liquidations/{id}/reject")]
+    public async Task<IActionResult> RejectLiquidation(int id, [FromBody] LiquidationDto? dto)
+    {
+        if (!IsAuthorizedFinanceManager())
+            return StatusCode(403, new { success = false, message = "Access denied. Finance Manager role required." });
+
+        var appDb = HttpContext.RequestServices.GetService<ApplicationDbContext>();
+        var liqCtrl = new LiquidationsController(_fomsDb, appDb)
+        {
+            ControllerContext = ControllerContext
+        };
+        return await liqCtrl.Act(id, "reject", dto);
+    }
+
+    [HttpPost("liquidations/{id}/return")]
+    public async Task<IActionResult> ReturnLiquidation(int id, [FromBody] LiquidationDto? dto)
+    {
+        if (!IsAuthorizedFinanceManager())
+            return StatusCode(403, new { success = false, message = "Access denied. Finance Manager role required." });
+
+        var appDb = HttpContext.RequestServices.GetService<ApplicationDbContext>();
+        var liqCtrl = new LiquidationsController(_fomsDb, appDb)
+        {
+            ControllerContext = ControllerContext
+        };
+        return await liqCtrl.Act(id, "return", dto);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // 3. Rate Configuration
     // GET /api/finance-manager/rate-configurations

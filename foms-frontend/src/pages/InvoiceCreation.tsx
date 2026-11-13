@@ -184,13 +184,16 @@ export const InvoiceCreation: React.FC = () => {
   const clientsWithPending = useMemo(() => {
     const counts = new Map<string, number>();
     availableWaybills.forEach((w: Waybill) => {
-      counts.set(w.clientCode, (counts.get(w.clientCode) || 0) + 1);
+      const code = w.clientCode || (w as any).clientId;
+      if (code) {
+        counts.set(code, (counts.get(code) || 0) + 1);
+      }
     });
     return Array.from(counts.entries()).map(([clientId, count]) => {
-      const client = clients.find((c: Client) => c.id === clientId);
+      const client = clients.find((c: Client) => c.id === clientId || c.clientCode === clientId || (c as any).client_code === clientId);
       return {
         id: clientId,
-        clientName: client?.name || clientId,
+        clientName: client?.name || (client as any)?.companyName || clientId,
         pendingCount: count,
         schedule: client?.billingSchedule || 'Monthly'
       };
