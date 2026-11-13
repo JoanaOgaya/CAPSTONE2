@@ -12,7 +12,10 @@ const isBlank = (v: unknown): v is null | undefined | '' => v === null || v === 
 
 export function formatCurrency(value: number | null | undefined): string {
   if (isBlank(value) || Number.isNaN(Number(value))) return NOT_AVAILABLE;
-  return new Intl.NumberFormat(LOCALE, { style: 'currency', currency: CURRENCY, minimumFractionDigits: 2 }).format(Number(value));
+  const n = Number(value);
+  const abs = Math.abs(n);
+  const formatted = abs.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n < 0 ? `-₱ ${formatted}` : `₱ ${formatted}`;
 }
 
 export function formatNumber(value: number | null | undefined): string {

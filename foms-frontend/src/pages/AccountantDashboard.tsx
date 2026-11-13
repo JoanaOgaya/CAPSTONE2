@@ -22,7 +22,7 @@ import { auditLogsService } from '../services/auditLogsService';
 import { Card } from '../components/Card';
 import { KpiCard } from '../components/shared/KpiCard';
 import { RecentActivity } from '../components/RecentActivity';
-import { formatDate } from '../utils/format';
+import { formatDate, formatCurrency } from '../utils/format';
 import type { Invoice, Waybill, Client, AuditLog } from '../types/entities';
 import {
   DashboardBanner, WorkQueue, QuickActions, Pipeline, peso, QueueItem,
@@ -281,7 +281,7 @@ export const AccountantDashboard: React.FC = () => {
                   tickFormatter={(val) => `₱${val >= 1000 ? `${(val / 1000).toFixed(0)}k` : val}`}
                 />
                 <Tooltip
-                  formatter={(value: any, name: any) => [`₱${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, name]}
+                  formatter={(value: any, name: any) => [formatCurrency(Number(value)), name]}
                   contentStyle={{ borderRadius: '8px', border: '1px solid #E2E8F0', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}
                 />
                 <Legend

@@ -8,6 +8,7 @@ import { CalendarPicker } from '../components/FormModals';
 import { useQuery } from '../hooks/useQuery';
 import { settlementsService } from '../services/settlementsService';
 import type { Settlement } from '../types/entities';
+import { formatCurrency } from '../utils/format';
 
 export default function RecordSettlement() {
   const { data: settlementsData, refetch } = useQuery('settlements', () => settlementsService.list({ pageSize: 100 }));
@@ -93,7 +94,7 @@ export default function RecordSettlement() {
       sortable: true,
       render: (row: Settlement) => (
         <div style={{ fontWeight: 800, color: row.type === 'Leftover return' ? '#10B981' : '#3B82F6' }}>
-          ₱{row.amount.toLocaleString('en-PH', {minimumFractionDigits: 2})}
+          {formatCurrency(row.amount)}
         </div>
       )
     },
@@ -397,13 +398,13 @@ export default function RecordSettlement() {
                       <div>
                         <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>SETTLEMENT AMOUNT</div>
                         <div style={{ fontSize: '1.25rem', fontWeight: 800, color: row.type === 'Leftover return' ? '#10B981' : '#3B82F6', marginTop: '2px' }}>
-                          ₱{(Number(row.amount) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                          {formatCurrency(Number(row.amount) || 0)}
                         </div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748B' }}>EXPENSES</div>
                         <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginTop: '2px' }}>
-                          ₱{(Number(row.totalExpenses) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                          {formatCurrency(Number(row.totalExpenses) || 0)}
                         </div>
                       </div>
                     </div>
@@ -546,18 +547,18 @@ export default function RecordSettlement() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
                   <span style={{ color: '#475569', fontWeight: 600 }}>Cash advance</span>
-                  <span style={{ color: '#1E293B', fontWeight: 700 }}>₱{selectedRecord.cashAdvance.toLocaleString('en-PH', {minimumFractionDigits: 2})}</span>
+                  <span style={{ color: '#1E293B', fontWeight: 700 }}>{formatCurrency(selectedRecord.cashAdvance)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', fontSize: '13px' }}>
                   <span style={{ color: '#475569', fontWeight: 600 }}>Total expenses</span>
-                  <span style={{ color: '#1E293B', fontWeight: 700 }}>− ₱{selectedRecord.totalExpenses.toLocaleString('en-PH', {minimumFractionDigits: 2})}</span>
+                  <span style={{ color: '#1E293B', fontWeight: 700 }}>− {formatCurrency(selectedRecord.totalExpenses)}</span>
                 </div>
                 
                 <div style={{ height: '1px', background: '#E2E8F0', margin: '0 -16px 12px' }}></div>
                 
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
                   <span style={{ color: '#0F172A', fontWeight: 800 }}>Expected {selectedRecord.type === 'Leftover return' ? 'leftover' : 'reimbursement'}</span>
-                  <span style={{ color: '#0F172A', fontWeight: 800 }}>₱{selectedRecord.amount.toLocaleString('en-PH', {minimumFractionDigits: 2})}</span>
+                  <span style={{ color: '#0F172A', fontWeight: 800 }}>{formatCurrency(selectedRecord.amount)}</span>
                 </div>
               </div>
 
@@ -569,7 +570,7 @@ export default function RecordSettlement() {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '13px' }}>
                     <span style={{ color: '#475569', fontWeight: 600 }}>Cash counted by you</span>
-                    <span style={{ color: '#1E293B', fontWeight: 700 }}>₱{selectedRecord.cashCounted?.toLocaleString('en-PH', {minimumFractionDigits: 2})}</span>
+                    <span style={{ color: '#1E293B', fontWeight: 700 }}>{selectedRecord.cashCounted != null ? formatCurrency(selectedRecord.cashCounted) : 'N/A'}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                     <span style={{ color: '#475569', fontWeight: 600 }}>Matches expected leftover</span>

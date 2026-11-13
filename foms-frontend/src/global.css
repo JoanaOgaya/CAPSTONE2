@@ -1132,3 +1132,7 @@ html.dark .sidebar {
     margin: 0 !important;
   }
 }
+
+
+/* Amount / currency cells — tabular-nums + right-align so decimals line up */
+.amt { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }

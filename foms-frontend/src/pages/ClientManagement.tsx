@@ -618,7 +618,7 @@ const ClientManagementInner: React.FC = () => {
                           <div className="billing-card-amount-box">
                             <span className="billing-card-amount-label">Total Amount</span>
                             <span className="billing-card-amount-val">
-                              ₱{inv.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {formatCurrency(inv.totalAmount)}
                             </span>
                           </div>
 
@@ -741,7 +741,7 @@ const ClientManagementInner: React.FC = () => {
                                 return count > 0 ? count : (inv.waybillIds?.length || 0);
                               })()}
                             </td>
-                            <td style={{ padding: '12px 16px', color: '#0F172A', fontWeight: 600 }}>₱ {inv.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td style={{ padding: '12px 16px', color: '#0F172A', fontWeight: 600 }}>{formatCurrency(inv.totalAmount)}</td>
                             <td style={{ padding: '12px 16px' }}><StatusBadge status={inv.status} /></td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                               <Dropdown
@@ -854,7 +854,7 @@ const ClientManagementInner: React.FC = () => {
                             <td style={{ padding: '12px 16px', color: '#475569', whiteSpace: 'nowrap' }}>{formatDate(pay.recordedAt)}</td>
                             <td style={{ padding: '12px 16px', color: '#475569' }}>{pay.invoiceNumber || pay.invoiceId || 'N/A'}</td>
                             <td style={{ padding: '12px 16px', color: '#475569' }}>{pay.paymentMethod}</td>
-                            <td style={{ padding: '12px 16px', color: '#0F172A', fontWeight: 600 }}>₱ {pay.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td style={{ padding: '12px 16px', color: '#0F172A', fontWeight: 600 }}>{formatCurrency(pay.amount)}</td>
                             <td style={{ padding: '12px 16px' }}><StatusBadge status="Paid" /></td>
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                               <Dropdown
@@ -1013,7 +1013,7 @@ const ClientManagementInner: React.FC = () => {
                                     <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#DCFCE7', color: '#166534', fontWeight: 700 }}>Validated</span>
                                     <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: '#F1F5F9', color: '#475569', fontWeight: 700 }}>{fd?.area || 'NCR'}</span>
                                   </div>
-                                  <span style={{ fontWeight: 800, color: '#0F172A', fontSize: '1rem' }}>₱{freightAmount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                  <span style={{ fontWeight: 800, color: '#0F172A', fontSize: '1rem' }}>{formatCurrency(freightAmount)}</span>
                                 </div>
                                 
                                 <div style={{ fontSize: '0.85rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '16px', fontWeight: 600 }}>
@@ -1024,15 +1024,15 @@ const ClientManagementInner: React.FC = () => {
                                 <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                     <span style={{ color: '#475569', fontWeight: 600 }}>Freight</span>
-                                    <span style={{ color: '#0F172A', fontWeight: 700 }}>₱{(Number(fd?.freightCost || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                    <span style={{ color: '#0F172A', fontWeight: 700 }}>{formatCurrency(Number(fd?.freightCost || 0))}</span>
                                   </div>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                     <span style={{ color: '#475569', fontWeight: 600 }}>VAT 12%</span>
-                                    <span style={{ color: '#0F172A', fontWeight: 700 }}>₱{(Number(fd?.vat || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                    <span style={{ color: '#0F172A', fontWeight: 700 }}>{formatCurrency(Number(fd?.vat || 0))}</span>
                                   </div>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                     <span style={{ color: '#475569', fontWeight: 600 }}>Fuel surcharge 15%</span>
-                                    <span style={{ color: '#0F172A', fontWeight: 700 }}>₱{(Number(fd?.fuelSurcharge || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                    <span style={{ color: '#0F172A', fontWeight: 700 }}>{formatCurrency(Number(fd?.fuelSurcharge || 0))}</span>
                                   </div>
                                 </div>
                               </div>
@@ -1044,21 +1044,21 @@ const ClientManagementInner: React.FC = () => {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                 <span style={{ color: '#475569', fontWeight: 600 }}>Freight</span>
-                                <span style={{ color: '#0F172A', fontWeight: 700 }}>₱{invFreight.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                <span style={{ color: '#0F172A', fontWeight: 700 }}>{formatCurrency(invFreight)}</span>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                 <span style={{ color: '#475569', fontWeight: 600 }}>VAT 12%</span>
-                                <span style={{ color: '#0F172A', fontWeight: 700 }}>₱{invVat.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                <span style={{ color: '#0F172A', fontWeight: 700 }}>{formatCurrency(invVat)}</span>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                                 <span style={{ color: '#475569', fontWeight: 600 }}>Fuel surcharge 15%</span>
-                                <span style={{ color: '#0F172A', fontWeight: 700 }}>₱{invSurcharge.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                                <span style={{ color: '#0F172A', fontWeight: 700 }}>{formatCurrency(invSurcharge)}</span>
                               </div>
                             </div>
                             
                             <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <span style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>Grand total</span>
-                              <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#16A34A' }}>₱{invTotal.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                              <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#16A34A' }}>{formatCurrency(invTotal)}</span>
                             </div>
                           </div>
                         </div>
@@ -1320,7 +1320,7 @@ const ClientManagementInner: React.FC = () => {
       return 'Client has consistently missed payment deadlines and has an outstanding balance.';
     }
     if (balance > 0) {
-      return `Account in good standing with scheduled billing cycle of ₱${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`;
+      return `Account in good standing with scheduled billing cycle of ${formatCurrency(balance)}.`;
     }
     return 'Account in good standing with zero outstanding balance.';
   };
@@ -1569,7 +1569,7 @@ const ClientManagementInner: React.FC = () => {
                         <div className="client-modal-row">
                           <span className="client-modal-label">Outstanding Balance</span>
                           <span className={`client-modal-value ${finance.outstandingBalance > 0 ? 'highlight-red' : 'highlight-green'}`}>
-                            ₱{finance.outstandingBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatCurrency(finance.outstandingBalance)}
                           </span>
                         </div>
                         <div className="client-modal-row">
@@ -1587,13 +1587,13 @@ const ClientManagementInner: React.FC = () => {
                         <div className="client-modal-row">
                           <span className="client-modal-label">Total Invoiced</span>
                           <span className="client-modal-value">
-                            ₱{finance.totalInvoiced.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatCurrency(finance.totalInvoiced)}
                           </span>
                         </div>
                         <div className="client-modal-row">
                           <span className="client-modal-label">Total Payments Settled</span>
                           <span className="client-modal-value highlight-green">
-                            ₱{finance.totalSettled.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {formatCurrency(finance.totalSettled)}
                           </span>
                         </div>
                       </div>
@@ -1816,7 +1816,7 @@ const ClientManagementInner: React.FC = () => {
                           OUTSTANDING BALANCE
                         </div>
                         <div className="client-metric-val-balance" style={{ color: overdueDays > 0 ? '#DC2626' : '#0F172A' }}>
-                          ₱{balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatCurrency(balance)}
                         </div>
                       </div>
                       <div className="client-metric-col">

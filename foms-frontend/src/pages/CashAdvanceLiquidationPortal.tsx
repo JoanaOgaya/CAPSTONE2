@@ -118,7 +118,7 @@ export const CashAdvanceLiquidationPortal: React.FC = () => {
 
   // Handle Approve Cash Advance (FR-050)
   const handleApproveAdvance = async (advance: CashAdvanceItem) => {
-    if (!window.confirm(`Approve Cash Advance request ${advance.advanceId} for ${advance.courierName} (₱${advance.amountGiven.toLocaleString()})?`)) {
+    if (!window.confirm(`Approve Cash Advance request ${advance.advanceId} for ${advance.courierName} (${formatCurrency(advance.amountGiven)})?`)) {
       return;
     }
     try {

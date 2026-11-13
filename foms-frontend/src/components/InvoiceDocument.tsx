@@ -6,6 +6,7 @@ import { waybillsService } from '../services/waybillsService';
 import { ratesService } from '../services/ratesService';
 import { computeFreightCost } from '../utils/billing';
 import type { FreightBreakdown } from '../utils/billing';
+import { formatCurrency } from '../utils/format';
 
 interface WaybillLineItem {
   id: string;
@@ -233,7 +234,7 @@ export const InvoiceDocument: React.FC<{ invoice: Invoice; compact?: boolean }> 
     }
   }
 
-  const fmt = (n: number) => `₱${n.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+  const fmt = (n: number) => formatCurrency(n);
   const pct = (r?: number) => `${(((r ?? 0)) * 100).toFixed(0)}%`;
 
   return (

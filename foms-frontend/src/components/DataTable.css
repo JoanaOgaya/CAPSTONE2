@@ -834,3 +834,7 @@
     overflow: visible !important;
   }
 }
+
+
+/* Amount column cells: right-aligned, tabular figures */
+.dt-cell--amount { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }

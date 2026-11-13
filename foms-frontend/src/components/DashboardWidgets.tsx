@@ -1,8 +1,8 @@
 import React from 'react';
 import { Card } from './Card';
+import { formatCurrency } from '../utils/format';
 
-export const peso = (n: number) =>
-  `₱${(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const peso = (n: number) => formatCurrency(n);
 
 // ── Welcome banner ─────────────────────────────────────────────────
 interface BannerProps {

@@ -13,6 +13,7 @@ import { RiskBadge } from '../components/ai/RiskBadge';
 import { PriorityBadge } from '../components/ai/PriorityBadge';
 import { AiDisclaimer } from '../components/ai/AiDisclaimer';
 import { canViewReceivableRisk, canActOnRecord } from '../utils/roleAccess';
+import { formatCurrency } from '../utils/format';
 
 const getDaysOverdue = (dueDate: string) => {
   if (!dueDate || dueDate === 'N/A') return 0;
@@ -20,7 +21,7 @@ const getDaysOverdue = (dueDate: string) => {
   return Math.max(0, Math.round(diff));
 };
 
-const formatPeso = (n: number) => `₱${(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+const formatPeso = (n: number) => formatCurrency(n);
 
 const getEmployeeNameByRole = (role: string, defaultName: string) => {
   return defaultName || role || 'User';
@@ -133,7 +134,7 @@ const ManagerView = ({ token, user, arRecords }: any) => {
     invoiceNumber: ar.invoiceNumber || 'N/A',
     clientName: ar.clientName || 'Unknown Account',
     balanceValue: ar.outstandingBalance || 0,
-    balance: `₱${(ar.outstandingBalance || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+    balance: formatCurrency(ar.outstandingBalance || 0),
     priorityLevel: 'High Priority',
     dueDate: ar.dueDate || 'N/A',
     decision: 'Pending Review',
@@ -185,7 +186,7 @@ const ManagerView = ({ token, user, arRecords }: any) => {
           invoiceNumber: r.priority?.normalized_invoice_number || r.priority?.invoice_number || 'N/A',
           clientName: r.priority?.client_name || 'N/A',
           balanceValue: r.priority?.outstanding_balance || 0,
-          balance: `₱${(r.priority?.outstanding_balance || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+          balance: formatCurrency(r.priority?.outstanding_balance || 0),
           priorityLevel: r.priority?.priority_level || 'HIGH PRIORITY',
           dueDate: r.priority?.due_date || 'N/A',
           decision: r.manager_decision || r.review_status || 'Pending',
@@ -819,7 +820,7 @@ const AccountantView = ({ token, user, arRecords }: any) => {
                       <div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em' }}>OUTSTANDING BALANCE</div>
                         <div style={{ fontWeight: 800, fontSize: 16, color: '#111827', marginTop: 4 }}>
-                          ₱{(row.outstanding_balance || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                          {formatCurrency(row.outstanding_balance || 0)}
                         </div>
                       </div>
                       <div>
@@ -972,7 +973,7 @@ const AccountantView = ({ token, user, arRecords }: any) => {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                     <span style={{ color: '#475569' }}>Outstanding Balance</span>
-                    <span style={{ fontWeight: 700, color: '#0F172A' }}>₱{(selectedPriority.outstanding_balance || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontWeight: 700, color: '#0F172A' }}>{formatCurrency(selectedPriority.outstanding_balance || 0)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                     <span style={{ color: '#475569' }}>Due Date</span>

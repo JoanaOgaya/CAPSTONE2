@@ -977,7 +977,7 @@ export const StarsCollectionWorkflow: React.FC = () => {
                       const amt = inv.balance ?? inv.totalAmount ?? inv.amount ?? 0;
                       return (
                         <option key={no} value={no}>
-                          {no} — {client} (₱{Number(amt).toLocaleString()})
+                          {no} — {client} ({formatCurrency(Number(amt))})
                         </option>
                       );
                     })
@@ -1007,7 +1007,7 @@ export const StarsCollectionWorkflow: React.FC = () => {
                     type="text"
                     readOnly
                     placeholder="Auto-filled"
-                    value={dispatchAmount !== '' ? `₱${Number(dispatchAmount).toLocaleString()}` : ''}
+                    value={dispatchAmount !== '' ? formatCurrency(Number(dispatchAmount)) : ''}
                     style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', background: '#f8fafc', color: '#475569' }}
                   />
                 </div>

@@ -7,6 +7,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import { PageHeader } from '../components/shared/PageHeader';
 import Button from '../components/Buttons';
 import type { UniqueDocumentItem } from '../services/duplicates.service';
+import { formatCurrency } from '../utils/format';
 
 const UniqueDocuments: React.FC = () => {
   const { user } = useAuth();
@@ -82,7 +83,7 @@ const UniqueDocuments: React.FC = () => {
       render: (row) => (
         <span style={{ fontWeight: 700 }}>
           {row.amount !== undefined
-            ? `₱${row.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            ? formatCurrency(row.amount)
             : 'N/A'}
         </span>
       ),
@@ -237,7 +238,7 @@ const UniqueDocuments: React.FC = () => {
                 <span style={{ color: '#64748B' }}>Amount</span>
                 <span style={{ fontWeight: 700 }}>
                   {selectedDoc.amount !== undefined
-                    ? `₱${selectedDoc.amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
+                    ? formatCurrency(selectedDoc.amount)
                     : 'N/A'}
                 </span>
               </div>

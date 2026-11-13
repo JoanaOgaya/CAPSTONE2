@@ -19,6 +19,7 @@ import { Role } from '../types/auth';
 import type { Invoice, Client, AccountsReceivableRecord, Payment, AuditLog } from '../types/entities';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { formatCurrency } from '../utils/format';
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null }> {
   constructor(props: { children: React.ReactNode }) {
@@ -320,7 +321,7 @@ const ReportsContent: React.FC = () => {
     },
     { key: 'invoiceDate', label: 'INVOICE DATE', render: (row: any) => row.invoiceDate ? new Date(row.invoiceDate).toLocaleDateString('en-PH') : 'N/A' },
     { key: 'dueDate', label: 'DUE DATE', render: (row: any) => row.dueDate ? new Date(row.dueDate).toLocaleDateString('en-PH') : 'N/A' },
-    { key: 'amount', label: 'OUTSTANDING AMOUNT', render: (row: any) => <span style={{ fontWeight: 800, color: '#0F172A' }}>₱{Number(row.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span> },
+    { key: 'amount', label: 'OUTSTANDING AMOUNT', render: (row: any) => <span style={{ fontWeight: 800, color: '#0F172A' }}>{formatCurrency(Number(row.amount || 0))}</span> },
     {
       key: 'agingDays', label: 'DAYS OVERDUE', sortable: true,
       render: (row: any) => (
@@ -369,7 +370,7 @@ const ReportsContent: React.FC = () => {
     { key: 'clientName', label: 'CLIENT', sortable: true, render: (row: any) => <span style={{ color: '#0F172A', fontWeight: 700 }}>{row.clientName}</span> },
     { key: 'createdAt', label: 'ISSUE DATE', render: (row: any) => new Date(row.createdAt || row.billingDate || Date.now()).toLocaleDateString('en-PH') },
     { key: 'dueDate', label: 'DUE DATE', render: (row: any) => new Date(row.dueDate || Date.now()).toLocaleDateString('en-PH') },
-    { key: 'totalAmount', label: 'TOTAL AMOUNT', render: (row: any) => <span style={{ fontWeight: 800 }}>₱{Number(row.totalAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span> },
+    { key: 'totalAmount', label: 'TOTAL AMOUNT', render: (row: any) => <span style={{ fontWeight: 800 }}>{formatCurrency(Number(row.totalAmount || 0))}</span> },
     { key: 'status', label: 'STATUS', render: (row: any) => <StatusBadge status={row.status} /> }
   ];
 
@@ -400,7 +401,7 @@ const ReportsContent: React.FC = () => {
     { key: 'id', label: 'PAYMENT ID', sortable: true, render: (row: any) => <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{row.id}</span> },
     { key: 'invoiceNumber', label: 'INVOICE NO.' },
     { key: 'clientName', label: 'CLIENT', sortable: true, render: (row: any) => <span style={{ color: '#0F172A', fontWeight: 700 }}>{row.clientName}</span> },
-    { key: 'amount', label: 'AMOUNT PAID', render: (row: any) => <span style={{ fontWeight: 800, color: '#10B981' }}>₱{Number(row.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</span> },
+    { key: 'amount', label: 'AMOUNT PAID', render: (row: any) => <span style={{ fontWeight: 800, color: '#10B981' }}>{formatCurrency(Number(row.amount || 0))}</span> },
     { key: 'paymentMethod', label: 'METHOD', render: (row: any) => row.paymentMethod || 'Bank Transfer' },
     { key: 'recordedAt', label: 'DATE COLLECTED', render: (row: any) => new Date(row.recordedAt || (row as any).paymentDate || Date.now()).toLocaleDateString('en-PH') }
   ];
@@ -418,7 +419,7 @@ const ReportsContent: React.FC = () => {
       )
     },
     { key: 'clientName', label: 'CLIENT', render: (row: any) => row.clientName || '—' },
-    { key: 'amount', label: 'AMOUNT', render: (row: any) => row.amount ? `₱${Number(row.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—' },
+    { key: 'amount', label: 'AMOUNT', render: (row: any) => row.amount ? formatCurrency(Number(row.amount)) : '—' },
     {
       key: 'similarity', label: 'SIMILARITY',
       render: (row: any) => (
@@ -443,7 +444,7 @@ const ReportsContent: React.FC = () => {
     },
     { key: 'orInvoiceNumber', label: 'DOC NO.', render: (row: any) => row.orInvoiceNumber || '—' },
     { key: 'clientName', label: 'CLIENT', render: (row: any) => row.clientName || '—' },
-    { key: 'amount', label: 'AMOUNT', render: (row: any) => row.amount ? `₱${Number(row.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—' },
+    { key: 'amount', label: 'AMOUNT', render: (row: any) => row.amount ? formatCurrency(Number(row.amount)) : '—' },
     { key: 'aiConfidence', label: 'CONFIDENCE', render: (row: any) => row.aiConfidence ? `${Math.round(row.aiConfidence * 100)}%` : '99.4%' },
     { key: 'source', label: 'SOURCE', render: (row: any) => row.source || 'OCR Pipeline' },
     { key: 'transactionDate', label: 'DATE', render: (row: any) => row.transactionDate ? new Date(row.transactionDate).toLocaleDateString('en-PH') : '—' },
@@ -968,7 +969,7 @@ const ReportsContent: React.FC = () => {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} dy={10} />
                     <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} tickFormatter={(val) => `₱${val >= 1000 ? (val / 1000).toFixed(1).replace('.0', '') + 'k' : val}`} width={60} />
-                    <Tooltip formatter={(val: any) => `₱${Number(val).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                    <Tooltip formatter={(val: any) => formatCurrency(Number(val))} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
                     <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '12px' }} iconType="circle" />
                     <Bar yAxisId="left" dataKey="Invoiced" fill="#0EA5E9" radius={[4, 4, 0, 0]} maxBarSize={40} />
                     <Bar yAxisId="left" dataKey="Paid" fill="#10B981" radius={[4, 4, 0, 0]} maxBarSize={40} />
@@ -1010,7 +1011,7 @@ const ReportsContent: React.FC = () => {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} dy={10} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} tickFormatter={(val) => `₱${val >= 1000 ? (val / 1000).toFixed(1).replace('.0', '') + 'k' : val}`} width={60} />
-                      <Tooltip formatter={(val: any) => `₱${Number(val).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                      <Tooltip formatter={(val: any) => formatCurrency(Number(val))} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
                       <Line type="monotone" dataKey="Collected" stroke="#10B981" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
                     </LineChart>
                   </ResponsiveContainer>

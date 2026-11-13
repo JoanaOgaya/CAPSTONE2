@@ -16,6 +16,7 @@ import type {
   ComparisonMatrixRow,
   MatchResultType,
 } from '../types/duplicateScan';
+import { formatCurrency } from '../utils/format';
 
 /* ─────────────────────────────────────────────
    Camera Scanner Modal
@@ -508,7 +509,7 @@ export const AIDuplicateScan: React.FC = () => {
       return <span style={{ color: '#94A3B8', fontStyle: 'italic' }}>Not read</span>;
     }
     if (typeof val === 'number') {
-      return `₱${val.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `${formatCurrency(val)}`;
     }
     return String(val);
   };
@@ -1184,7 +1185,7 @@ export const AIDuplicateScan: React.FC = () => {
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', gap: '8px', padding: '20px', textAlign: 'center' }}>
                             <i className="ti ti-file-invoice" style={{ fontSize: '44px', color: '#64748B' }} />
                             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#CBD5E1' }}>Existing Record: {scanResult.existingRecord.recordId}</span>
-                            <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>{scanResult.existingRecord.documentType} • ₱{scanResult.existingRecord.amount?.toLocaleString()}</span>
+                            <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>{scanResult.existingRecord.documentType} • {formatCurrency(scanResult.existingRecord.amount ?? 0)}</span>
                           </div>
                         ) : (
                           <img
