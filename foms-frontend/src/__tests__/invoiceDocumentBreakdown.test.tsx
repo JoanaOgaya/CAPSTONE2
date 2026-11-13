@@ -113,15 +113,15 @@ describe('InvoiceDocument item and computation breakdown', () => {
     const orderA = await screen.findByText('Order A');
     expect(orderB.compareDocumentPosition(orderA) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    expect(screen.getByText(/Freight ₱100\.00 \+ max\(0, 7\.00 − 5\) × ₱25\.00 = ₱150\.00/)).toBeDefined();
-    expect(screen.getByText(/Valuation ₱1,000\.00 × 1% = ₱10\.00/)).toBeDefined();
-    expect(screen.getByText(/Taxable subtotal ₱160\.00 × VAT 12% = ₱19\.20/)).toBeDefined();
-    expect(screen.getByText(/Freight ₱150\.00 × surcharge 15% = ₱22\.50/)).toBeDefined();
+    expect(screen.getByText(/Freight ₱\s*100\.00 \+ max\(0, 7\.00 − 5\) × ₱\s*25\.00 = ₱\s*150\.00/)).toBeDefined();
+    expect(screen.getByText(/Valuation ₱\s*1,000\.00 × 1% = ₱\s*10\.00/)).toBeDefined();
+    expect(screen.getByText(/Taxable subtotal ₱\s*160\.00 × VAT 12% = ₱\s*19\.20/)).toBeDefined();
+    expect(screen.getByText(/Freight ₱\s*150\.00 × surcharge 15% = ₱\s*22\.50/)).toBeDefined();
     expect(screen.getByText('WB-002')).toBeDefined();
     expect(screen.getByText('WB-001')).toBeDefined();
 
     await waitFor(() => {
-      expect(screen.getByText('Total').parentElement?.textContent).toContain('₱334.30');
+      expect(screen.getByText('Total').parentElement?.textContent).toContain('₱ 334.30');
     });
   });
 
@@ -179,7 +179,7 @@ describe('InvoiceDocument item and computation breakdown', () => {
 
     // Totals match exactly
     await waitFor(() => {
-      expect(screen.getByText('Total').parentElement?.textContent).toContain('₱30,000.00');
+      expect(screen.getByText('Total').parentElement?.textContent).toContain('₱ 30,000.00');
     });
   });
 });
