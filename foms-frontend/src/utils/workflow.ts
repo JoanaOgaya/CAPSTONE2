@@ -35,6 +35,9 @@ export type WorkflowStatus =
   | 'RECEIVED'
   | 'DISPUTED'
   | 'VOID'
+  // Cash Advance specific statuses (DMS-aligned mapping)
+  | 'DISBURSED'
+  | 'COMPLETED'
   | DuplicateStatus;
 
 export type Tone = 'success' | 'warning' | 'danger' | 'info' | 'primary' | 'neutral';
@@ -57,6 +60,9 @@ export const STATUS_LABEL: Record<WorkflowStatus, string> = {
   RECEIVED: 'Received',
   DISPUTED: 'Disputed',
   VOID: 'Void',
+  // Cash Advance: DMS-aligned labels
+  DISBURSED: 'Disbursed',
+  COMPLETED: 'Completed',
   ...DUPLICATE_STATUS_LABELS,
   RETURNED: 'Returned',
 };
@@ -79,6 +85,9 @@ export const STATUS_TONE: Record<WorkflowStatus, Tone> = {
   RECEIVED: 'success',
   DISPUTED: 'danger',
   VOID: 'neutral',
+  // Cash Advance: DMS-aligned tones (Disbursed=blue/info, Completed=success)
+  DISBURSED: 'info',
+  COMPLETED: 'success',
   ...DUPLICATE_STATUS_TONES,
   RETURNED: 'danger',
 };
@@ -122,6 +131,8 @@ export function normalizeStatus(raw: string | null | undefined): WorkflowStatus 
   if (s === 'RECEIVED') return 'RECEIVED';
   if (s === 'DISPUTED') return 'DISPUTED';
   if (s === 'VOID' || s === 'VOIDED') return 'VOID';
+  if (s === 'DISBURSED') return 'DISBURSED';
+  if (s === 'COMPLETED') return 'COMPLETED';
   return (s || 'DRAFT') as WorkflowStatus;
 }
 
