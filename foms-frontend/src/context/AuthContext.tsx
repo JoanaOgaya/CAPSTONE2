@@ -10,7 +10,7 @@ import { authService } from '../services/authService';
 import { onUnauthorized, session } from '../services/apiClient';
 import { clearQueryCache } from '../hooks/useQuery';
 import { riskService } from '../services/ai/risk.service';
-import { LANDING_PATH } from '../utils/roleAccess';
+import { canAccessPath, LANDING_PATH } from '../utils/roleAccess';
 import { bootstrapIncomingAuth, clearStoredSession, getCentralLoginUrl, getInitialProfile, getSystemPortalUrl, isSuperAdminId } from '../services/centralAuth';
 
 // Bootstrap any SSO auth params returned when entering FOMS from Speedex Central Portal
@@ -235,7 +235,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!wasLoggedOut) {
         const state = location.state as { from?: string } | null;
         if (state?.from && state.from !== '/login' && state.from !== '/') {
-          requestedFrom = state.from;
+          const fromPathname = state.from.split('?')[0];
+          if (canAccessPath(me.role, fromPathname)) {
+            requestedFrom = state.from;
+          }
         }
       }
 

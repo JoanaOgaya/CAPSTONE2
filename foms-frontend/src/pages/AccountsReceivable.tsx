@@ -27,7 +27,7 @@ const getEmployeeNameByRole = (role: string, defaultName: string) => {
 };
 
 const SharedKPIs = ({ arRecords }: { arRecords: any[] }) => {
-  const activeArRecords = arRecords.filter(r => r.outstandingBalance > 0);
+  const activeArRecords = arRecords.filter(r => r.outstandingBalance > 0 && r.status !== 'Void' && r.documentStatus !== 'Void');
   const totalAr = activeArRecords.reduce((s, r) => s + r.outstandingBalance, 0);
 
   const agingTotals = {

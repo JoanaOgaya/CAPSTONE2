@@ -95,7 +95,7 @@ try {
 
 # MongoDB Check
 try {
-    $mongoPass = "mongo_password_2026"
+    $mongoPass = if ($env:MONGO_ROOT_PASSWORD) { $env:MONGO_ROOT_PASSWORD } else { "non_prod_dev_password" }
     $mongoCheck = docker exec -i foms-mongodb mongosh -u root -p $mongoPass --authenticationDatabase admin --eval "db.getSiblingDB('foms_trends_db').getCollectionNames().length" 2>$null
     $collCount = ($mongoCheck | Select-String -Pattern "^\d+$" | Select-Object -Last 1).Line.Trim()
     if ($collCount -match "^\d+$" -and [int]$collCount -gt 0) {

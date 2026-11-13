@@ -48,21 +48,56 @@ for (var dir = currentDir; dir != null; dir = dir.Parent)
 // A weak secret allows attackers to forge tokens for any role.
 // ─────────────────────────────────────────────────────────────────────────────
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secret = builder.Configuration["JwtSettings:Secret"];
+var secret = builder.Configuration["JWT_SECRET"];
+if (string.IsNullOrWhiteSpace(secret))
+{
+    secret = builder.Configuration["JwtSettings:Secret"];
+}
 if (string.IsNullOrWhiteSpace(secret))
 {
     secret = Environment.GetEnvironmentVariable("JWT_SECRET");
 }
-if (string.IsNullOrWhiteSpace(secret))
+
+static bool IsPlaceholderSecret(string? val)
 {
-    secret = "FOMS_Capstone_JWT_SecureKey_2026!!";
+    if (string.IsNullOrWhiteSpace(val)) return true;
+    var trimmed = val.Trim();
+    string[] forbidden = new[]
+    {
+        "replace_with",
+        "change_me",
+        "change-me",
+        "your_",
+        "example",
+        "placeholder",
+        "FOMS_Capstone_JWT_SecureKey",
+        "dev-secret-key-change-in-production",
+        "1234567890"
+    };
+    return forbidden.Any(f => trimmed.Contains(f, StringComparison.OrdinalIgnoreCase));
+}
+
+if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32 || IsPlaceholderSecret(secret))
+{
+    throw new InvalidOperationException(
+        "Fatal Startup Error: JWT Secret is missing, too short (minimum 32 characters required for HMAC-SHA256), or contains a placeholder value. " +
+        "Configure a cryptographically secure 'JWT_SECRET' in deployment configuration.");
 }
 builder.Configuration["JwtSettings:Secret"] = secret;
 
-if (secret.Length < 32)
-    throw new InvalidOperationException(
-        $"JWT Secret must be at least 32 characters long for HMAC-SHA256. " +
-        $"Current length: {secret.Length}. Update JwtSettings:Secret.");
+FOMS.Infrastructure.Configuration.DatabaseConfiguration.ValidateDatabaseSecrets(builder.Configuration);
+
+var starsInboundKey = builder.Configuration["StarsIntegration:InboundApiKey"];
+if (!string.IsNullOrWhiteSpace(starsInboundKey) && IsPlaceholderSecret(starsInboundKey))
+{
+    throw new InvalidOperationException("Fatal Startup Error: StarsIntegration:InboundApiKey contains a placeholder value.");
+}
+
+var dmsInboundKey = builder.Configuration["DmsIntegration:InboundApiKey"];
+if (!string.IsNullOrWhiteSpace(dmsInboundKey) && IsPlaceholderSecret(dmsInboundKey))
+{
+    throw new InvalidOperationException("Fatal Startup Error: DmsIntegration:InboundApiKey contains a placeholder value.");
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // APPLICATION SERVICES
@@ -95,48 +130,27 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TASK 6: CORS SECURITY
-// Replaced AllowAnyOrigin() with specific allowed origins.
-// AllowAnyOrigin() combined with Authorization headers allows CSRF from any site.
+// CORS SECURITY
+// Explicit allowed origins from configuration without wildcards or blanket suffixes.
 // ─────────────────────────────────────────────────────────────────────────────
-var allowedOrigins = builder.Configuration
+var configuredOrigins = builder.Configuration
     .GetSection("AllowedCorsOrigins")
     .Get<string[]>()
-    ?? new[] { "http://localhost:5173" };
+    ?? builder.Configuration["CORS_ALLOWED_ORIGINS"]?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+    ?? Array.Empty<string>();
+
+var allowedOrigins = configuredOrigins.Length > 0
+    ? configuredOrigins
+    : new[] { "http://localhost:5173", "http://localhost:4173" };
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FomsPolicy", policy =>
     {
-        if (builder.Environment.IsDevelopment())
-        {
-            policy.SetIsOriginAllowed(origin => true)
-                  .AllowAnyMethod()
-                  .AllowAnyHeader()
-                  .AllowCredentials();
-        }
-        else
-        {
-            policy.SetIsOriginAllowed(origin =>
-            {
-                if (string.IsNullOrWhiteSpace(origin)) return false;
-                try
-                {
-                    var uri = new Uri(origin);
-                    return uri.Host == "localhost"
-                        || uri.Host == "127.0.0.1"
-                        || uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
-                        || allowedOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            })
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials();
-        }
+        policy.WithOrigins(allowedOrigins)
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -314,37 +328,19 @@ app.MapControllers();
 app.MapGet("/", () => Results.Redirect("/swagger"));
 
 // ─────────────────────────────────────────────────────────────────────────────
-// START WEB SERVER FIRST (so Render health checks pass while migrations run)
-// ─────────────────────────────────────────────────────────────────────────────
-await app.StartAsync();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DATABASE INITIALIZATION
-// Uses MigrateAsync() instead of EnsureCreated() to support schema migrations.
-// Runs AFTER the server is listening so Render doesn't time out.
+// DATABASE INITIALIZATION & MIGRATIONS
+// Applies pending migrations on startup. Fails fast if migrations cannot be applied
+// so the service never reports healthy or operates on an unmigrated schema.
 // ─────────────────────────────────────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     var logger = services.GetRequiredService<ILogger<Program>>();
-    try
-    {
-        var context = services.GetRequiredService<ApplicationDbContext>();
-        try
-        {
-            await context.Database.MigrateAsync();
-        }
-        catch (Exception ex)
-        {
-            logger.LogInformation("Database migration skipped (tables exist): {Message}", ex.Message);
-        }
+    var context = services.GetRequiredService<ApplicationDbContext>();
 
-        logger.LogInformation("Database connected. Mock/seeded data disabled - running 100% on live database.");
-    }
-    catch (Exception ex)
-    {
-        logger.LogWarning("Database initialization error: {Message}", ex.Message);
-    }
+    await FOMS.Infrastructure.Persistence.DatabaseMigrationRunner.ApplyMigrationsAsync(context, logger);
+
+    logger.LogInformation("Database connected. Mock/seeded data disabled - running 100% on live database.");
 }
 
-await app.WaitForShutdownAsync();
+await app.RunAsync();

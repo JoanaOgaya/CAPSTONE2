@@ -111,6 +111,16 @@ public class FomsDbContext : DbContext
         modelBuilder.Entity<MonthlyBudgetLine>().ToTable("MonthlyBudgetLines", "dbo");
         modelBuilder.Entity<BudgetOverride>().ToTable("BudgetOverrides", "dbo");
         modelBuilder.Entity<BudgetTransfer>().ToTable("BudgetTransfers", "dbo");
+
+        modelBuilder.Entity<Invoice>()
+            .Property(i => i.DiscountRate)
+            .HasPrecision(5, 4);
+
+        modelBuilder.Entity<ClientRate>(entity =>
+        {
+            entity.Property(r => r.FuelSurchargeRate).HasPrecision(5, 4);
+            entity.Property(r => r.ValuationRate).HasPrecision(5, 4);
+        });
     }
 
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

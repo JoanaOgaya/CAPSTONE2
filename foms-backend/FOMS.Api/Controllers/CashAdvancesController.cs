@@ -5,11 +5,14 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using FOMS.Domain.Constants;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
 
 namespace FOMS.Api.Controllers;
 
+[Authorize]
 [ApiController]
 [Route("api/cash-advances")]
 [Route("api/v1/cash-advances")]
@@ -25,21 +28,16 @@ public class CashAdvancesController : ControllerBase
         _logger = logger;
     }
 
-    private (int userId, string username, string role, string employeeId) GetCurrentUserInfo()
+    private (bool isAuthenticated, int userId, string username, string role, string employeeId) GetCurrentUserInfo()
     {
-        var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
-                ?? User.FindFirst("role")?.Value
-                ?? "Accountant";
+        if (User?.Identity?.IsAuthenticated != true)
+        {
+            return (false, 0, string.Empty, string.Empty, string.Empty);
+        }
 
-        var username = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
-                    ?? User.FindFirst("name")?.Value
-                    ?? User.Identity?.Name
-                    ?? "Accountant";
-
-        var employeeId = User.FindFirst("employee_id")?.Value
-                      ?? User.FindFirst("employee_number")?.Value
-                      ?? User.FindFirst("sub")?.Value
-                      ?? username;
+        var role = FomsRoles.GetClaimRole(User);
+        var username = FomsRoles.GetClaimUsername(User);
+        var employeeId = FomsRoles.GetClaimEmployeeId(User);
 
         var userIdClaim = User.FindFirst("user_id")?.Value
                        ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
@@ -50,7 +48,7 @@ public class CashAdvancesController : ControllerBase
             userId = parsed;
         }
 
-        return (userId, username, role, employeeId);
+        return (true, userId, username, role, employeeId);
     }
 
     private static string MapStatus(string dbStatus, string? approvalStatus)
@@ -79,9 +77,14 @@ public class CashAdvancesController : ControllerBase
     }
 
     [HttpGet]
-    [AllowAnonymous]
     public async Task<IActionResult> GetAll([FromQuery] string? status)
     {
+        var (isAuthenticated, _, _, role, _) = GetCurrentUserInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+        if (!FomsRoles.IsRole(role, FomsRoles.AllCanonicalRoles))
+            return StatusCode(403, new { message = "Forbidden: Missing or unrecognized role claim." });
+
         var query = _fomsDb.CashAdvances.AsNoTracking().AsQueryable();
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -100,9 +103,14 @@ public class CashAdvancesController : ControllerBase
     /// Fetch cash advances for the current user / finance staff
     /// </summary>
     [HttpGet("mine")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetMine()
     {
+        var (isAuthenticated, _, _, role, _) = GetCurrentUserInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+        if (!FomsRoles.IsRole(role, FomsRoles.AllCanonicalRoles))
+            return StatusCode(403, new { message = "Forbidden: Missing or unrecognized role claim." });
+
         var list = await _fomsDb.CashAdvances.AsNoTracking().OrderByDescending(a => a.CreatedAt).ToListAsync();
         var approvalRequests = await _fomsDb.CashOutflowApprovalRequests.AsNoTracking()
             .Where(r => r.Category == "CashAdvance")
@@ -122,7 +130,7 @@ public class CashAdvancesController : ControllerBase
                 dateNeeded = (item.ReleaseDate ?? item.CreatedAt ?? DateTime.UtcNow).ToString("yyyy-MM-dd"),
                 remarks = item.Notes,
                 requestedBy = item.CourierName ?? item.ReleasedBy ?? "Accountant",
-                requestedById = item.ReleasedBy ?? "USER-ACC-001",
+                requestedById = item.SubmittedByEmployeeId ?? item.ReleasedBy ?? "USER-ACC-001",
                 status = status,
                 rejectionReason = req?.RejectionReason,
                 createdAt = (item.CreatedAt ?? DateTime.UtcNow).ToString("o"),
@@ -134,14 +142,20 @@ public class CashAdvancesController : ControllerBase
     }
 
     [HttpPost]
-    [AllowAnonymous]
     public async Task<IActionResult> Create([FromBody] CashAdvanceCreateDto dto)
     {
+        var (isAuthenticated, _, username, role, employeeId) = GetCurrentUserInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+
+        if (!FomsRoles.IsRole(role, FomsRoles.Accountant, FomsRoles.HeadAccountant, FomsRoles.FinanceManager, FomsRoles.AssistantFinanceManager))
+        {
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to request cash advances." });
+        }
+
         if (dto == null) return BadRequest(new { message = "Invalid request payload." });
         if (dto.Amount <= 0) return BadRequest(new { message = "Amount must be greater than 0." });
         if (string.IsNullOrWhiteSpace(dto.Purpose)) return BadRequest(new { message = "Purpose is required." });
-
-        var (_, username, _, employeeId) = GetCurrentUserInfo();
 
         DateTime? neededDate = null;
         if (!string.IsNullOrWhiteSpace(dto.DateNeeded) && DateTime.TryParse(dto.DateNeeded, out var parsedDate))
@@ -153,11 +167,12 @@ public class CashAdvancesController : ControllerBase
         var item = new CashAdvance
         {
             AdvanceId = advId,
-            CourierName = !string.IsNullOrWhiteSpace(username) ? username : "Accountant",
+            CourierName = !string.IsNullOrWhiteSpace(username) ? username : employeeId,
             TripReference = dto.Purpose.Trim(),
             AmountGiven = dto.Amount,
             ReleaseDate = neededDate ?? DateTime.UtcNow,
             ReleasedBy = employeeId,
+            SubmittedByEmployeeId = employeeId,
             Status = "Draft",
             Notes = !string.IsNullOrWhiteSpace(dto.Remarks) ? $"{dto.Purpose.Trim()} - {dto.Remarks.Trim()}" : dto.Purpose.Trim(),
             CreatedAt = DateTime.UtcNow
@@ -182,9 +197,14 @@ public class CashAdvancesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [AllowAnonymous]
     public async Task<IActionResult> Update(string id, [FromBody] CashAdvanceCreateDto dto)
     {
+        var (isAuthenticated, _, _, role, _) = GetCurrentUserInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+        if (!FomsRoles.IsRole(role, FomsRoles.Accountant, FomsRoles.HeadAccountant, FomsRoles.FinanceManager, FomsRoles.AssistantFinanceManager))
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to update cash advances." });
+
         var item = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == id);
         if (item == null) return NotFound(new { message = $"Cash Advance '{id}' not found." });
 
@@ -216,9 +236,14 @@ public class CashAdvancesController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetById(string id)
     {
+        var (isAuthenticated, _, _, role, _) = GetCurrentUserInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+        if (!FomsRoles.IsRole(role, FomsRoles.AllCanonicalRoles))
+            return StatusCode(403, new { message = "Forbidden: Missing or unrecognized role claim." });
+
         if (string.Equals(id, "mine", StringComparison.OrdinalIgnoreCase))
         {
             return await GetMine();
@@ -233,21 +258,30 @@ public class CashAdvancesController : ControllerBase
     /// FR-050: Finance Review and Approval of Cash Advance prior to payout.
     /// </summary>
     [HttpPost("{id}/approve")]
-    [AllowAnonymous]
     public async Task<IActionResult> Approve(string id, [FromBody] System.Text.Json.JsonElement? body)
     {
+        var (isAuthenticated, _, username, role, employeeId) = GetCurrentUserInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+
+        if (!FomsRoles.IsRole(role, FomsRoles.FinanceManager, FomsRoles.AssistantFinanceManager, FomsRoles.HeadAccountant))
+        {
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to approve cash advances." });
+        }
+
         var item = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == id);
         if (item == null) return NotFound(new { message = $"Cash Advance '{id}' not found." });
 
-        string reviewer = "Finance Manager";
-        if (body.HasValue && body.Value.TryGetProperty("approvedBy", out var apprProp) && !string.IsNullOrWhiteSpace(apprProp.GetString()))
+        // Separation of Duties: Compare Employee IDs (not display names)
+        var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
+            ? item.SubmittedByEmployeeId
+            : item.ReleasedBy;
+        if (FomsRoles.IsSameEmployeeId(submitterEmpId, employeeId))
         {
-            reviewer = apprProp.GetString()!;
+            return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot approve their own cash advance." });
         }
-        else if (User.Identity?.Name != null)
-        {
-            reviewer = User.Identity.Name;
-        }
+
+        var reviewer = !string.IsNullOrWhiteSpace(employeeId) ? employeeId : username;
 
         item.Status = "Approved";
         item.ApprovedBy = reviewer;
@@ -255,7 +289,7 @@ public class CashAdvancesController : ControllerBase
 
         _fomsDb.AuditLogs.Add(new AuditLog
         {
-            role = "Finance",
+            role = role,
             action = "CASH_ADVANCE_APPROVED",
             module = "Cash Advances",
             remarks = $"Cash Advance {item.AdvanceId} for {item.CourierName} approved for disbursement: ₱{item.AmountGiven:N2} by {reviewer} per FR-050.",
@@ -277,17 +311,29 @@ public class CashAdvancesController : ControllerBase
     /// Records Cash Outflow in FOMS_DB.
     /// </summary>
     [HttpPost("{id}/disburse")]
-    [AllowAnonymous]
     public async Task<IActionResult> Disburse(string id, [FromBody] System.Text.Json.JsonElement? body)
     {
+        var (isAuthenticated, _, username, role, employeeId) = GetCurrentUserInfo();
+        if (!isAuthenticated)
+            return Unauthorized(new { message = "Authentication required." });
+
+        if (!FomsRoles.IsRole(role, FomsRoles.FinanceManager, FomsRoles.AssistantFinanceManager, FomsRoles.HeadAccountant))
+        {
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to disburse cash advances." });
+        }
+
         var item = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == id);
         if (item == null) return NotFound(new { message = $"Cash Advance '{id}' not found." });
 
-        string disburser = "Finance Disbursing Officer";
-        if (body.HasValue && body.Value.TryGetProperty("disbursedBy", out var disbProp) && !string.IsNullOrWhiteSpace(disbProp.GetString()))
+        var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
+            ? item.SubmittedByEmployeeId
+            : item.ReleasedBy;
+        if (FomsRoles.IsSameEmployeeId(submitterEmpId, employeeId))
         {
-            disburser = disbProp.GetString()!;
+            return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot disburse their own cash advance." });
         }
+
+        string disburser = !string.IsNullOrWhiteSpace(employeeId) ? employeeId : username;
 
         item.Status = "Disbursed";
         item.DisbursedBy = disburser;
@@ -310,7 +356,7 @@ public class CashAdvancesController : ControllerBase
 
         _fomsDb.AuditLogs.Add(new AuditLog
         {
-            role = "Finance",
+            role = role,
             action = "CASH_ADVANCE_DISBURSED",
             module = "Cash Advances",
             remarks = $"Cash Advance {item.AdvanceId} disbursed: ₱{item.AmountGiven:N2} to {item.CourierName}. Cash Outflow recorded per FR-043, FR-044.",

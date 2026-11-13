@@ -94,7 +94,7 @@ public static class BillingComputationService
     {
         // Volumetric weight = (L * W * H * pieces) / 3500
         decimal volumetricWeight = (lengthCm > 0 && widthCm > 0 && heightCm > 0 && pieces > 0)
-            ? Math.Round((lengthCm * widthCm * heightCm * (decimal)pieces) / 3500m, 2)
+            ? Math.Round((lengthCm * widthCm * heightCm * (decimal)pieces) / 3500m, 2, MidpointRounding.AwayFromZero)
             : 0m;
 
         // CW = max((L*W*H*pieces)/3500, actual kg)
@@ -105,16 +105,16 @@ public static class BillingComputationService
         decimal freight = minimumRate + (excessKg * excessRatePerKg);
 
         // Valuation = 1% declared value
-        decimal valuationCharge = Math.Round(declaredValue * valuationRate, 2);
+        decimal valuationCharge = Math.Round(declaredValue * valuationRate, 2, MidpointRounding.AwayFromZero);
 
         // Subtotal = Freight + 1% declared value + ODA
         decimal subtotal = freight + valuationCharge + odaRate;
 
         // VAT = 12% of Subtotal
-        decimal vatAmount = Math.Round(subtotal * (decimal)VAT_RATE, 2);
+        decimal vatAmount = Math.Round(subtotal * (decimal)VAT_RATE, 2, MidpointRounding.AwayFromZero);
 
         // Fuel = f * Freight
-        decimal fuelSurcharge = Math.Round(freight * fuelSurchargeRate, 2);
+        decimal fuelSurcharge = Math.Round(freight * fuelSurchargeRate, 2, MidpointRounding.AwayFromZero);
 
         // Total = Subtotal + VAT + Fuel
         decimal total = subtotal + vatAmount + fuelSurcharge;
@@ -189,13 +189,13 @@ public static class BillingComputationService
     /// Compute the VAT amount: Subtotal × 12%, rounded to 2 decimal places.
     /// </summary>
     public static decimal ComputeVat(decimal subtotal)
-        => Math.Round(subtotal * (decimal)VAT_RATE, 2);
+        => Math.Round(subtotal * (decimal)VAT_RATE, 2, MidpointRounding.AwayFromZero);
 
     /// <summary>
     /// Compute the fuel surcharge against freight only.
     /// </summary>
     public static decimal ComputeFuelSurcharge(decimal freightCharges, decimal fuelSurchargeRate)
-        => Math.Round(freightCharges * fuelSurchargeRate, 2);
+        => Math.Round(freightCharges * fuelSurchargeRate, 2, MidpointRounding.AwayFromZero);
 
     /// <summary>
     /// Compute Total Amount = Subtotal + VAT + Surcharge.
@@ -474,7 +474,7 @@ public static class BillingComputationService
                     Id = billingInvoiceNo,
                     InvoiceNo = billingInvoiceNo,
                     ClientId = billingClientId,
-                    ClientName = invoice.ClientName.Contains("Account") ? invoice.ClientName : invoice.ClientName + " Account",
+                    ClientName = ((invoice.ClientName ?? "Client").Contains("Account") ? (invoice.ClientName ?? "Client") : (invoice.ClientName ?? "Client") + " Account"),
                     BillingDate = invoice.BillingDate,
                     DueDate = invoice.DueDate,
                     FreightCharges = invoice.FreightCharges,
@@ -604,7 +604,8 @@ public static class BillingComputationService
         var je = new JournalEntry
         {
             Id = jeId,
-            EntryNumber = $"JE-ACCRUAL-{invoice.InvoiceNo}",
+            EntryNumber = $"JE-ACCRUAL-{invoice.InvoiceNo}-{jeId[..8]}",
+            InvoiceId = invoice.Id,
             Date = DateTime.UtcNow,
             Description = $"Accrual Revenue Recognition on Invoice Sent: {invoice.InvoiceNo} ({invoice.ClientName})",
             Posted = true
@@ -652,6 +653,74 @@ public static class BillingComputationService
         invoice.AccrualJournalEntryId = jeId;
     }
 
+    /// <summary>
+    /// Reverses the accrual revenue journal entry when an Approved invoice is Voided before dispatch.
+    /// Debits Revenue and Output VAT, Credits Accounts Receivable.
+    /// </summary>
+    public static async Task ReverseAccrualRevenueAsync(
+        Invoice invoice,
+        IApplicationDbContext context,
+        string voidReason,
+        CancellationToken cancellationToken = default)
+    {
+        if (!invoice.AccrualRevenueRecognized || string.IsNullOrEmpty(invoice.AccrualJournalEntryId)) return;
+
+        var arAccount = await context.ChartOfAccounts.FirstOrDefaultAsync(a => a.AccountCode == "1100", cancellationToken);
+        var revAccount = await context.ChartOfAccounts.FirstOrDefaultAsync(a => a.AccountCode == "4000", cancellationToken);
+        var vatAccount = await context.ChartOfAccounts.FirstOrDefaultAsync(a => a.AccountCode == "2150", cancellationToken);
+
+        var revJeId = Guid.NewGuid().ToString();
+        var je = new JournalEntry
+        {
+            Id = revJeId,
+            EntryNumber = $"JE-REVERSAL-{invoice.InvoiceNo}",
+            Date = DateTime.UtcNow,
+            Description = $"Reversal of Accrual Revenue Recognition for Voided Invoice: {invoice.InvoiceNo} ({invoice.ClientName}). Reason: {voidReason}",
+            Posted = true
+        };
+        context.JournalEntries.Add(je);
+
+        // Credit Accounts Receivable (Reverse the original Debit)
+        context.GeneralLedgerEntries.Add(new GeneralLedgerEntry
+        {
+            Id = Guid.NewGuid().ToString(),
+            JournalEntryId = revJeId,
+            AccountId = arAccount?.Id ?? "COA-1100",
+            Debit = 0m,
+            Credit = invoice.TotalAmount
+        });
+
+        // Debit Revenue (Reverse the original Credit)
+        var netRevenue = invoice.Subtotal + invoice.Surcharge;
+        if (netRevenue > 0)
+        {
+            context.GeneralLedgerEntries.Add(new GeneralLedgerEntry
+            {
+                Id = Guid.NewGuid().ToString(),
+                JournalEntryId = revJeId,
+                AccountId = revAccount?.Id ?? "COA-4000",
+                Debit = netRevenue,
+                Credit = 0m
+            });
+        }
+
+        // Debit Output VAT (Reverse the original Credit)
+        if (invoice.VatAmount > 0)
+        {
+            context.GeneralLedgerEntries.Add(new GeneralLedgerEntry
+            {
+                Id = Guid.NewGuid().ToString(),
+                JournalEntryId = revJeId,
+                AccountId = vatAccount?.Id ?? "COA-2150",
+                Debit = invoice.VatAmount,
+                Credit = 0m
+            });
+        }
+
+        invoice.AccrualRevenueRecognized = false;
+        invoice.AccrualJournalEntryId = null;
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // FULL INVOICE RECALCULATION — called on create and update
     // ─────────────────────────────────────────────────────────────────
@@ -668,7 +737,7 @@ public static class BillingComputationService
         if (invoice.FreightCharges == 0 && invoice.OtherCharges == 0 && invoice.TotalAmount > 0)
         {
             invoice.Subtotal = invoice.TotalAmount / (1m + (decimal)VAT_RATE + invoice.FuelSurchargeRate);
-            invoice.FreightCharges = Math.Round(invoice.Subtotal, 2);
+            invoice.FreightCharges = Math.Round(invoice.Subtotal, 2, MidpointRounding.AwayFromZero);
         }
 
         invoice.Subtotal = invoice.FreightCharges + invoice.OtherCharges;

@@ -13,12 +13,21 @@
 const env = process.env;
 const strip = (u) => (u || "").replace(/\/+$/, "");
 
-const DMS_URL = strip(env.DMS_API_URL || "https://dts-api-gab-byafd0h2aha6a9c9.japaneast-01.azurewebsites.net");
-const FOMS_URL = strip(env.FOMS_API_URL || "https://fomsintegration-amfve2fdccbdgbgy.eastasia-01.azurewebsites.net");
+if (env.CONFIRM_E2E !== "true") {
+  console.error("SAFETY ERROR: E2E integration test requires explicit opt-in flag CONFIRM_E2E=true to run.");
+  console.error("Usage: CONFIRM_E2E=true DMS_API_URL=<url> FOMS_API_URL=<url> DMS_TO_FOMS_KEY=<key> FOMS_TO_DMS_KEY=<key> node api-integration-tests/test-dms-foms-e2e.mjs");
+  process.exit(1);
+}
 
-// Pre-shared 256-bit API keys
-const DMS_TO_FOMS_KEY = env.DMS_TO_FOMS_KEY || "b84a1182dcd51ea1ee102585f61b0ed0dd779121b44fe42723fa789438e5e613";
-const FOMS_TO_DMS_KEY = env.FOMS_TO_DMS_KEY || "03bc0b5e984b9c900e08c1a073ac4f0fd3a35519d00ed1c0ff1fea98e58222c9";
+const DMS_URL = strip(env.DMS_API_URL);
+const FOMS_URL = strip(env.FOMS_API_URL);
+const DMS_TO_FOMS_KEY = env.DMS_TO_FOMS_KEY;
+const FOMS_TO_DMS_KEY = env.FOMS_TO_DMS_KEY;
+
+if (!DMS_URL || !FOMS_URL || !DMS_TO_FOMS_KEY || !FOMS_TO_DMS_KEY) {
+  console.error("FATAL: Required integration environment variables are missing (DMS_API_URL, FOMS_API_URL, DMS_TO_FOMS_KEY, FOMS_TO_DMS_KEY). Hardcoded fallbacks removed for security.");
+  process.exit(1);
+}
 
 const TIMEOUT_MS = 60_000;
 const results = [];

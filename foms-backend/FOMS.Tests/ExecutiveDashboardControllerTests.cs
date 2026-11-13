@@ -1,11 +1,16 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Threading.Tasks;
 using FOMS.Api.Controllers;
 using FOMS.Domain.Entities;
 using FOMS.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Xunit;
 
 namespace FOMS.Tests;
 
@@ -104,7 +109,85 @@ public class ExecutiveDashboardControllerTests
 
         var auditPageResult = Assert.IsType<OkObjectResult>(await new AuditLogsController(appDb).GetAll());
         using var auditPageDocument = JsonDocument.Parse(JsonSerializer.Serialize(auditPageResult.Value));
-        Assert.NotNull(auditPageDocument.RootElement);
+        Assert.True(auditPageDocument.RootElement.ValueKind != JsonValueKind.Undefined);
+    }
+
+    [Fact]
+    public async Task RecordedAndApprovedPayment_AppearsInDashboardInflow()
+    {
+        await using var appDb = CreateApplicationDbContext();
+        await using var fomsDb = CreateFomsDbContext();
+
+        // 1. Seed approved invoice
+        var invoice = new Invoice
+        {
+            Id = "inv-dash-flow",
+            InvoiceNo = "BI-DASH-001",
+            ClientId = "client-dash",
+            ClientName = "Acme Corp",
+            TotalAmount = 5000m,
+            Balance = 5000m,
+            AmountPaid = 0m,
+            DocumentStatus = InvoiceDocumentStatus.Approved
+        };
+        appDb.Invoices.Add(invoice);
+
+        // 2. Record payment by EMP-003 Accountant
+        var payment = new Payment
+        {
+            Id = "pay-dash-01",
+            InvoiceId = invoice.Id,
+            InvoiceNo = invoice.InvoiceNo,
+            ClientId = invoice.ClientId,
+            ClientName = invoice.ClientName,
+            Amount = 3000m,
+            Flow = "inflow",
+            PaymentStatus = "Validated",
+            RecordedBy = "EMP-003",
+            RecordedByEmployeeId = "EMP-003",
+            PaymentMethod = "Bank Transfer",
+            ReferenceNumber = "REF-DASH-001"
+        };
+        appDb.Payments.Add(payment);
+        await appDb.SaveChangesAsync();
+
+        // 3. Approve payment by EMP-001 Finance Manager
+        var mediatorMock = new Moq.Mock<MediatR.IMediator>();
+        var finPaymentsController = new FinancePaymentsController(appDb, fomsDb, mediatorMock.Object);
+        finPaymentsController.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                {
+                    new Claim(ClaimTypes.Role, "Finance Manager"),
+                    new Claim("role", "Finance Manager"),
+                    new Claim("employeeNumber", "EMP-001"),
+                    new Claim("name", "Fiona Manager")
+                }, "TestAuth"))
+            }
+        };
+
+        var approveResult = await finPaymentsController.ApprovePayment(payment.Id, new FinancePaymentsController.ValidationActionRequest("approve"));
+        Assert.IsType<OkObjectResult>(approveResult);
+
+        // 4. Check ExecutiveDashboardController.Get()
+        var dashboardController = CreateController(appDb, fomsDb, "Finance Manager");
+        var dashboardResult = await dashboardController.Get(null);
+        var okResult = Assert.IsType<OkObjectResult>(dashboardResult);
+
+        var json = JsonSerializer.Serialize(okResult.Value);
+        using var document = JsonDocument.Parse(json);
+        var data = document.RootElement.GetProperty("data");
+
+        // Verify payment is approved and appears in dashboard cashInflowThisMonth
+        Assert.Equal(3000m, data.GetProperty("cashInflowThisMonth").GetDecimal());
+        Assert.Equal(3000m, data.GetProperty("totalCollected").GetDecimal());
+        Assert.Equal(2000m, data.GetProperty("totalArOutstanding").GetDecimal());
+
+        // Verify topPayingClients includes the client
+        var topClients = data.GetProperty("topPayingClients").EnumerateArray().ToList();
+        Assert.Contains(topClients, c => c.GetProperty("clientName").GetString() == "Acme Corp" && c.GetProperty("amount").GetDecimal() == 3000m);
     }
 
     private static ApplicationDbContext CreateApplicationDbContext()

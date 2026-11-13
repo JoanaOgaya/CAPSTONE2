@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,6 +11,7 @@ using FOMS.Application.Contracts;
 using FOMS.Application.DTOs;
 using FOMS.Application.Interfaces;
 using FOMS.Application.Services;
+using FOMS.Domain.Constants;
 using FOMS.Domain.Entities;
 using FOMS.Infrastructure.Persistence;
 using FOMS.Infrastructure.Services;
@@ -61,21 +63,68 @@ public class IntegrationController : ControllerBase
 
     private IActionResult? ValidateApiKey()
     {
-        if (string.IsNullOrWhiteSpace(_options.InboundApiKey))
-            return null; // Allow in development/staging if not configured
+        var expectedKey = _options.InboundApiKey;
+        if (string.IsNullOrWhiteSpace(expectedKey))
+        {
+            return StatusCode(503, new { isSuccess = false, message = "STARS integration inbound API key is not configured on this server." });
+        }
 
         var key = Request.Headers[StarsIntegrationService.ApiKeyHeaderName].FirstOrDefault();
-        if (!string.IsNullOrWhiteSpace(key))
+        if (string.IsNullOrWhiteSpace(key) || !StarsIntegrationService.ValidateApiKey(key.Trim(), expectedKey.Trim()))
         {
-            if (!string.IsNullOrWhiteSpace(_options.InboundApiKey) &&
-                !StarsIntegrationService.ValidateApiKey(key, _options.InboundApiKey))
-            {
-                return Unauthorized(new { message = "Invalid API key." });
-            }
+            return Unauthorized(new { isSuccess = false, message = "Invalid or missing API key." });
         }
+
         return null;
     }
 
+    // Role comes ONLY from the validated JWT claim; request headers are never trusted.
+    private string GetUserRole() => FomsRoles.GetClaimRole(User);
+
+    private IActionResult? AuthorizeStarsAccess(bool requireWriteOrDecide)
+    {
+        var authError = ValidateApiKey();
+        if (authError == null)
+            return null; // Valid M2M API Key
+
+        if (User.Identity?.IsAuthenticated != true)
+            return authError;
+
+        var role = GetUserRole();
+
+        // Fail closed: authenticated but missing/unknown role claim => 403.
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            return StatusCode(403, new { isSuccess = false, message = "Forbidden: missing or unknown role claim." });
+        }
+
+        // EMP-004 (Assistant of Finance Manager) is barred (403) from all STARS endpoints
+        if (FomsRoles.IsAssistantFinanceManager(role))
+        {
+            return StatusCode(403, new { isSuccess = false, message = "Forbidden: Assistant of Finance Manager (EMP-004) is barred from STARS integration endpoints." });
+        }
+
+        if (requireWriteOrDecide)
+        {
+            // Only EMP-001 (Finance Manager) and EMP-002 (Head Accountant) may create/endorse/sync/decide on STARS
+            bool isAllowedWriter = FomsRoles.IsFinanceManager(role) || FomsRoles.IsHeadAccountant(role);
+            if (!isAllowedWriter)
+            {
+                return StatusCode(403, new { isSuccess = false, message = $"Forbidden: Role '{role}' has view-only access to STARS and cannot perform write, sync, or collection actions." });
+            }
+        }
+        else
+        {
+            // Read-only STARS endpoints: EMP-001 (FM), EMP-002 (HA), EMP-003 (Accountant) allowed
+            bool isAllowedReader = FomsRoles.IsFinanceManager(role) || FomsRoles.IsHeadAccountant(role) || FomsRoles.IsAccountant(role);
+            if (!isAllowedReader)
+            {
+                return StatusCode(403, new { isSuccess = false, message = $"Forbidden: Role '{role}' is not authorized to view STARS endpoints." });
+            }
+        }
+
+        return null;
+    }
     // ─── Machine-to-Machine Endpoints (API Key Guarded) ──────────────────────
 
     /// <summary>
@@ -83,7 +132,6 @@ public class IntegrationController : ControllerBase
     /// FOMS automatically calculates the 30-day payment term due date per FR-028.
     /// </summary>
     [HttpPost("api/integration/stars/invoice-endorsed")]
-    [AllowAnonymous]
     public async Task<IActionResult> ReceiveEndorsementCompletion([FromBody] StarsEndorsementCompletionDto dto)
     {
         var authError = ValidateApiKey();
@@ -95,15 +143,13 @@ public class IntegrationController : ControllerBase
 
     /// <summary>
     /// Integration 1 (FOMS → STARS trigger): Finalized invoice is pushed to STARS to create an endorsement delivery task.
-    /// Can be invoked by STARS (M2M with API key) or internal staff.
+    /// Can be invoked by STARS (M2M with API key) or internal staff (FM/HA only).
     /// </summary>
     [HttpPost("api/integration/stars/trigger-endorsement/{invoiceNo}")]
-    [AllowAnonymous]
     public async Task<IActionResult> TriggerEndorsement(string invoiceNo, [FromQuery] string? remarks)
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: true);
+        if (denied != null) return denied;
 
         var (isSuccess, message, data) = await _starsService.RequestInvoiceEndorsementAsync(invoiceNo, remarks);
         return isSuccess ? Ok(new { isSuccess, message, data }) : BadRequest(new { isSuccess, message });
@@ -113,12 +159,10 @@ public class IntegrationController : ControllerBase
     /// Integration 2 (FOMS → STARS trigger): Pushes invoice and payment status updates to STARS.
     /// </summary>
     [HttpPost("api/integration/stars/trigger-status-sync/{invoiceNo}")]
-    [AllowAnonymous]
     public async Task<IActionResult> TriggerStatusSync(string invoiceNo)
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: true);
+        if (denied != null) return denied;
 
         var (isSuccess, message) = await _starsService.NotifyPaymentStatusChangeAsync(invoiceNo);
         return isSuccess ? Ok(new { isSuccess, message }) : BadRequest(new { isSuccess, message });
@@ -128,12 +172,10 @@ public class IntegrationController : ControllerBase
     /// Integration 3 (FOMS → STARS trigger): Pushes overdue account alert to STARS for collection routing.
     /// </summary>
     [HttpPost("api/integration/stars/trigger-overdue-alert/{invoiceNo}")]
-    [AllowAnonymous]
     public async Task<IActionResult> TriggerOverdueAlert(string invoiceNo)
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: true);
+        if (denied != null) return denied;
 
         var (isSuccess, message) = await _starsService.SendOverdueAlertAsync(invoiceNo);
         return isSuccess ? Ok(new { isSuccess, message }) : BadRequest(new { isSuccess, message });
@@ -143,12 +185,10 @@ public class IntegrationController : ControllerBase
     /// Retrieves the STARS endorsement link record for a specific invoice.
     /// </summary>
     [HttpGet("api/integration/stars/links/{invoiceNo}")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetEndorsementLink(string invoiceNo)
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: false);
+        if (denied != null) return denied;
 
         var link = await _starsService.GetEndorsementLinkAsync(invoiceNo);
         return link != null ? Ok(link) : NotFound(new { message = $"No endorsement link found for invoice '{invoiceNo}'." });
@@ -159,12 +199,10 @@ public class IntegrationController : ControllerBase
     /// STARS Graph Routing Engine evaluates finance team workload/availability and routes task to optimal Coordinator.
     /// </summary>
     [HttpPost("api/integration/stars/collection-task")]
-    [AllowAnonymous]
     public async Task<IActionResult> CreateCollectionTask([FromBody] StarsCollectionTaskRequestDto dto)
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: true);
+        if (denied != null) return denied;
 
         var (isSuccess, message, data) = await _starsService.CreateCollectionFollowUpTaskAsync(dto);
         return isSuccess ? Ok(new { isSuccess, message, data }) : BadRequest(new { isSuccess, message });
@@ -174,12 +212,10 @@ public class IntegrationController : ControllerBase
     /// STARS Collection Workflow (Item 6): Coordinator executes collection follow-up workflow inside STARS.
     /// </summary>
     [HttpPost("api/integration/stars/collection-task/{taskId}/execute")]
-    [AllowAnonymous]
     public async Task<IActionResult> ExecuteCollectionTask(int taskId, [FromBody] StarsCollectionExecutionDto dto)
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: true);
+        if (denied != null) return denied;
 
         var (isSuccess, message, data) = await _starsService.ExecuteCollectionTaskAsync(taskId, dto);
         return isSuccess ? Ok(new { isSuccess, message, data }) : BadRequest(new { isSuccess, message });
@@ -189,12 +225,10 @@ public class IntegrationController : ControllerBase
     /// Retrieves collection follow-up tasks recorded by STARS.
     /// </summary>
     [HttpGet("api/integration/stars/collection-tasks")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetCollectionTasks([FromQuery] string? status)
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: false);
+        if (denied != null) return denied;
 
         var tasks = await _starsService.GetCollectionTasksAsync(status);
         return Ok(tasks);
@@ -204,12 +238,10 @@ public class IntegrationController : ControllerBase
     /// STARS Graph Routing Engine: Returns real-time coordinator workload and availability routing metrics.
     /// </summary>
     [HttpGet("api/integration/stars/routing-metrics")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetRoutingMetrics()
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: false);
+        if (denied != null) return denied;
 
         var metrics = await _starsService.EvaluateCoordinatorGraphRoutingAsync();
         return Ok(metrics);
@@ -220,12 +252,10 @@ public class IntegrationController : ControllerBase
     /// Returns live Accounts Receivable summary, outstanding balances, and aging distribution for STARS dashboard.
     /// </summary>
     [HttpGet("api/integration/stars/ar-summary")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetStarsArSummary()
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: false);
+        if (denied != null) return denied;
 
         var arRecords = await _fomsDb.AccountsReceivable.AsNoTracking().ToListAsync();
 
@@ -264,12 +294,10 @@ public class IntegrationController : ControllerBase
     /// Returns live list of Accounts Receivable records for the STARS dashboard & collections queue.
     /// </summary>
     [HttpGet("api/integration/stars/accounts-receivable")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetStarsAccountsReceivable([FromQuery] string? status, [FromQuery] string? clientCode)
     {
-        var authError = ValidateApiKey();
-        if (authError != null && User.Identity?.IsAuthenticated != true)
-            return authError;
+        var denied = AuthorizeStarsAccess(requireWriteOrDecide: false);
+        if (denied != null) return denied;
 
         var query = _fomsDb.AccountsReceivable.AsNoTracking().AsQueryable();
         if (!string.IsNullOrWhiteSpace(status))
@@ -323,7 +351,6 @@ public class IntegrationController : ControllerBase
     /// Secured via X-Api-Key. Supports upsert if employee already exists.
     /// </summary>
     [HttpPost("api/integration/stars/provision-user")]
-    [AllowAnonymous]
     public async Task<IActionResult> ProvisionUser([FromBody] StarsProvisionUserDto dto)
     {
         var authError = ValidateApiKey();
@@ -429,7 +456,6 @@ public class IntegrationController : ControllerBase
     /// Authenticated by shared X-Api-Key.
     /// </summary>
     [HttpGet("api/integration/stars/check-user-exists")]
-    [AllowAnonymous]
     public async Task<IActionResult> CheckUserExists([FromQuery] string? email, [FromQuery] string? employeeId)
     {
         var authError = ValidateApiKey();
@@ -447,7 +473,6 @@ public class IntegrationController : ControllerBase
     /// Authenticated by shared X-Api-Key.
     /// </summary>
     [HttpPost("api/integration/stars/sync-password")]
-    [AllowAnonymous]
     public async Task<IActionResult> SyncPassword([FromBody] FomsSyncPasswordRequest request)
     {
         var authError = ValidateApiKey();

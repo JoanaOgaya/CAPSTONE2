@@ -93,6 +93,8 @@ public class PaymentCollection
 public class OfficialReceipt
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? PaymentId { get; set; }
+    public Payment? Payment { get; set; }
     public string PaymentCollectionId { get; set; } = string.Empty;
     public PaymentCollection? PaymentCollection { get; set; }
     public string ReceiptNumber { get; set; } = string.Empty;
@@ -161,6 +163,7 @@ public class JournalEntry
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string EntryNumber { get; set; } = string.Empty;
+    public string? InvoiceId { get; set; }
     public DateTime Date { get; set; } = DateTime.UtcNow;
     public string Description { get; set; } = string.Empty;
     public bool Posted { get; set; }

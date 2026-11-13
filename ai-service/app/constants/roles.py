@@ -61,7 +61,6 @@ ROLE_PERMISSIONS: Dict[Roles, FrozenSet[Permissions]] = {
         Permissions.DASHBOARD_VIEW,
         Permissions.DUPLICATE_VIEW,
         Permissions.DUPLICATE_REVIEW,
-        Permissions.DUPLICATE_SCAN,
         Permissions.COLLECTION_VIEW,
         Permissions.COLLECTION_GENERATE,
         Permissions.COLLECTION_VALIDATE,
@@ -78,7 +77,6 @@ ROLE_PERMISSIONS: Dict[Roles, FrozenSet[Permissions]] = {
         Permissions.DASHBOARD_VIEW,
         Permissions.DUPLICATE_VIEW,
         Permissions.DUPLICATE_REVIEW,
-        Permissions.DUPLICATE_SCAN,
         Permissions.COLLECTION_VIEW,
         Permissions.COLLECTION_GENERATE,
         Permissions.RECOMMENDATION_VIEW,
@@ -90,7 +88,6 @@ ROLE_PERMISSIONS: Dict[Roles, FrozenSet[Permissions]] = {
     Roles.ACCOUNTANT: frozenset([
         Permissions.DASHBOARD_VIEW,
         Permissions.DUPLICATE_VIEW,
-        Permissions.DUPLICATE_REVIEW,
         Permissions.DUPLICATE_SCAN,
         Permissions.COLLECTION_VIEW,
         Permissions.COLLECTION_GENERATE,
@@ -144,19 +141,15 @@ DUPLICATE_CHECK_ROLES = (
     Roles.ASSISTANT_OF_FINANCE_MANAGER,
 )
 
-# Roles allowed to review duplicate alerts
+# Roles allowed to review/approve/return duplicate alerts (FM and HA only)
 DUPLICATE_REVIEW_ROLES = (
     Roles.FINANCE_MANAGER,
     Roles.HEAD_ACCOUNTANT,
-    Roles.ACCOUNTANT,
 )
 
-# Roles allowed to scan documents (OCR)
+# Roles allowed to scan documents / OCR (Accountant and Assistant FM only; FM and HA receive 403)
 DOCUMENT_SCAN_ROLES = (
-    Roles.FINANCE_MANAGER,
-    Roles.HEAD_ACCOUNTANT,
     Roles.ACCOUNTANT,
-    Roles.COORDINATOR,
     Roles.ASSISTANT_OF_FINANCE_MANAGER,
 )
 
@@ -200,9 +193,6 @@ LOG_DECISION_ROLES = (
 RECOMMENDATION_DECIDE_ROLES = (
     Roles.FINANCE_MANAGER,
     Roles.HEAD_ACCOUNTANT,
-    Roles.ACCOUNTANT,
-    Roles.COORDINATOR,
-    Roles.ASSISTANT_OF_FINANCE_MANAGER,
 )
 
 # Roles allowed to export recommendations/reports

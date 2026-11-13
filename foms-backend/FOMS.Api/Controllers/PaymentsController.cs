@@ -172,7 +172,7 @@ public class PaymentsController : ApiControllerBase
         if (dto == null || string.IsNullOrWhiteSpace(dto.InvoiceId))
             return BadRequest(new { message = "Invoice ID is required to claim an unidentified payment." });
 
-        var payment = await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
+        var payment = await _context.Payments.FindAsync(id) ?? await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
         if (payment == null)
             return NotFound(new { message = $"Payment {id} not found." });
 
@@ -321,6 +321,9 @@ public class PaymentsController : ApiControllerBase
                 i.Id == invoiceId || i.InvoiceNo == invoiceId);
             if (invoice == null)
                 return NotFound(new { message = "The invoice for this payment was not found." });
+
+            if (invoice.DocumentStatus == "Void" || invoice.PaymentStatus == "Void" || invoice.DocumentStatus == InvoiceDocumentStatus.Void)
+                return BadRequest(new { message = "Cannot record payment for a void invoice. Void is terminal." });
         }
 
         var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
@@ -370,6 +373,7 @@ public class PaymentsController : ApiControllerBase
                 ? ((dto.Notes ?? dto.Remarks ?? "") + " [Unidentified payment - On Hold until claimed]").Trim()
                 : (dto.Notes ?? dto.Remarks),
             RecordedBy = user,
+            RecordedByEmployeeId = User.FindFirst("employeeNumber")?.Value ?? User.FindFirst("EmployeeNumber")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value ?? "EMP-003",
             DateRecorded = DateTime.UtcNow.ToString("yyyy-MM-dd"),
             PaymentStatus = initialStatus,
             RejectionReason = exceptionReason,
@@ -443,10 +447,16 @@ public class PaymentsController : ApiControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdatePayment(string id, [FromBody] PaymentDto dto)
     {
+        if (dto.Status?.Equals("Approved", StringComparison.OrdinalIgnoreCase) == true ||
+            dto.PaymentStatus?.Equals("Approved", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return await ApprovePaymentInternal(id, dto);
+        }
+
         if (!string.IsNullOrWhiteSpace(dto.Status) || !string.IsNullOrWhiteSpace(dto.PaymentStatus))
             return BadRequest(new { message = "Payment status can only be changed through Finance Manager validation." });
 
-        var payment = await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
+        var payment = await _context.Payments.FindAsync(id) ?? await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
         if (payment == null) return NotFound(new { message = $"Payment {id} not found." });
 
         var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
@@ -470,10 +480,17 @@ public class PaymentsController : ApiControllerBase
     }
 
     [Authorize]
+    [HttpPost("{id}/approve")]
+    public async Task<IActionResult> ApprovePayment(string id, [FromBody] PaymentDto? dto = null)
+    {
+        return await ApprovePaymentInternal(id, dto);
+    }
+
+    [Authorize]
     [HttpPost("{id}/{actionName}")]
     public async Task<IActionResult> ActionOnPayment(string id, string actionName, [FromBody] PaymentDto? dto)
     {
-        var payment = await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
+        var payment = await _context.Payments.FindAsync(id) ?? await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
         if (payment == null) return NotFound(new { message = $"Payment {id} not found." });
 
         var (isAuthorized, validatorRole, delegateNote) = await CheckValidationAuthorityAsync();
@@ -481,9 +498,27 @@ public class PaymentsController : ApiControllerBase
             return StatusCode(403, new { message = "Only the Finance Manager (or configured, logged delegate) is authorized to perform payment actions." });
 
         var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
+        var empId = User.FindFirst("employeeNumber")?.Value
+            ?? User.FindFirst("EmployeeNumber")?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value
+            ?? user;
         var normAction = actionName.ToLowerInvariant();
 
-        if (normAction is "approve" or "verify" or "validate")
+        // Separation of Duties: Submitter cannot validate/approve/reject their own payment
+        if (!string.IsNullOrWhiteSpace(payment.RecordedBy) &&
+            (payment.RecordedBy.Equals(user, StringComparison.OrdinalIgnoreCase) ||
+             payment.RecordedBy.Equals(empId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate or approve their own payment." });
+        }
+
+        if (normAction is "approve")
+        {
+            return await ApprovePaymentInternal(id, dto);
+        }
+
+        if (normAction is "verify" or "validate")
         {
             if (payment.PaymentStatus != "Pending Validation" && payment.PaymentStatus != "Pending Finance Validation")
                 return BadRequest(new { message = "Only payments pending validation can be validated." });
@@ -611,6 +646,161 @@ public class PaymentsController : ApiControllerBase
     }
 
     [Authorize]
+    private async Task<IActionResult> ApprovePaymentInternal(string id, PaymentDto? dto)
+    {
+        var role = User.FindFirst(ClaimTypes.Role)?.Value
+            ?? User.FindFirst("role")?.Value;
+
+        if (string.IsNullOrWhiteSpace(role) || (!role.Equals("Finance Manager", StringComparison.OrdinalIgnoreCase) && !role.Equals("FINANCE_MANAGER", StringComparison.OrdinalIgnoreCase)))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only the Finance Manager is authorized to perform final approval on payments." });
+        }
+
+        var approverEmpId = User.FindFirst("employeeNumber")?.Value
+            ?? User.FindFirst("EmployeeNumber")?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+
+        var user = User.FindFirst("name")?.Value
+            ?? User.FindFirst(ClaimTypes.Name)?.Value
+            ?? approverEmpId
+            ?? "Finance Manager";
+
+        var payment = await _context.Payments.FindAsync(id) ?? await _context.Payments.FirstOrDefaultAsync(p => p.Id == id);
+        if (payment == null) return NotFound(new { message = $"Payment {id} not found." });
+
+        if (payment.PaymentStatus.Equals("Approved", StringComparison.OrdinalIgnoreCase))
+        {
+            return Ok(MapPayment(payment));
+        }
+
+        var submitterEmpId = payment.RecordedByEmployeeId;
+        if (string.IsNullOrWhiteSpace(submitterEmpId) && !string.IsNullOrWhiteSpace(payment.RecordedBy) && payment.RecordedBy.StartsWith("EMP-", StringComparison.OrdinalIgnoreCase))
+        {
+            submitterEmpId = payment.RecordedBy;
+        }
+
+        if (!string.IsNullOrWhiteSpace(approverEmpId) &&
+            !string.IsNullOrWhiteSpace(submitterEmpId) &&
+            approverEmpId.Equals(submitterEmpId, StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Separation of duties violation: Submitter cannot approve their own payment." });
+        }
+
+        if (payment.PaymentStatus is "Rejected" or "Returned")
+        {
+            return BadRequest(new { message = $"Payment in status '{payment.PaymentStatus}' cannot be approved." });
+        }
+
+        var inv = await _context.Invoices.FirstOrDefaultAsync(i => i.Id == payment.InvoiceId || i.InvoiceNo == payment.InvoiceNo);
+        if (inv == null)
+            return NotFound(new { message = $"Invoice '{payment.InvoiceId}' not found." });
+
+        if (inv.DocumentStatus == "Void" || inv.PaymentStatus == "Void" || inv.DocumentStatus == InvoiceDocumentStatus.Void)
+        {
+            return BadRequest(new { message = "Cannot approve payment for a void invoice. Void is terminal." });
+        }
+
+        BillingComputationService.RecalculateInvoice(inv);
+
+        if (payment.Amount > inv.Balance)
+        {
+            return BadRequest(new { message = $"Overpayment rejected: payment amount {payment.Amount:N2} exceeds invoice balance {inv.Balance:N2}." });
+        }
+
+        var appliedAmount = payment.Amount;
+        payment.AppliedAmount = appliedAmount;
+        inv.AmountPaid += appliedAmount;
+        BillingComputationService.RecalculateInvoice(inv);
+        inv.UpdatedBy = user;
+        inv.PaymentValidationStatus = "Validated";
+        inv.PaymentStatus = inv.Balance <= 0 ? "Paid" : "Unpaid";
+
+        payment.PaymentStatus = "Approved";
+        payment.ValidatedBy = user;
+        payment.ValidatedAt = DateTime.UtcNow;
+        if (!string.IsNullOrEmpty(dto?.Remarks ?? dto?.Notes))
+            payment.Remarks = dto?.Remarks ?? dto?.Notes;
+
+        var orNum = (!string.IsNullOrWhiteSpace(payment.OrNumber) && !payment.OrNumber.StartsWith("PENDING-"))
+            ? payment.OrNumber
+            : $"OR-{DateTime.UtcNow:yyyyMMdd}-{payment.Id[..Math.Min(6, payment.Id.Length)].ToUpper()}";
+        payment.OrNumber = orNum;
+
+        var existingReceipt = await _context.OfficialReceipts.FirstOrDefaultAsync(r => r.PaymentId == payment.Id);
+        if (existingReceipt == null)
+        {
+            var paymentCollection = new PaymentCollection
+            {
+                InvoiceId = inv.Id,
+                CollectedDate = DateTime.UtcNow,
+                AmountCollected = payment.Amount,
+                PaymentMethod = payment.PaymentMethod,
+                Status = "Completed"
+            };
+            _context.PaymentCollections.Add(paymentCollection);
+
+            var officialReceipt = new OfficialReceipt
+            {
+                PaymentId = payment.Id,
+                PaymentCollectionId = paymentCollection.Id,
+                ReceiptNumber = orNum,
+                IssuedDate = DateTime.UtcNow
+            };
+            _context.OfficialReceipts.Add(officialReceipt);
+        }
+
+        var receivable = await _context.ReceivableBalances.FirstOrDefaultAsync(r => r.InvoiceId == inv.Id);
+        if (receivable != null)
+        {
+            receivable.BalanceAmount = inv.Balance;
+            receivable.PaidAmount += appliedAmount;
+            receivable.LastPaymentDate = DateTime.UtcNow;
+            receivable.Status = inv.Balance <= 0 ? "Paid" : "Unpaid";
+        }
+
+        _context.CashFlowTransactions.Add(new CashFlowTransaction
+        {
+            Date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+            Type = "Inflow",
+            Category = "Accounts Receivable Collection",
+            Amount = payment.Amount,
+            ReferenceNo = payment.OrNumber,
+            Description = $"Approved payment for Invoice {inv.InvoiceNo}. Ref: {payment.ReferenceNumber}. Approver: {user}."
+        });
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            UserId = user,
+            EntityName = "Payment",
+            EntityId = payment.Id,
+            Action = "Approve Payment",
+            Details = $"Approved payment {payment.ReferenceNumber} -> Approved. Actor: {user}.",
+            LoggedAt = DateTime.UtcNow
+        });
+
+        try
+        {
+            await _context.SaveChangesAsync(default);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return StatusCode(StatusCodes.Status409Conflict, new { message = "Payment approval conflict: another session has already modified or approved this payment." });
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_OfficialReceipts_PaymentId_Unique") == true)
+        {
+            return StatusCode(StatusCodes.Status409Conflict, new { message = "An official receipt has already been issued for this payment." });
+        }
+
+        if (payment.InvoiceId != "UNIDENTIFIED" && !string.IsNullOrEmpty(payment.ClientId))
+        {
+            await BillingComputationService.SyncClientBalanceAsync(payment.ClientId, _context, default);
+            await _context.SaveChangesAsync(default);
+        }
+
+        return Ok(MapPayment(payment));
+    }
+
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeletePayment(string id)
     {

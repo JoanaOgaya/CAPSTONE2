@@ -297,7 +297,7 @@ export const InvoiceDocument: React.FC<{ invoice: Invoice; compact?: boolean }> 
         )}
 
         {/* ── Void Warning ── */}
-        {(invoice.status === 'Void' || (invoice as any).status === 'Voided' || invoice.voidReason) && (
+        {(invoice.status === 'Void' || invoice.voidReason) && (
           <div style={{ background: '#FEE2E2', border: '1px solid #F87171', borderRadius: 8, padding: '10px 16px', marginBottom: 20 }}>
             <span style={{ fontSize: '0.85rem', color: '#991B1B', fontWeight: 700 }}>
               ⛔ VOIDED INVOICE: {invoice.voidReason || 'This invoice has been voided and is no longer valid for collection.'}
@@ -306,7 +306,7 @@ export const InvoiceDocument: React.FC<{ invoice: Invoice; compact?: boolean }> 
         )}
 
         {/* ── Stamp ── */}
-        {['Paid', 'Sent', 'Approved', 'Void', 'Voided'].includes(invoice.status) && (
+        {['Paid', 'Sent', 'Approved', 'Void'].includes(invoice.status) && (
           <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translate(-50%, -50%) rotate(-20deg)', pointerEvents: 'none', border: invoice.status.toLowerCase().includes('void') ? '6px solid rgba(239, 68, 68, 0.25)' : '6px solid rgba(220, 38, 38, 0.15)', color: invoice.status.toLowerCase().includes('void') ? 'rgba(239, 68, 68, 0.25)' : 'rgba(220, 38, 38, 0.15)', padding: '10px 30px', fontSize: '5rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', zIndex: 0 }}>
             {invoice.status}
           </div>

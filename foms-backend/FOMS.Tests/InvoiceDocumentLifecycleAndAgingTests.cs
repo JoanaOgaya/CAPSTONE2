@@ -37,11 +37,37 @@ public class InvoiceDocumentLifecycleAndAgingTests
         return new FomsDbContext(options);
     }
 
-    private static ClaimsPrincipal CreatePrincipal(string role = "Head Accountant", string name = "Head Accountant User")
+    private static ClaimsPrincipal CreatePrincipal(string role = "Head Accountant", string name = "Head Accountant User", string id = "EMP-002")
     {
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, "EMP-002"),
+            new(ClaimTypes.NameIdentifier, id),
+            new(ClaimTypes.Name, name),
+            new(ClaimTypes.Role, role),
+            new("role", role),
+            new("name", name)
+        };
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
+    }
+
+    private static ClaimsPrincipal CreateStaffPrincipal(string role = "Accountant", string name = "Staff User", string id = "EMP-003")
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, id),
+            new(ClaimTypes.Name, name),
+            new(ClaimTypes.Role, role),
+            new("role", role),
+            new("name", name)
+        };
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
+    }
+
+    private static ClaimsPrincipal CreateFmPrincipal(string role = "Finance Manager", string name = "Finance Manager User", string id = "EMP-001")
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, id),
             new(ClaimTypes.Name, name),
             new(ClaimTypes.Role, role),
             new("role", role),
@@ -72,38 +98,45 @@ public class InvoiceDocumentLifecycleAndAgingTests
             InvoiceNo = "INV-2026-0101",
             ClientId = "CL-001",
             ClientName = "Acme Corp",
-            DocumentStatus = "Draft",
-            PaymentStatus = "Unpaid",
+            DocumentStatus = InvoiceDocumentStatus.Draft,
+            PaymentStatus = InvoicePaymentStatus.Unpaid,
             TotalAmount = 1000m,
-            Balance = 1000m
+            Balance = 1000m,
+            EncodedBy = "EMP-003"
         };
         appDb.Invoices.Add(inv);
         await appDb.SaveChangesAsync();
 
-        var controller = new InvoicesController(appDb, mssqlDb)
-        {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreatePrincipal() } }
-        };
+        var controller = new InvoicesController(appDb, mssqlDb);
 
-        // 1. Submit for review -> For Review
+        // 1. Submit for verification -> Pending HA Verification (Staff: EMP-003)
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() } };
         var submitRes = await controller.TransitionInvoice("INV-LC-001", "submit", new InvoiceTransitionRequest());
         var submitOk = Assert.IsType<OkObjectResult>(submitRes);
-        Assert.Equal("For Review", GetValueProp(submitOk.Value, "documentStatus")?.ToString());
+        Assert.Equal(InvoiceDocumentStatus.PendingHaVerification, GetValueProp(submitOk.Value, "documentStatus")?.ToString());
 
-        // 2. Approve -> Approved
+        // 2. Verify -> Pending FM Approval (Head Accountant: EMP-002)
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreatePrincipal() } };
+        var verifyRes = await controller.TransitionInvoice("INV-LC-001", "verify", new InvoiceTransitionRequest());
+        var verifyOk = Assert.IsType<OkObjectResult>(verifyRes);
+        Assert.Equal(InvoiceDocumentStatus.PendingFmApproval, GetValueProp(verifyOk.Value, "documentStatus")?.ToString());
+
+        // 3. Approve -> Approved (Finance Manager: EMP-001)
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateFmPrincipal() } };
         var approveRes = await controller.TransitionInvoice("INV-LC-001", "approve", new InvoiceTransitionRequest());
         var approveOk = Assert.IsType<OkObjectResult>(approveRes);
-        Assert.Equal("Approved", GetValueProp(approveOk.Value, "documentStatus")?.ToString());
+        Assert.Equal(InvoiceDocumentStatus.Approved, GetValueProp(approveOk.Value, "documentStatus")?.ToString());
 
-        // 3. Sent -> Sent
+        // 4. Sent -> Sent (Staff: EMP-003)
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() } };
         var sendRes = await controller.TransitionInvoice("INV-LC-001", "send", new InvoiceTransitionRequest());
         var sendOk = Assert.IsType<OkObjectResult>(sendRes);
-        Assert.Equal("Sent", GetValueProp(sendOk.Value, "documentStatus")?.ToString());
+        Assert.Equal(InvoiceDocumentStatus.Sent, GetValueProp(sendOk.Value, "documentStatus")?.ToString());
 
-        // 4. Received -> Received
+        // 5. Received -> Received (Staff: EMP-003)
         var receiveRes = await controller.TransitionInvoice("INV-LC-001", "receive", new InvoiceTransitionRequest { ReceivedDate = DateTime.UtcNow });
         var receiveOk = Assert.IsType<OkObjectResult>(receiveRes);
-        Assert.Equal("Received", GetValueProp(receiveOk.Value, "documentStatus")?.ToString());
+        Assert.Equal(InvoiceDocumentStatus.Received, GetValueProp(receiveOk.Value, "documentStatus")?.ToString());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -121,10 +154,11 @@ public class InvoiceDocumentLifecycleAndAgingTests
             InvoiceNo = "INV-2026-0102",
             ClientId = "CL-001",
             ClientName = "Acme Corp",
-            DocumentStatus = "For Review",
-            PaymentStatus = "Unpaid",
+            DocumentStatus = InvoiceDocumentStatus.PendingHaVerification,
+            PaymentStatus = InvoicePaymentStatus.Unpaid,
             TotalAmount = 1000m,
-            Balance = 1000m
+            Balance = 1000m,
+            EncodedBy = "EMP-003"
         };
         appDb.Invoices.Add(inv);
         await appDb.SaveChangesAsync();
@@ -139,13 +173,13 @@ public class InvoiceDocumentLifecycleAndAgingTests
         var badRequest = Assert.IsType<BadRequestObjectResult>(rejectFail);
         Assert.Contains("reason is required", badRequest.Value?.ToString() ?? "", StringComparison.OrdinalIgnoreCase);
 
-        // Reject with reason succeeds and returns to Draft
+        // Reject with reason succeeds and returns to Returned to Creator
         var rejectOk = await controller.TransitionInvoice("INV-REV-001", "reject", new InvoiceTransitionRequest
         {
             ReviewRejectionReason = "Declared valuation discrepancy on waybill WB-9988"
         });
         var okResult = Assert.IsType<OkObjectResult>(rejectOk);
-        Assert.Equal("Draft", GetValueProp(okResult.Value, "documentStatus")?.ToString());
+        Assert.Equal(InvoiceDocumentStatus.ReturnedToCreator, GetValueProp(okResult.Value, "documentStatus")?.ToString());
         Assert.Equal("Declared valuation discrepancy on waybill WB-9988", GetValueProp(okResult.Value, "reviewRejectionReason")?.ToString());
     }
 
@@ -166,7 +200,7 @@ public class InvoiceDocumentLifecycleAndAgingTests
                 InvoiceNo = $"INV-2026-02{i:D2}",
                 ClientId = "CL-001",
                 ClientName = "Acme Corp",
-                DocumentStatus = "For Review",
+                DocumentStatus = InvoiceDocumentStatus.PendingHaVerification,
                 TotalAmount = 500m * i,
                 Balance = 500m * i
             });
@@ -250,23 +284,27 @@ public class InvoiceDocumentLifecycleAndAgingTests
             InvoiceNo = "INV-2026-0301",
             ClientId = "CL-001",
             ClientName = "Acme Corp",
-            DocumentStatus = "Approved",
+            DocumentStatus = InvoiceDocumentStatus.PendingFmApproval,
             TotalAmount = 1120m,
             Subtotal = 1000m,
             VatAmount = 120m,
             Surcharge = 0m,
             Balance = 1120m,
-            PaymentStatus = "Unpaid"
+            PaymentStatus = InvoicePaymentStatus.Unpaid,
+            EncodedBy = "EMP-003"
         };
         appDb.Invoices.Add(inv);
         await appDb.SaveChangesAsync();
 
-        var controller = new InvoicesController(appDb, mssqlDb)
-        {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreatePrincipal() } }
-        };
+        var controller = new InvoicesController(appDb, mssqlDb);
 
-        // Transition to Sent
+        // 1. FM approves -> Accrual Revenue recognized on Approval
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateFmPrincipal() } };
+        var approveRes = await controller.TransitionInvoice("INV-SENT-001", "approve", new InvoiceTransitionRequest());
+        Assert.IsType<OkObjectResult>(approveRes);
+
+        // 2. Staff transitions to Sent -> DueDate is null on Sent
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() } };
         var sendRes = await controller.TransitionInvoice("INV-SENT-001", "send", new InvoiceTransitionRequest());
         Assert.IsType<OkObjectResult>(sendRes);
 
@@ -326,7 +364,7 @@ public class InvoiceDocumentLifecycleAndAgingTests
 
         var controller = new InvoicesController(appDb, mssqlDb)
         {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreatePrincipal() } }
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = CreateStaffPrincipal() } }
         };
 
         var receivedDate = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);

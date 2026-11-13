@@ -69,8 +69,7 @@ public class IamAndCrmAlignmentTests
             {
                 User = new ClaimsPrincipal(new ClaimsIdentity(new[]
                 {
-                    new Claim("name", "Finance Manager"),
-                    new Claim(ClaimTypes.Role, "Finance Manager")
+                    new Claim("name", "Accountant"), new Claim(ClaimTypes.Role, "Accountant"), new Claim(ClaimTypes.NameIdentifier, "EMP-003"), new Claim("employee_id", "EMP-003")
                 }))
             }
         };

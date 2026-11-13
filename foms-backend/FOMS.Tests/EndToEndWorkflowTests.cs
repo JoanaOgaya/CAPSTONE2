@@ -95,7 +95,7 @@ public class EndToEndWorkflowTests
         Assert.False(canDispatchToStarsBeforeApproval);
 
         // Step 4: Head Accountant Review -> Approved
-        invoice.DocumentStatus = "For Review";
+        invoice.DocumentStatus = "Pending HA Verification";
         invoice.IsSampledForReview = true;
         invoice.SampledBy = "Head Accountant";
         invoice.SampledAt = DateTime.UtcNow;
@@ -247,7 +247,7 @@ public class EndToEndWorkflowTests
             InvoiceNo = "INV-REV-FAIL",
             TotalAmount = 75000m,
             Balance = 75000m,
-            DocumentStatus = "For Review"
+            DocumentStatus = "Pending HA Verification"
         };
         context.Invoices.Add(invoice);
         await context.SaveChangesAsync();
@@ -256,11 +256,11 @@ public class EndToEndWorkflowTests
         string rejectionReason = "Missing approved special rate agreement attachment.";
         Assert.False(string.IsNullOrWhiteSpace(rejectionReason));
 
-        invoice.DocumentStatus = "Draft"; // Returns to Draft!
+        invoice.DocumentStatus = "Returned to Creator";
         invoice.ReviewRejectionReason = rejectionReason;
         await context.SaveChangesAsync();
 
-        Assert.Equal("Draft", invoice.DocumentStatus);
+        Assert.Equal("Returned to Creator", invoice.DocumentStatus);
         Assert.Equal(rejectionReason, invoice.ReviewRejectionReason);
 
         // ── Failure Path D: Short Payment -> Diverted to Exception Queue ──

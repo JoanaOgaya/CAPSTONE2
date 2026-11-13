@@ -1,11 +1,13 @@
+import logging
+import os
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.models.database import get_db
 from app.core.config import settings
 from pymongo import MongoClient
-import os
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("")
@@ -22,8 +24,8 @@ def readiness_check(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
         postgres_status = "CONNECTED"
     except Exception as e:
-        postgres_status = f"ERROR: {str(e)}"
-
+        logger.error(f"PostgreSQL readiness check failed: {type(e).__name__}", exc_info=True)
+        postgres_status = "DISCONNECTED"
 
     # Test MongoDB Connection
     try:
@@ -32,7 +34,8 @@ def readiness_check(db: Session = Depends(get_db)):
         client.admin.command('ping')
         mongodb_status = "CONNECTED"
     except Exception as e:
-        mongodb_status = f"ERROR: {str(e)}"
+        logger.error(f"MongoDB readiness check failed: {type(e).__name__}", exc_info=True)
+        mongodb_status = "DISCONNECTED"
 
     is_ready = postgres_status == "CONNECTED" and mongodb_status == "CONNECTED"
 
@@ -42,4 +45,3 @@ def readiness_check(db: Session = Depends(get_db)):
         "mongodb": mongodb_status,
         "service": "FOMS AI Service"
     }
-

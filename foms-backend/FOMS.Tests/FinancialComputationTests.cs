@@ -20,7 +20,7 @@ public class FinancialComputationTests
             .Options;
 
         var context = new ApplicationDbContext(options);
-        await ApplicationDbContextSeed.SeedSampleDataAsync(context);
+        await ApplicationDbContextSeed.SeedSampleDataAsync(context, isDevelopment: true);
         return context;
     }
 

@@ -27,6 +27,14 @@ export type WorkflowStatus =
   | 'PENDING_FM'
   | 'APPROVED'
   | 'REJECTED'
+  | 'PENDING_HA_VERIFICATION'
+  | 'PENDING_FM_APPROVAL'
+  | 'RETURNED_TO_HA'
+  | 'RETURNED_TO_CREATOR'
+  | 'SENT'
+  | 'RECEIVED'
+  | 'DISPUTED'
+  | 'VOID'
   | DuplicateStatus;
 
 export type Tone = 'success' | 'warning' | 'danger' | 'info' | 'primary' | 'neutral';
@@ -41,6 +49,14 @@ export const STATUS_LABEL: Record<WorkflowStatus, string> = {
   PENDING_FINANCE_MANAGER: 'Pending FM',
   PENDING_FM: 'Pending FM',
   RETURNED_FOR_REVISION: 'Returned',
+  PENDING_HA_VERIFICATION: 'Pending HA Verification',
+  PENDING_FM_APPROVAL: 'Pending FM Approval',
+  RETURNED_TO_HA: 'Returned to HA',
+  RETURNED_TO_CREATOR: 'Returned to Creator',
+  SENT: 'Sent',
+  RECEIVED: 'Received',
+  DISPUTED: 'Disputed',
+  VOID: 'Void',
   ...DUPLICATE_STATUS_LABELS,
   RETURNED: 'Returned',
 };
@@ -55,6 +71,14 @@ export const STATUS_TONE: Record<WorkflowStatus, Tone> = {
   PENDING_FINANCE_MANAGER: 'warning',
   PENDING_FM: 'warning',
   RETURNED_FOR_REVISION: 'danger',
+  PENDING_HA_VERIFICATION: 'warning',
+  PENDING_FM_APPROVAL: 'warning',
+  RETURNED_TO_HA: 'danger',
+  RETURNED_TO_CREATOR: 'danger',
+  SENT: 'info',
+  RECEIVED: 'success',
+  DISPUTED: 'danger',
+  VOID: 'neutral',
   ...DUPLICATE_STATUS_TONES,
   RETURNED: 'danger',
 };
@@ -90,6 +114,14 @@ export function normalizeStatus(raw: string | null | undefined): WorkflowStatus 
     .replace(/[-\s]+/g, '_');
   if (s === 'PENDING_FINANCE_MANAGER' || s === 'PENDINGFINANCEMANAGER') return 'PENDING_FINANCE_MANAGER';
   if (s === 'RETURNED_FOR_REVISION' || s === 'RETURNEDFORREVISION') return 'RETURNED_FOR_REVISION';
+  if (s === 'PENDING_HA_VERIFICATION' || s === 'PENDINGHAVERIFICATION') return 'PENDING_HA_VERIFICATION';
+  if (s === 'PENDING_FM_APPROVAL' || s === 'PENDINGFMAPPROVAL') return 'PENDING_FM_APPROVAL';
+  if (s === 'RETURNED_TO_HA' || s === 'RETURNEDTOHA') return 'RETURNED_TO_HA';
+  if (s === 'RETURNED_TO_CREATOR' || s === 'RETURNEDTOCREATOR') return 'RETURNED_TO_CREATOR';
+  if (s === 'SENT') return 'SENT';
+  if (s === 'RECEIVED') return 'RECEIVED';
+  if (s === 'DISPUTED') return 'DISPUTED';
+  if (s === 'VOID' || s === 'VOIDED') return 'VOID';
   return (s || 'DRAFT') as WorkflowStatus;
 }
 

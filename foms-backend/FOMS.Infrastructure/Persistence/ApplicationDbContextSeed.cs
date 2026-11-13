@@ -9,8 +9,13 @@ namespace FOMS.Infrastructure.Persistence;
 
 public static class ApplicationDbContextSeed
 {
-    public static async Task SeedSampleDataAsync(ApplicationDbContext context)
+    public static async Task SeedSampleDataAsync(ApplicationDbContext context, string? defaultPassword = null, bool isDevelopment = false)
     {
+        if (!isDevelopment)
+        {
+            throw new InvalidOperationException("Seeding sample data is prohibited outside Development/Testing environments.");
+        }
+        var seedPassword = !string.IsNullOrWhiteSpace(defaultPassword) ? defaultPassword : "Password@123";
         // ==================== Employees ====================
         var demoEmployees = new List<Employee>
         {
@@ -24,7 +29,7 @@ public static class ApplicationDbContextSeed
                 Status = "Active",
                 IsActive = true,
                 Username = "EMP-001",
-                PasswordHash = FOMS.Application.Services.AuthService.HashPassword("Password@123"),
+                PasswordHash = FOMS.Application.Services.AuthService.HashPassword(seedPassword),
             },
             new Employee
             {
@@ -36,7 +41,7 @@ public static class ApplicationDbContextSeed
                 Status = "Active",
                 IsActive = true,
                 Username = "EMP-002",
-                PasswordHash = FOMS.Application.Services.AuthService.HashPassword("Password@123")
+                PasswordHash = FOMS.Application.Services.AuthService.HashPassword(seedPassword)
             },
             new Employee
             {
@@ -48,7 +53,7 @@ public static class ApplicationDbContextSeed
                 Status = "Active",
                 IsActive = true,
                 Username = "EMP-003",
-                PasswordHash = FOMS.Application.Services.AuthService.HashPassword("Password@123")
+                PasswordHash = FOMS.Application.Services.AuthService.HashPassword(seedPassword)
             },
             new Employee
             {
@@ -60,7 +65,7 @@ public static class ApplicationDbContextSeed
                 Status = "Active",
                 IsActive = true,
                 Username = "EMP-004",
-                PasswordHash = FOMS.Application.Services.AuthService.HashPassword("Password@123")
+                PasswordHash = FOMS.Application.Services.AuthService.HashPassword(seedPassword)
             }
         };
         foreach (var demoEmployee in demoEmployees)

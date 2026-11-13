@@ -91,7 +91,7 @@ public class DmsIntegrationTests : IDisposable
             var identity = new ClaimsIdentity(new[]
             {
                 new Claim(ClaimTypes.Name, "testuser"),
-                new Claim(ClaimTypes.Role, "Admin")
+                new Claim(ClaimTypes.Role, "Finance Manager")
             }, "TestAuth");
             httpContext.User = new ClaimsPrincipal(identity);
         }
@@ -248,6 +248,48 @@ public class DmsIntegrationTests : IDisposable
         var response = await controller.DeliveryCompleted(new DmsDeliveryCompletedRequest
         {
             WaybillNumber = "WB-API-TEST-001",
+            ClientName = "VIP Client",
+            DeliveryArea = "NCR",
+            ActualWeight = 1.0m,
+            PodImageUrl = "https://speedex.app/pod/test.jpg"
+        });
+
+        Assert.IsType<OkObjectResult>(response);
+    }
+
+    [Fact]
+    public async Task Controller_Rejects_MissingApiKeyHeader()
+    {
+        var service = CreateService();
+        var controller = CreateController(service, apiKey: null, isAuthenticatedUser: false);
+
+        var response = await controller.DeliveryCompleted(new DmsDeliveryCompletedRequest());
+
+        Assert.IsType<UnauthorizedObjectResult>(response);
+    }
+
+    [Fact]
+    public async Task Controller_FailsClosed_WhenInboundApiKey_NotConfigured()
+    {
+        _options.InboundApiKey = "";
+        var service = CreateService();
+        var controller = CreateController(service, apiKey: "some-key", isAuthenticatedUser: false);
+
+        var response = await controller.DeliveryCompleted(new DmsDeliveryCompletedRequest());
+
+        var statusResult = Assert.IsType<ObjectResult>(response);
+        Assert.Equal(503, statusResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task Controller_Accepts_AuthenticatedJwtUser_WithoutApiKey()
+    {
+        var service = CreateService();
+        var controller = CreateController(service, apiKey: null, isAuthenticatedUser: true);
+
+        var response = await controller.DeliveryCompleted(new DmsDeliveryCompletedRequest
+        {
+            WaybillNumber = "WB-JWT-TEST-001",
             ClientName = "VIP Client",
             DeliveryArea = "NCR",
             ActualWeight = 1.0m,

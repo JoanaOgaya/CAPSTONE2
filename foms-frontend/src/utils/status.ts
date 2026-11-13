@@ -4,10 +4,10 @@
  */
 import { STATUS_TONE, normalizeStatus, type Tone } from './workflow';
 
-const SUCCESS = ['active', 'done', 'delivered', 'success', 'completed', 'paid', 'inflow', 'validated (ctc)', 'billed', 'verified & deposited', 'finalized'];
-const DANGER = ['failed', 'overdue', 'outstanding', 'outflow', 'missing', 'error'];
-const NEUTRAL = ['deactivated', 'cancelled', 'inactive'];
-const INFO = ['in transit', 'picked-up', 'out of delivery', 'for checking'];
+const SUCCESS = ['active', 'done', 'delivered', 'success', 'completed', 'paid', 'inflow', 'validated (ctc)', 'billed', 'verified & deposited', 'finalized', 'received', 'approved'];
+const DANGER = ['failed', 'overdue', 'outstanding', 'outflow', 'missing', 'error', 'returned to creator', 'returned to ha', 'disputed'];
+const NEUTRAL = ['deactivated', 'cancelled', 'inactive', 'void', 'voided'];
+const INFO = ['in transit', 'picked-up', 'out of delivery', 'for checking', 'sent'];
 const PRIMARY = ['assigned', 'new payment'];
 
 export function statusTone(status: string | null | undefined): Tone {

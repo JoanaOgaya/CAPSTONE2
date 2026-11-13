@@ -1,3 +1,6 @@
+import logging
+import uuid
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -87,8 +90,12 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        trace_id = str(uuid.uuid4())
+        logger.error(f"[{trace_id}] Login authentication error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "message": "An internal authentication error occurred.", "traceId": trace_id}
+        )
 
 
 

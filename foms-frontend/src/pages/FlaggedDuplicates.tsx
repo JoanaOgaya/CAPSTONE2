@@ -161,7 +161,7 @@ export const FlaggedDuplicates: React.FC = () => {
     },
     {
       key: 'uploadedNumber',
-      label: 'Uploaded Number',
+      label: isHeadAccountant ? 'Submitted Number' : 'Uploaded Number',
       render: (row) => <span>{row.uploadedNumber ?? 'N/A'}</span>,
     },
     {

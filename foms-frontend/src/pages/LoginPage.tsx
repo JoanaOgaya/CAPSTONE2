@@ -9,7 +9,7 @@ import { Eye, EyeOff, User, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ToastContext';
 import { getCentralLoginUrl, getCentralForgotPasswordUrl } from '../services/centralAuth';
-import { LANDING_PATH } from '../utils/roleAccess';
+import { canAccessPath, LANDING_PATH } from '../utils/roleAccess';
 import './LoginPage.css';
 
 interface FormErrors {
@@ -52,8 +52,11 @@ export function LoginPage() {
     const wasLoggedOut = typeof window !== 'undefined' && sessionStorage.getItem('loggedOut') === 'true';
     if (!isLogoutAction && !wasLoggedOut) {
       const state = location.state as { from?: string } | null;
-      const requestedFrom = state?.from && state.from !== '/login' && state.from !== '/'
+      const fromPath = state?.from && state.from !== '/login' && state.from !== '/'
         ? state.from
+        : undefined;
+      const requestedFrom = fromPath && canAccessPath(user.role, fromPath.split('?')[0])
+        ? fromPath
         : (LANDING_PATH[user.role] ?? '/dashboard');
       return <Navigate to={requestedFrom} replace />;
     }

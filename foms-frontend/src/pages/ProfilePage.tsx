@@ -104,9 +104,9 @@ export const ProfilePage: React.FC = () => {
       case 'fullName':
         if (!trimmed) return 'Full Name is required.';
         if (trimmed.length > 200) return 'Cannot exceed 200 characters.';
-        if (!/^[a-zA-Z\s\.\-]+$/.test(trimmed)) return 'Name contains invalid characters.';
+        if (!/^[a-zA-Z\s.-]+$/.test(trimmed)) return 'Name contains invalid characters.';
         return undefined;
-      case 'email':
+      case 'email': {
         if (!trimmed) return 'Email is required.';
         if (trimmed.length > 255) return 'Cannot exceed 255 characters.';
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return 'Invalid email format.';
@@ -116,6 +116,7 @@ export const ProfilePage: React.FC = () => {
         );
         if (emailExists) return 'This email is already in use.';
         return undefined;
+      }
       case 'role':
         if (!trimmed) return 'Role is required.';
         return undefined;

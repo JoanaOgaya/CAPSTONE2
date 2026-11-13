@@ -35,7 +35,7 @@ class Settings:
     API_V1_STR: str = "/api/ai"
     
     # AI Backend API Key (For Gateway authenticating with AI backend)
-    AI_SERVICE_API_KEY: str = os.getenv("AI_SERVICE_API_KEY", "change-me")
+    AI_SERVICE_API_KEY: str = os.getenv("AI_SERVICE_API_KEY", "")
     
     # Databases (defaults to Docker network hostnames, overridden locally by .env)
     _default_pg_driver = "postgresql+pg8000" if (not _has_psycopg2() and _has_pg8000()) else "postgresql+psycopg2"
@@ -76,7 +76,8 @@ class Settings:
     MSSQL_DATABASE: str = os.getenv("MSSQL_DATABASE", os.getenv("MSSQL_DB", "FOMS_DB"))
     MSSQL_DRIVER: str = os.getenv("MSSQL_DRIVER", "ODBC Driver 17 for SQL Server")
     MSSQL_TRUSTED_CONNECTION: str = os.getenv("MSSQL_TRUSTED_CONNECTION", "yes")
-    MSSQL_TRUST_SERVER_CERTIFICATE: str = os.getenv("MSSQL_TRUST_SERVER_CERTIFICATE", "yes")
+    _is_dev: bool = os.getenv("ENVIRONMENT", os.getenv("ENV", "development")).lower() in ("development", "dev", "local", "test", "testing")
+    MSSQL_TRUST_SERVER_CERTIFICATE: str = os.getenv("MSSQL_TRUST_SERVER_CERTIFICATE", "yes" if _is_dev else "no")
     MSSQL_USER: str = os.getenv("MSSQL_USER", "")
     MSSQL_PASSWORD: str = os.getenv("MSSQL_PASSWORD", "")
 

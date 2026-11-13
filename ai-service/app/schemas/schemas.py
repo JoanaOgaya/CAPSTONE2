@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Any
 from datetime import datetime, date
 
@@ -33,8 +33,7 @@ class DuplicateMatchSchema(BaseModel):
     source_details: dict
     match_details: dict
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class DuplicateAlertSchema(BaseModel):
     id: int
@@ -51,8 +50,7 @@ class DuplicateAlertSchema(BaseModel):
     trace_id: Optional[str] = None
     matches: Optional[List[DuplicateMatchSchema]] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # Collection Priorities
 class ReadinessResponse(BaseModel):
@@ -104,8 +102,7 @@ class ReviewDecisionSchema(BaseModel):
     reviewed_at: datetime
     trace_id: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # Trend Snapshot Data Schema (For MongoDB response)
 class TrendSnapshotSchema(BaseModel):

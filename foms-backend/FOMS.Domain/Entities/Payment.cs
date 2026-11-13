@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace FOMS.Domain.Entities;
 
@@ -19,12 +20,21 @@ public class Payment
     public string? ProofImageUrl { get; set; }
     public string? Remarks { get; set; }
     public string RecordedBy { get; set; } = string.Empty;
+    public string? RecordedByEmployeeId { get; set; }
     public string DateRecorded { get; set; } = string.Empty;
 
     // Retained for historical payment records; current payments use staff validation only.
     public string? SpeedPayReference { get; set; }
     public string? PayMongoReference { get; set; }
     public string PaymentStatus { get; set; } = "Pending Finance Validation";
+
+    [NotMapped]
+    public string Status
+    {
+        get => PaymentStatus;
+        set => PaymentStatus = value;
+    }
+
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ValidatedAt { get; set; }
     public string? ValidatedBy { get; set; }
@@ -32,4 +42,5 @@ public class Payment
     public string? RejectedBy { get; set; }
     public string? RejectionReason { get; set; }
     public string? ExceptionResolutionReason { get; set; }
+    public byte[]? RowVersion { get; set; }
 }

@@ -71,9 +71,16 @@ public static class DatabaseConfiguration
             || string.Equals(trustedConnectionRaw, "true", StringComparison.OrdinalIgnoreCase)
             || trustedConnectionRaw == "1";
 
+        var envName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+            ?? configuration?["ASPNETCORE_ENVIRONMENT"]
+            ?? "Production";
+
+        var isDevelopment = string.Equals(envName, "Development", StringComparison.OrdinalIgnoreCase);
+
         var trustServerCertRaw = Environment.GetEnvironmentVariable("MSSQL_TRUST_SERVER_CERTIFICATE")
             ?? configuration?["MSSQL_TRUST_SERVER_CERTIFICATE"]
-            ?? "True";
+            ?? (isDevelopment ? "True" : "False");
 
         var user = Environment.GetEnvironmentVariable("MSSQL_USER") ?? configuration?["MSSQL_USER"];
         var password = Environment.GetEnvironmentVariable("MSSQL_PASSWORD") ?? configuration?["MSSQL_PASSWORD"];
@@ -107,5 +114,68 @@ public static class DatabaseConfiguration
         sb.Append($"TrustServerCertificate={trustServerCertRaw};");
 
         return sb.ToString();
+    }
+
+    public static bool IsPlaceholderSecret(string? val)
+    {
+        if (string.IsNullOrWhiteSpace(val)) return false;
+        var trimmed = val.Trim();
+        string[] forbidden = new[]
+        {
+            "replace_with",
+            "change_me",
+            "change-me",
+            "your_",
+            "example",
+            "placeholder",
+            "FOMS_Capstone_JWT_SecureKey",
+            "dev-secret-key-change-in-production",
+            "1234567890"
+        };
+        return forbidden.Any(f => trimmed.Contains(f, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static void ValidateDatabaseSecrets(IConfiguration configuration)
+    {
+        var mssqlPass = configuration["MSSQL_PASSWORD"] ?? Environment.GetEnvironmentVariable("MSSQL_PASSWORD");
+        if (!string.IsNullOrWhiteSpace(mssqlPass) && IsPlaceholderSecret(mssqlPass))
+        {
+            throw new InvalidOperationException("Fatal Startup Error: MSSQL_PASSWORD contains a placeholder value.");
+        }
+
+        var envName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+            ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+            ?? configuration?["ASPNETCORE_ENVIRONMENT"]
+            ?? "Production";
+
+        var isDevelopment = string.Equals(envName, "Development", StringComparison.OrdinalIgnoreCase);
+
+        var connStr = GetConnectionString(configuration);
+        if (!string.IsNullOrWhiteSpace(connStr))
+        {
+            if (!isDevelopment &&
+                (connStr.Contains("TrustServerCertificate=True", StringComparison.OrdinalIgnoreCase) ||
+                 connStr.Contains("TrustServerCertificate=yes", StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException(
+                    "Fatal Configuration Error: TrustServerCertificate=True is prohibited in production. " +
+                    "Configure a valid CA-signed TLS certificate and set TrustServerCertificate=False.");
+            }
+            var parts = connStr.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var part in parts)
+            {
+                var kv = part.Split('=', 2);
+                if (kv.Length == 2)
+                {
+                    var k = kv[0].Trim();
+                    var v = kv[1].Trim();
+                    if ((k.Equals("Password", StringComparison.OrdinalIgnoreCase) || k.Equals("Pwd", StringComparison.OrdinalIgnoreCase))
+                        && IsPlaceholderSecret(v))
+                    {
+                        throw new InvalidOperationException("Fatal Startup Error: Database connection string contains a placeholder password.");
+                    }
+                }
+            }
+        }
     }
 }

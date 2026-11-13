@@ -13,9 +13,15 @@ logger = logging.getLogger(__name__)
 
 def normalize_string(val: str) -> str:
     """
-    Centralized canonical normalization wrapper
+    Centralized canonical normalization wrapper for duplicate matching.
+    Strips document prefixes (WB, INV, OR, SP) and non-alphanumeric punctuation.
     """
-    return normalize_reference(val)
+    if not val:
+        return ""
+    s = val.strip().upper()
+    s = re.sub(r'^(WB|INV|OR|SP)[\s_-]*', '', s)
+    s = re.sub(r'[^A-Z0-9]', '', s)
+    return s
 
 def check_waybill_duplicate(db: Session, request: WaybillDuplicateRequest, foms_client: FomsClient) -> Optional[AIDuplicateAlert]:
     waybills = foms_client.get_waybills()
@@ -283,6 +289,7 @@ def process_scanned_document(db: Session, file_bytes: bytes, filename: str, mime
         "amount": amount,
         "transactionDate": tx_date,
         "referenceNumber": ref,
+        "submittedBy": user_id,
         "is_valid": True # keep this for any other legacy logic
     }
 
@@ -330,7 +337,7 @@ def process_scanned_document(db: Session, file_bytes: bytes, filename: str, mime
             matched_record_id=str(matched_record.id) if matched_record else "EXISTING-RECORD",
             confidence_score=highest_score,
             severity="High" if highest_score >= 95 else "Medium",
-            matched_fields={"documentNumber": doc_num, "clientName": client_name, "amount": amount},
+            matched_fields={"documentNumber": doc_num, "clientName": client_name, "amount": amount, "submittedBy": user_id},
             match_reason=reason,
             status="Pending Review"
         )
@@ -386,3 +393,167 @@ def process_scanned_document(db: Session, file_bytes: bytes, filename: str, mime
             "reason": "No duplicate detected. Cleared for FOMS normal validation.",
             "message": "Document scanned and cataloged as Unique Document."
         }
+
+
+def check_duplicates(
+    db: Session,
+    waybills: Optional[List[Dict]] = None,
+    invoices: Optional[List[Dict]] = None,
+    receipts: Optional[List[Dict]] = None,
+    expenses: Optional[List[Dict]] = None,
+    advances: Optional[List[Dict]] = None,
+    trace_id: Optional[str] = None
+) -> Tuple[int, int]:
+    """
+    Batch duplicate scan for waybills, invoices, receipts, expenses, and cash advances.
+    Detects duplicate and fuzzy matching records within input batches and against existing records.
+    Returns (total_scanned_count, alerts_generated_count).
+    """
+    waybills = waybills or []
+    invoices = invoices or []
+    receipts = receipts or []
+    expenses = expenses or []
+    advances = advances or []
+
+    total_scanned = len(waybills) + len(invoices) + len(receipts) + len(expenses) + len(advances)
+    total_alerts = 0
+
+    # 1. Waybills duplicate check
+    for i in range(len(waybills)):
+        wb_i = waybills[i]
+        num_i = wb_i.get("waybillNumber", "")
+        norm_i = normalize_string(num_i)
+        for j in range(i + 1, len(waybills)):
+            wb_j = waybills[j]
+            num_j = wb_j.get("waybillNumber", "")
+            norm_j = normalize_string(num_j)
+
+            similarity = 0.0
+            reason = ""
+            if norm_i and norm_j and norm_i == norm_j:
+                similarity = 100.0
+                reason = f"Exact match found for normalized waybill number: {num_i} and {num_j}."
+            else:
+                score = float(fuzz.ratio(num_i.upper(), num_j.upper()))
+                if score >= 90.0:
+                    similarity = score
+                    reason = f"Fuzzy match found for waybill numbers: {num_i} and {num_j} with high similarity ({similarity:.1f}%)."
+
+            if similarity >= 90.0:
+                alert = AIDuplicateAlert(
+                    alert_type="WAYBILL",
+                    source_record_id=wb_i.get("waybillId", f"WB-{i}"),
+                    matched_record_id=wb_j.get("waybillId", f"WB-{j}"),
+                    confidence_score=max(0.0, min(100.0, similarity)),
+                    severity="High" if similarity >= 95.0 else "Medium",
+                    matched_fields={"waybillNumber": num_i, "matched_field": "waybillNumber"},
+                    match_reason=reason,
+                    status="Pending Review",
+                    trace_id=trace_id
+                )
+                db.add(alert)
+                db.flush()
+                match = AIDuplicateMatch(
+                    alert_id=alert.id,
+                    source_details=wb_i,
+                    match_details=wb_j
+                )
+                db.add(match)
+                total_alerts += 1
+
+    # 2. Invoices duplicate check
+    for i in range(len(invoices)):
+        inv_i = invoices[i]
+        num_i = inv_i.get("invoiceNumber", "")
+        norm_i = normalize_string(num_i)
+        for j in range(i + 1, len(invoices)):
+            inv_j = invoices[j]
+            num_j = inv_j.get("invoiceNumber", "")
+            norm_j = normalize_string(num_j)
+
+            similarity = 0.0
+            reason = ""
+            matched_field = "invoiceNumber"
+            if norm_i and norm_j and norm_i == norm_j:
+                similarity = 100.0
+                reason = f"Exact duplicate invoice number detected: {num_i} and {num_j}."
+            else:
+                score = float(fuzz.ratio(num_i.upper(), num_j.upper()))
+                if score >= 90.0:
+                    similarity = score
+                    reason = f"Highly similar invoice numbers: {num_i} and {num_j}."
+                elif inv_i.get("clientId") and inv_i.get("clientId") == inv_j.get("clientId") and inv_i.get("amount") == inv_j.get("amount"):
+                    if inv_i.get("waybillNumber") and inv_j.get("waybillNumber"):
+                        w1 = normalize_string(inv_i.get("waybillNumber"))
+                        w2 = normalize_string(inv_j.get("waybillNumber"))
+                        if w1 and w1 == w2:
+                            similarity = 95.0
+                            matched_field = "waybillNumber"
+                            reason = f"Invoices have matching client, identical amount, and matching waybill."
+
+            if similarity >= 90.0:
+                alert = AIDuplicateAlert(
+                    alert_type="INVOICE",
+                    source_record_id=inv_i.get("invoiceId", f"INV-{i}"),
+                    matched_record_id=inv_j.get("invoiceId", f"INV-{j}"),
+                    confidence_score=max(0.0, min(100.0, similarity)),
+                    severity="High" if similarity >= 95.0 else "Medium",
+                    matched_fields={"invoiceNumber": num_i, "matched_field": matched_field},
+                    match_reason=reason,
+                    status="Pending Review",
+                    trace_id=trace_id
+                )
+                db.add(alert)
+                db.flush()
+                match = AIDuplicateMatch(
+                    alert_id=alert.id,
+                    source_details=inv_i,
+                    match_details=inv_j
+                )
+                db.add(match)
+                total_alerts += 1
+
+    # 3. Receipts duplicate check
+    for i in range(len(receipts)):
+        rec_i = receipts[i]
+        num_i = rec_i.get("orNumber") or rec_i.get("receiptNumber", "")
+        norm_i = normalize_string(num_i)
+        for j in range(i + 1, len(receipts)):
+            rec_j = receipts[j]
+            num_j = rec_j.get("orNumber") or rec_j.get("receiptNumber", "")
+            norm_j = normalize_string(num_j)
+
+            similarity = 0.0
+            if norm_i and norm_j and norm_i == norm_j:
+                similarity = 100.0
+            else:
+                score = float(fuzz.ratio(num_i.upper(), num_j.upper()))
+                if score >= 90.0:
+                    similarity = score
+
+            if similarity >= 90.0:
+                alert = AIDuplicateAlert(
+                    alert_type="OFFICIAL_RECEIPT",
+                    source_record_id=rec_i.get("orId") or rec_i.get("receiptId", f"REC-{i}"),
+                    matched_record_id=rec_j.get("orId") or rec_j.get("receiptId", f"REC-{j}"),
+                    confidence_score=max(0.0, min(100.0, similarity)),
+                    severity="High" if similarity >= 95.0 else "Medium",
+                    matched_fields={"receiptNumber": num_i, "matched_field": "receiptNumber"},
+                    match_reason=f"Duplicate receipt detected: {num_i} and {num_j}.",
+                    status="Pending Review",
+                    trace_id=trace_id
+                )
+                db.add(alert)
+                db.flush()
+                match = AIDuplicateMatch(
+                    alert_id=alert.id,
+                    source_details=rec_i,
+                    match_details=rec_j
+                )
+                db.add(match)
+                total_alerts += 1
+
+    if total_alerts > 0:
+        db.commit()
+
+    return total_scanned, total_alerts

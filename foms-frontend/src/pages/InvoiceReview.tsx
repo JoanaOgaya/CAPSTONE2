@@ -64,15 +64,15 @@ export const InvoiceReview: React.FC = () => {
     }
   }, [id, invoices, navigate, viewClient]);
 
-  const visibleInvoices = invoices.filter(i => i.status !== 'Draft');
+  const visibleInvoices = invoices.filter(i => i.status !== 'Draft' && i.status !== 'Void');
   const filteredInvoices = selectedClientId ? visibleInvoices.filter(i => i.clientId === selectedClientId) : visibleInvoices;
   const sortedInvoices = [...filteredInvoices].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   // ENRICH CLIENTS
   const enrichedClients = clients.map(client => {
     const clientInvoices = visibleInvoices.filter(i => i.clientId === client.id);
-    const pendingCount = clientInvoices.filter(i => i.status === 'Pending Approval').length;
-    const totalAmount = clientInvoices.reduce((sum, i) => sum + i.totalAmount, 0);
+    const pendingCount = clientInvoices.filter(i => ['Pending HA Verification', 'Pending FM Approval', 'Pending Approval'].includes(i.status as string)).length;
+    const totalAmount = clientInvoices.filter(i => i.status !== 'Void').reduce((sum, i) => sum + i.totalAmount, 0);
     return {
       id: client.id,
       clientName: client.name,
@@ -82,10 +82,10 @@ export const InvoiceReview: React.FC = () => {
   }).filter(c => c.pendingCount > 0 || c.totalAmount > 0);
 
   // KPI Calculations
-  const pendingCount = filteredInvoices.filter(i => i.status === 'Pending Approval').length;
+  const pendingCount = filteredInvoices.filter(i => ['Pending HA Verification', 'Pending FM Approval', 'Pending Approval'].includes(i.status as string)).length;
   const approvedCount = filteredInvoices.filter(i => i.status === 'Approved').length;
   const totalAmount = filteredInvoices
-    .filter(i => i.status === 'Pending Approval' || i.status === 'Approved')
+    .filter(i => i.status !== 'Void' && ['Pending HA Verification', 'Pending FM Approval', 'Pending Approval', 'Approved'].includes(i.status as string))
     .reduce((sum, i) => sum + i.totalAmount, 0);
 
   // Status Handlers
@@ -263,7 +263,7 @@ export const InvoiceReview: React.FC = () => {
               )}
             </div>
 
-            {selectedInvoice.status === 'Pending Approval' && (
+            {['Pending HA Verification', 'Pending FM Approval', 'Pending Approval'].includes(selectedInvoice.status as string) && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderTop: '1px solid #E2E8F0', paddingTop: '24px' }}>
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <Button

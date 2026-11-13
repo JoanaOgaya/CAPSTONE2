@@ -38,10 +38,10 @@ import { AIOutputHistory } from '../pages/AIOutputHistory';
 import AIDuplicateScan from '../pages/AIDuplicateScan';
 import DocumentExtraction from '../pages/DocumentExtraction';
 
-// ── STAFF-001 User Definition ──────────────────────────────────────────────────
+// ── EMP-001 User Definition ──────────────────────────────────────────────────
 const EMP_001_USER: User = {
-  id: 'STAFF-001',
-  employeeId: 'STAFF-001',
+  id: 'EMP-001',
+  employeeId: 'EMP-001',
   fullName: 'Crystalyn Joyce C. Fajardo',
   email: 'finance.manager@speedex.test',
   role: ROLES.FINANCE_MANAGER,
@@ -52,8 +52,8 @@ function mockAuthUser(user: Partial<User> | null = EMP_001_USER) {
   const logoutMock = vi.fn();
   vi.spyOn(AuthContextModule, 'useAuth').mockReturnValue({
     user: user ? ({
-      id: user.id || 'STAFF-001',
-      employeeId: user.employeeId || user.id || 'STAFF-001',
+      id: user.id || 'EMP-001',
+      employeeId: user.employeeId || user.id || 'EMP-001',
       fullName: user.fullName || 'Crystalyn Joyce C. Fajardo',
       email: user.email || 'finance.manager@speedex.test',
       role: user.role || ROLES.FINANCE_MANAGER,
@@ -316,7 +316,7 @@ const mockDuplicateFlags = [
     flaggedDate: new Date().toISOString(),
     matchedDoc: { documentNumber: 'LIQ-DOC-PREV' },
     duplicateReason: 'Identical amount, date, and receipt number detected',
-    decidedBy: 'STAFF-003',
+    decidedBy: 'EMP-003',
     decision: 'DUPLICATE',
   },
 ];
@@ -339,7 +339,7 @@ const mockReviewHistory = [
 const mockAuditLogs = [
   {
     id: 'AUD-001',
-    userId: 'STAFF-001',
+    userId: 'EMP-001',
     userFullName: 'Crystalyn Joyce C. Fajardo',
     userRole: 'FINANCE_MANAGER',
     action: 'APPROVE_INVOICE',
@@ -496,13 +496,13 @@ function renderWithContext(ui: React.ReactElement, initialRoute: string = '/dash
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPREHENSIVE FLOW VERIFICATION TEST SUITE FOR USER STAFF-001
+// COMPREHENSIVE FLOW VERIFICATION TEST SUITE FOR USER EMP-001
 // ─────────────────────────────────────────────────────────────────────────────
-describe('STAFF-001 (Finance Manager) — Complete Page-by-Page Workflow & Verification', () => {
+describe('EMP-001 (Finance Manager) — Complete Page-by-Page Workflow & Verification', () => {
 
   // ── Step 1: Identify ───────────────────────────────────────────────────────
   describe('STEP 1: Identify Role and Sidebar Items', () => {
-    it('verifies STAFF-001 has role FINANCE_MANAGER and exact 20 sidebar items', () => {
+    it('verifies EMP-001 has role FINANCE_MANAGER and exact 20 sidebar items', () => {
       mockAuthUser();
       const navGroups = getNavGroups(ROLES.FINANCE_MANAGER);
       const allSidebarLabels = navGroups.flatMap(g => g.items.map(i => i.label));
@@ -512,25 +512,27 @@ describe('STAFF-001 (Finance Manager) — Complete Page-by-Page Workflow & Verif
 
       expect(allSidebarLabels).toEqual([
         'Dashboard', // Executive Dashboard
+        'Escalated Approvals',
         'Client Accounts',
         'Invoice List',
         'Billing Validation',
         'Accounts Receivable',
+        'STARS Collection',
         'Payments',
         'Official Receipts',
         'Settlements', // Settlement Validation
         'Financial Adjustments', // Adjustment Approval
         'Liquidation Reports',
         'Cash Flow',
-        'Manual Review Queue',
         'Unique Documents',
         'Flagged Duplicates',
         'Review History',
         'Reports',
+        'Period Close',
         'Audit Logs',
         'AI Output History',
       ]);
-      expect(allSidebarLabels).toHaveLength(19);
+      expect(allSidebarLabels).toHaveLength(20);
     });
   });
 

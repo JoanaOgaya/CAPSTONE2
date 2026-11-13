@@ -126,14 +126,9 @@ export interface DmsLiquidationDto {
   remarks?: string;
 }
 
-// Pre-shared 256-bit API key for DMS integration calls
-const dmsConfig = {
-  headers: {
-    'X-Api-Key':
-      import.meta.env.VITE_DMS_TO_FOMS_KEY ||
-      'b84a1182dcd51ea1ee102585f61b0ed0dd779121b44fe42723fa789438e5e613',
-  },
-};
+// Integration calls from frontend use authenticated session Bearer auth.
+// Service-to-service API keys are strictly maintained server-side.
+const dmsConfig = {};
 
 export const integrationService = {
   // ─── STARS Collection Workflow ──────────────────────────────────────────

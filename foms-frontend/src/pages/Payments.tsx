@@ -22,6 +22,22 @@ import { cashFlowService } from '../services/cashFlowService';
 import { duplicatesService } from '../services/duplicates.service';
 import { invalidateForMutation } from '../services/invalidation';
 import type { Payment, Invoice, Client, CashFlowRecord, Receipt } from '../types/entities';
+import ConfirmModal from '../components/shared/ConfirmModal';
+
+export interface PaymentApprovalActionDef {
+  label: string;
+  endpoint: string;
+  handler: (payment: any, remarks?: string) => Promise<any>;
+}
+
+export const PAYMENT_FINAL_APPROVAL_ACTION: PaymentApprovalActionDef = {
+  label: 'Confirm Final Approval',
+  endpoint: '/api/finance-payments/{id}/approve',
+  handler: async (payment: any, remarks?: string) => {
+    return paymentsService.approve(payment.id, { remarks });
+  },
+};
+export const PAYMENT_APPROVAL_ACTION = PAYMENT_FINAL_APPROVAL_ACTION;
 
 const getEmployeeName = (id?: string, def?: string) => {
   return def || id || 'System';
@@ -110,6 +126,7 @@ const PaymentsContent: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState('Validate');
+  const [showApprovalConfirmModal, setShowApprovalConfirmModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [globalFilter, setGlobalFilter] = useState<'all' | 'inflow' | 'outflow'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -2233,6 +2250,26 @@ const PaymentsContent: React.FC = () => {
                   </div>
                 </Card>
 
+                {/* Final Approval Card for Finance Manager */}
+                {isFinanceManager && viewPayment.status === 'Validated' && (
+                  <Card style={{ padding: '24px', borderTop: '4px solid #0D9488', borderRadius: '12px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.05rem', color: '#0F172A', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <i className="ti ti-shield-check" style={{ color: '#0D9488', fontSize: '18px' }} />
+                      Final Payment Approval
+                    </h3>
+                    <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#64748B' }}>
+                      Status: <strong style={{ color: '#15803D' }}>{viewPayment.status}</strong>. Complete final approval to clear Accounts Receivable and issue an Official Receipt.
+                    </p>
+                    <Button
+                      title={PAYMENT_FINAL_APPROVAL_ACTION.label}
+                      variant="primary"
+                      onClick={() => setShowApprovalConfirmModal(true)}
+                      disabled={submitted}
+                      fullWidth
+                    />
+                  </Card>
+                )}
+
                 {/* Verification & Validation Card for Pending Payments */}
                 {isFinanceManager && ['Pending Finance Validation', 'Pending Validation', 'Exception'].includes(viewPayment.status) && (
                   <Card style={{ padding: '24px', borderTop: '4px solid #0D9488', borderRadius: '12px' }}>
@@ -2325,6 +2362,32 @@ const PaymentsContent: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {showApprovalConfirmModal && (
+              <ConfirmModal
+                isOpen={showApprovalConfirmModal}
+                title="Confirm Action"
+                message={`Are you sure you want to approve payment ${viewPayment?.id}? This will finalize AR clearing and issue the official receipt.`}
+                confirmLabel="Confirm"
+                cancelLabel="Cancel"
+                variant="primary"
+                onCancel={() => setShowApprovalConfirmModal(false)}
+                onConfirm={async () => {
+                  setShowApprovalConfirmModal(false);
+                  setSubmitted(true);
+                  try {
+                    await PAYMENT_FINAL_APPROVAL_ACTION.handler(viewPayment);
+                    toast.success('Payment approved successfully.');
+                    await refreshPayments();
+                    navigate('/payments');
+                  } catch (err: any) {
+                    toast.error(err?.message || 'Failed to approve payment.');
+                  } finally {
+                    setSubmitted(false);
+                  }
+                }}
+              />
+            )}
 
             {/* Modal for Invoice Details (Nested inside this View modal portal) */}
             {selectedInvoiceForModal && (

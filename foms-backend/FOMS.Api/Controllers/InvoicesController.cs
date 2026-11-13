@@ -73,6 +73,11 @@ public class ReviewSamplingRequest
     public int? SampleCount { get; set; }
 }
 
+public class InvoiceArchiveRequest
+{
+    public bool Archived { get; set; }
+}
+
 public class FollowUpLogSubmissionDto
 {
     public string? ContactPerson { get; set; }
@@ -104,56 +109,29 @@ public class InvoicesController : ApiControllerBase
         invoice.Balance > 0m ||
         ArchivedRecordAccess.CanViewArchivedRecords(User);
 
+    private string GetCurrentUserId()
+    {
+        return User.FindFirst("employee_number")?.Value
+            ?? User.FindFirst("employeeNumber")?.Value
+            ?? User.FindFirst("nameid")?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? User.Identity?.Name
+            ?? User.FindFirst(ClaimTypes.Name)?.Value
+            ?? "EMP-003";
+    }
+
+    private string GetCurrentUserRole()
+    {
+        return User.FindFirst(ClaimTypes.Role)?.Value
+            ?? User.FindFirst("role")?.Value
+            ?? string.Empty;
+    }
+
     private static object MapToFrontend(Invoice i, List<string>? waybillIds = null, List<WaybillBillingBreakdown>? waybillBreakdowns = null)
     {
-        string status;
-        var pStatusVal = i.PaymentStatus ?? string.Empty;
-        var pvStatusVal = i.PaymentValidationStatus ?? string.Empty;
-
-        if (pvStatusVal.Equals("Voided", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Equals("Void", StringComparison.OrdinalIgnoreCase))
-        {
-            status = "Voided";
-        }
-        else if (pStatusVal.Equals("Draft", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Equals("Draft", StringComparison.OrdinalIgnoreCase))
-        {
-            status = "Draft";
-        }
-        else if (pStatusVal.Contains("Revision", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Contains("Revision", StringComparison.OrdinalIgnoreCase) ||
-                 pStatusVal.Contains("Correction", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Contains("Correction", StringComparison.OrdinalIgnoreCase))
-        {
-            status = "Needs Revision";
-        }
-        else if (pvStatusVal.Equals("Endorsed", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Equals("Validated", StringComparison.OrdinalIgnoreCase))
-        {
-            status = "Endorsed";
-        }
-        else if (pvStatusVal.Equals("Pending Endorsement", StringComparison.OrdinalIgnoreCase))
-        {
-            status = "Sent";
-        }
-        else if (pStatusVal.Equals("Pending Approval", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Equals("Pending Approval", StringComparison.OrdinalIgnoreCase) ||
-                 pStatusVal.Contains("Pending", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Contains("Pending", StringComparison.OrdinalIgnoreCase) ||
-                 pStatusVal.Contains("Review", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Contains("Review", StringComparison.OrdinalIgnoreCase))
-        {
-            status = "Pending Approval";
-        }
-        else if (pStatusVal.Equals("Paid", StringComparison.OrdinalIgnoreCase) || pStatusVal.Equals("Approved", StringComparison.OrdinalIgnoreCase) || pvStatusVal.Equals("Approved", StringComparison.OrdinalIgnoreCase))
-        {
-            status = "Approved";
-        }
-        else if (!string.IsNullOrEmpty(pvStatusVal))
-        {
-            status = pvStatusVal;
-        }
-        else
-        {
-            status = "Draft";
-        }
-
-        var isDueSoon = DateTime.TryParse(i.DueDate, out var dt) && (dt - DateTime.UtcNow).TotalDays <= 7 && (dt - DateTime.UtcNow).TotalDays >= 0;
-        var pStatus = i.Balance <= 0 ? "Paid" :
-                      i.DaysOverdue > 0 ? "Overdue" :
-                      isDueSoon ? "Due Soon" : "Unpaid";
+        var docStatus = !string.IsNullOrWhiteSpace(i.DocumentStatus) ? i.DocumentStatus : InvoiceDocumentStatus.Draft;
+        var pStatus = !string.IsNullOrWhiteSpace(i.PaymentStatus) ? i.PaymentStatus : InvoicePaymentStatus.Unpaid;
+        var isOverdue = i.Balance > 0m && DateTime.TryParse(i.DueDate, out var dt) && DateTime.UtcNow.Date > dt.Date;
 
         var resolvedWbIds = waybillIds ?? new List<string>();
         if (resolvedWbIds.Count == 0 && !string.IsNullOrWhiteSpace(i.WaybillIds))
@@ -198,9 +176,10 @@ public class InvoicesController : ApiControllerBase
             waybillBreakdown = waybillBreakdowns ?? new List<WaybillBillingBreakdown>(),
             billingSchedule = "Monthly",
             billingPeriod = !string.IsNullOrEmpty(i.Description) ? i.Description : $"{i.BillingDate} - {i.DueDate}",
-            status = status,
-            documentStatus = i.DocumentStatus ?? i.PaymentValidationStatus ?? "Draft",
+            status = docStatus,
+            documentStatus = docStatus,
             paymentStatus = pStatus,
+            isOverdue = isOverdue,
             paymentValidationStatus = i.PaymentValidationStatus,
             agingBucket = BillingComputationService.ComputeDerivedAgingBucket(i.DueDate),
             derivedAgingBucket = BillingComputationService.ComputeDerivedAgingBucket(i.DueDate),
@@ -457,7 +436,19 @@ public class InvoicesController : ApiControllerBase
     [HttpPost]
     public async Task<IActionResult> CreateInvoice([FromBody] InvoiceSubmissionDto submission)
     {
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? submission.CreatedBy ?? "User";
+        var userId = GetCurrentUserId();
+        var role = GetCurrentUserRole();
+
+        if (InvoiceRole.IsAssistantFinanceManager(role, userId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Assistant Finance Manager (EMP-004) is restricted to liquidations and cannot create invoices." });
+        }
+        if (!InvoiceRole.IsStaff(role, userId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only Staff (EMP-003) can create invoices." });
+        }
+
+        var user = userId;
         var client = await _context.Clients.FirstOrDefaultAsync(c =>
             !c.Archived &&
             (c.Id == submission.ClientId ||
@@ -796,7 +787,7 @@ public class InvoicesController : ApiControllerBase
             Balance = totalAmount,
             PaymentStatus = "Unpaid",
             DocumentStatus = "Draft",
-            PaymentValidationStatus = submission.Status ?? "Draft",
+            PaymentValidationStatus = null,
             AgingBucket = "Current",
             DaysOverdue = 0,
             Description = invoiceDesc,
@@ -883,22 +874,29 @@ public class InvoicesController : ApiControllerBase
         if (invoice == null) return NotFound(new { message = $"Invoice {id} not found." });
         if (!CanViewInvoice(invoice)) return NotFound(new { message = $"Invoice {id} not found." });
 
-        // No edit after Approved: once an invoice is approved, it is permanently locked
-        if (string.Equals(invoice.PaymentValidationStatus, "Approved", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(invoice.DocumentStatus, "Approved", StringComparison.OrdinalIgnoreCase))
+        var userId = GetCurrentUserId();
+        var role = GetCurrentUserRole();
+
+        if (InvoiceRole.IsAssistantFinanceManager(role, userId))
         {
-            return BadRequest(new { message = "Invoice is Approved and locked. Modifications are strictly forbidden." });
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Assistant Finance Manager (EMP-004) is restricted to liquidations and cannot modify invoices." });
+        }
+        if (!InvoiceRole.IsStaff(role, userId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only Staff (EMP-003) can modify invoices." });
         }
 
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
+        if (invoice.DocumentStatus != InvoiceDocumentStatus.Draft && invoice.DocumentStatus != InvoiceDocumentStatus.ReturnedToCreator)
+        {
+            return BadRequest(new { message = $"Invoice {invoice.InvoiceNo} is Approved and locked and cannot be modified in status '{invoice.DocumentStatus}'. Only Draft or Returned to Creator invoices are editable." });
+        }
+
+        var user = userId;
 
         if (string.Equals(submission.Status, "Paid", StringComparison.OrdinalIgnoreCase))
             return BadRequest(new { message = "Payment status can only be changed through Finance Manager payment validation." });
 
-        if (!string.IsNullOrEmpty(submission.Status))
-        {
-            invoice.PaymentValidationStatus = submission.Status;
-        }
+
 
         if (submission.Amount.HasValue || submission.FreightCharges.HasValue)
             invoice.FreightCharges = submission.Amount ?? submission.FreightCharges!.Value;
@@ -968,7 +966,7 @@ public class InvoicesController : ApiControllerBase
         return Ok(MapToFrontend(invoice));
     }
 
-    [Authorize]
+        [Authorize]
     [HttpPost("{id}/void")]
     public async Task<IActionResult> VoidInvoice(string id, [FromBody] VoidInvoiceRequest? request)
     {
@@ -979,53 +977,126 @@ public class InvoicesController : ApiControllerBase
     [HttpPost("{id}/{actionName}")]
     public async Task<IActionResult> TransitionInvoice(string id, string actionName, [FromBody] InvoiceTransitionRequest? request)
     {
-        var invoice = await _context.Invoices.FirstOrDefaultAsync(i => i.Id == id || i.InvoiceNo == id);
+        var invoice = _context.Invoices.Local.FirstOrDefault(i => i.Id == id || i.InvoiceNo == id)
+                   ?? await _context.Invoices.FirstOrDefaultAsync(i => i.Id == id || i.InvoiceNo == id);
         if (invoice == null) return NotFound(new { message = $"Invoice {id} not found." });
         if (!CanViewInvoice(invoice)) return NotFound(new { message = $"Invoice {id} not found." });
 
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
+        var userId = GetCurrentUserId();
+        var role = GetCurrentUserRole();
 
-        if (actionName.Equals("void", StringComparison.OrdinalIgnoreCase))
+        if (InvoiceRole.IsAssistantFinanceManager(role, userId))
         {
-            var voidReason = request?.VoidReason ?? request?.Remarks;
-            if (string.IsNullOrWhiteSpace(voidReason))
-            {
-                return BadRequest(new { message = "A specific void reason is required to void an invoice." });
-            }
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Assistant Finance Manager (EMP-004) is restricted to liquidations and cannot transition invoices." });
+        }
 
-            invoice.PaymentValidationStatus = "Voided";
-            invoice.DocumentStatus = "Voided";
-            invoice.VoidReason = voidReason;
-            invoice.UpdatedBy = user;
-            invoice.LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss");
+        var oldStatus = invoice.DocumentStatus;
+        var actionLower = actionName.ToLowerInvariant();
+        var reason = request?.VoidReason ?? request?.ReviewRejectionReason ?? request?.Remarks ?? string.Empty;
 
-            // Release waybills locked to this invoice so they can be re-billed
-            if (!string.IsNullOrWhiteSpace(invoice.WaybillIds))
+        try
+        {
+            switch (actionLower)
             {
-                var wbList = invoice.WaybillIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                foreach (var wNo in wbList)
-                {
-                    var wb = await _fomsDb.Waybills.FirstOrDefaultAsync(w => w.WaybillNumber == wNo);
-                    if (wb != null && wb.InvoiceNo == invoice.InvoiceNo)
+                case "submit":
+                case "submit-review":
+                    invoice.Submit(userId, role);
+                    break;
+
+                case "resubmit":
+                    invoice.Resubmit(userId, role);
+                    break;
+
+                case "verify":
+                    invoice.Verify(userId, role);
+                    break;
+
+                case "return":
+                case "return-to-creator":
+                case "reject":
+                    invoice.ReturnToCreator(userId, role, reason);
+                    break;
+
+                case "return-to-ha":
+                    invoice.ReturnToHeadAccountant(userId, role, reason);
+                    break;
+
+                case "approve":
+                    invoice.Approve(userId, role);
+                    await BillingComputationService.RecognizeAccrualRevenueAsync(invoice, _context);
+                    await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
+                    break;
+
+                case "send":
+                case "dispatch":
+                    invoice.Send(userId, role);
+                    await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
+                    break;
+
+                case "receive":
+                case "received":
+                case "mark-received":
+                    invoice.MarkReceived(userId, role, request?.ReceivedDate);
+                    var clientRec = await _context.Clients.FirstOrDefaultAsync(c => c.Id == invoice.ClientId);
+                    int termDays = clientRec?.CreditTermDays ?? 30;
+                    invoice.DueDate = invoice.ReceivedDate!.Value.AddDays(termDays).ToString("yyyy-MM-dd");
+                    await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
+                    break;
+
+                case "dispute":
+                case "raise-dispute":
+                    invoice.Dispute(userId, role, request?.DisputeReasonCode ?? "DISP-OTHER", request?.Remarks ?? "Dispute raised by client.");
+                    break;
+
+                case "resolve-dispute":
+                    invoice.ResolveDispute(userId, role, request?.Remarks ?? "Dispute resolved.");
+                    break;
+
+                case "void":
+                    if (oldStatus == InvoiceDocumentStatus.Approved)
                     {
-                        wb.IsBilled = false;
-                        wb.InvoiceNo = null;
-                        wb.PodStatus = "Validated";
-                        wb.UpdatedAt = DateTime.UtcNow;
+                        invoice.Void(userId, role, reason);
+                        await BillingComputationService.ReverseAccrualRevenueAsync(invoice, _context, reason);
                     }
-                }
-                try { await _fomsDb.SaveChangesAsync(); } catch { }
+                    else
+                    {
+                        invoice.Void(userId, role, reason);
+                    }
+
+                    // Release waybills locked to this invoice so they can be re-billed
+                    if (!string.IsNullOrWhiteSpace(invoice.WaybillIds))
+                    {
+                        var wbList = invoice.WaybillIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                        foreach (var wNo in wbList)
+                        {
+                            var wb = await _fomsDb.Waybills.FirstOrDefaultAsync(w => w.WaybillNumber == wNo);
+                            if (wb != null && wb.InvoiceNo == invoice.InvoiceNo)
+                            {
+                                wb.IsBilled = false;
+                                wb.InvoiceNo = null;
+                                wb.PodStatus = "Validated";
+                                wb.UpdatedAt = DateTime.UtcNow;
+                            }
+                        }
+                        try { await _fomsDb.SaveChangesAsync(); } catch { }
+                    }
+                    break;
+
+                default:
+                    return BadRequest(new { message = $"Unknown invoice transition action: '{actionName}'." });
             }
 
+            BillingComputationService.RefreshInvoiceAging(invoice);
             await _context.SaveChangesAsync(default);
 
+            // Audit Trail
             _context.AuditLogs.Add(new AuditLog
             {
-                UserId = user,
+                UserId = userId,
                 EntityName = "Invoice",
                 EntityId = invoice.Id,
-                Action = "INVOICE_VOIDED",
-                Details = $"Invoice {invoice.InvoiceNo} was VOIDED by {user}. Reason: {voidReason}",
+                Action = $"INVOICE_TRANSITION_{actionLower.ToUpperInvariant()}",
+                Details = $"Invoice {invoice.InvoiceNo} transitioned from '{oldStatus}' to '{invoice.DocumentStatus}' by {userId} ({role}). Reason/Remarks: {reason}",
                 LoggedAt = DateTime.UtcNow
             });
             await _context.SaveChangesAsync(default);
@@ -1035,9 +1106,15 @@ public class InvoicesController : ApiControllerBase
                 var mssqlInv = await _fomsDb.Invoices.FirstOrDefaultAsync(i => i.InvoiceNumber == invoice.InvoiceNo);
                 if (mssqlInv != null)
                 {
-                    mssqlInv.ValidationStatus = "Voided";
-                    mssqlInv.InvoiceStatus = "Voided";
-                    mssqlInv.VoidReason = voidReason;
+                    mssqlInv.DocumentStatus = invoice.DocumentStatus;
+                    mssqlInv.SentDate = invoice.SentDate;
+                    mssqlInv.ReceivedDate = invoice.ReceivedDate;
+                    mssqlInv.ReviewRejectionReason = invoice.ReviewRejectionReason;
+                    mssqlInv.IsDisputed = invoice.IsDisputed;
+                    mssqlInv.DisputeReasonCode = invoice.DisputeReasonCode;
+                    mssqlInv.DisputeRemarks = invoice.DisputeRemarks;
+                    mssqlInv.AccrualRevenueRecognized = invoice.AccrualRevenueRecognized;
+                    mssqlInv.VoidReason = invoice.VoidReason;
                     mssqlInv.UpdatedAt = DateTime.UtcNow;
                     await _fomsDb.SaveChangesAsync();
                 }
@@ -1046,159 +1123,29 @@ public class InvoicesController : ApiControllerBase
 
             return Ok(MapToFrontend(invoice));
         }
-
-        var actionLower = actionName.ToLower();
-
-        if (actionLower == "submit" || actionLower == "submit-review")
+        catch (UnauthorizedAccessException uex)
         {
-            invoice.DocumentStatus = "For Review";
-            invoice.PaymentValidationStatus = "Pending Approval";
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = uex.Message });
         }
-        else if (actionLower == "approve" || actionLower == "verify")
+        catch (ArgumentException aex)
         {
-            invoice.DocumentStatus = "Approved";
-            invoice.PaymentValidationStatus = "Approved";
+            return BadRequest(new { message = aex.Message });
         }
-        else if (actionLower == "reject" || actionLower == "return")
+        catch (InvalidOperationException iex)
         {
-            var rejectReason = request?.ReviewRejectionReason ?? request?.Remarks;
-            if (string.IsNullOrWhiteSpace(rejectReason))
-            {
-                return BadRequest(new { message = "Review rejection reason is required when returning invoice to Draft." });
-            }
-            invoice.DocumentStatus = "Draft";
-            invoice.PaymentValidationStatus = "Draft";
-            invoice.ReviewRejectionReason = rejectReason;
-            invoice.Description = $"[Head Accountant Review Rejection: {rejectReason}] " + invoice.Description;
+            return StatusCode(StatusCodes.Status409Conflict, new { message = iex.Message });
         }
-        else if (actionLower == "send" || actionLower == "dispatch")
+        catch (DbUpdateConcurrencyException)
         {
-            if (!string.Equals(invoice.DocumentStatus, "Approved", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(invoice.PaymentValidationStatus, "Approved", StringComparison.OrdinalIgnoreCase))
-            {
-                return BadRequest(new { message = "Invoice must be in Approved status before it can be Sent to Operations / client." });
-            }
-
-            invoice.DocumentStatus = "Sent";
-            invoice.SentDate = DateTime.UtcNow;
-
-            await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
-            await BillingComputationService.RecognizeAccrualRevenueAsync(invoice, _context);
+            return StatusCode(StatusCodes.Status409Conflict, new { message = "Concurrency conflict: The invoice was modified by another operation. Please refresh and try again." });
         }
-        else if (actionLower == "receive" || actionLower == "mark-received")
+        catch (DbUpdateException dbEx) when (dbEx.InnerException?.Message.Contains("IX_JournalEntries_", StringComparison.OrdinalIgnoreCase) == true ||
+                                             dbEx.InnerException?.Message.Contains("IX_Invoices_AccrualJournalEntryId", StringComparison.OrdinalIgnoreCase) == true ||
+                                             dbEx.InnerException?.Message.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) == true)
         {
-            if (!string.Equals(invoice.DocumentStatus, "Sent", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(invoice.DocumentStatus, "Approved", StringComparison.OrdinalIgnoreCase))
-            {
-                return BadRequest(new { message = "Invoice must be Sent before it can be marked Received." });
-            }
-
-            invoice.DocumentStatus = "Received";
-            invoice.ReceivedDate = request?.ReceivedDate ?? DateTime.UtcNow;
-
-            var clientRec = await _context.Clients.FirstOrDefaultAsync(c => c.Id == invoice.ClientId);
-            int termDays = clientRec?.CreditTermDays ?? 30;
-            var calculatedDue = invoice.ReceivedDate.Value.AddDays(termDays);
-            invoice.DueDate = calculatedDue.ToString("yyyy-MM-dd");
-
-            await BillingComputationService.SyncBillingInvoiceAndReceivableAsync(invoice, _context);
+            return StatusCode(StatusCodes.Status409Conflict, new { message = "Concurrency conflict: AR journal entry was already posted for this invoice by another concurrent request." });
         }
-        else if (actionLower == "dispute" || actionLower == "raise-dispute")
-        {
-            var disputeCode = request?.DisputeReasonCode ?? "DISP-OTHER";
-            var disputeRemarks = request?.Remarks ?? "Dispute raised by client.";
-
-            invoice.DocumentStatus = "Disputed";
-            invoice.IsDisputed = true;
-            invoice.DisputeReasonCode = disputeCode;
-            invoice.DisputeRemarks = disputeRemarks;
-        }
-        else if (actionLower == "resolve-dispute")
-        {
-            invoice.IsDisputed = false;
-            invoice.DocumentStatus = invoice.ReceivedDate.HasValue ? "Received" : (invoice.SentDate.HasValue ? "Sent" : "Approved");
-        }
-        else
-        {
-            invoice.PaymentValidationStatus = actionLower switch
-            {
-                "approve" => "Approved",
-                "reject" => "Draft",
-                "return" => "Draft",
-                _ => invoice.PaymentValidationStatus ?? "Draft"
-            };
-        }
-
-        invoice.UpdatedBy = user;
-        invoice.LastUpdated = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss");
-
-        BillingComputationService.RefreshInvoiceAging(invoice);
-        await _context.SaveChangesAsync(default);
-
-        // Audit Log
-        _context.AuditLogs.Add(new AuditLog
-        {
-            UserId = user,
-            EntityName = "Invoice",
-            EntityId = invoice.Id,
-            Action = $"Invoice {actionName}",
-            Details = $"{actionName.ToUpper()} invoice {invoice.InvoiceNo}. Document Status: {invoice.DocumentStatus}, Payment Status: {invoice.PaymentStatus}. Remarks: {request?.Remarks ?? request?.ReviewRejectionReason ?? "N/A"}",
-            LoggedAt = DateTime.UtcNow
-        });
-        await _context.SaveChangesAsync(default);
-
-        try
-        {
-            var mssqlInv = await _fomsDb.Invoices.FirstOrDefaultAsync(i => i.InvoiceNumber == invoice.InvoiceNo);
-            if (mssqlInv != null)
-            {
-                mssqlInv.ValidationStatus = invoice.PaymentValidationStatus;
-                mssqlInv.InvoiceStatus = invoice.DocumentStatus;
-                mssqlInv.DocumentStatus = invoice.DocumentStatus;
-                mssqlInv.SentDate = invoice.SentDate;
-                mssqlInv.ReceivedDate = invoice.ReceivedDate;
-                mssqlInv.ReviewRejectionReason = invoice.ReviewRejectionReason;
-                mssqlInv.IsDisputed = invoice.IsDisputed;
-                mssqlInv.DisputeReasonCode = invoice.DisputeReasonCode;
-                mssqlInv.DisputeRemarks = invoice.DisputeRemarks;
-                mssqlInv.AccrualRevenueRecognized = invoice.AccrualRevenueRecognized;
-                mssqlInv.UpdatedAt = DateTime.UtcNow;
-                _fomsDb.AuditLogs.Add(new FOMS.Domain.Entities.SqlServer.AuditLog
-                {
-                    action = $"INVOICE_{actionName.ToUpper()}",
-                    module = "Invoices",
-                    role = "Head Accountant",
-                    remarks = $"Invoice {invoice.InvoiceNo} transitioned to DocumentStatus '{invoice.DocumentStatus}'",
-                    created_at = DateTime.UtcNow
-                });
-                await _fomsDb.SaveChangesAsync();
-            }
-        }
-        catch
-        {
-        }
-
-        return Ok(MapToFrontend(invoice));
     }
-
-    [Authorize]
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteInvoice(string id)
-    {
-        var invoice = await _context.Invoices.FirstOrDefaultAsync(i => i.Id == id || i.InvoiceNo == id);
-        if (invoice == null) return NotFound();
-        if (invoice.Archived)
-            return Conflict(new { message = "Retention-archived invoices cannot be hard-deleted." });
-        if (!CanViewInvoice(invoice)) return NotFound();
-
-        var deletedBy = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "User";
-        var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? "User";
-        var result = await Mediator.Send(new InvoiceFeatures.DeleteInvoiceCommand(id, deletedBy, userRole));
-        if (!result) return NotFound();
-        return Ok(new { success = true });
-    }
-
-    public record InvoiceArchiveRequest(bool Archived);
 
     [Authorize]
     [HttpPut("{id}/archive")]
@@ -1221,10 +1168,22 @@ public class InvoicesController : ApiControllerBase
     [HttpPost("review-sampling")]
     public async Task<IActionResult> SampleInvoicesForReview([FromBody] ReviewSamplingRequest? request)
     {
-        var user = User.FindFirst("name")?.Value ?? User.FindFirst(ClaimTypes.Name)?.Value ?? "Head Accountant";
+        var userId = GetCurrentUserId();
+        var role = GetCurrentUserRole();
+
+        if (InvoiceRole.IsAssistantFinanceManager(role, userId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Assistant Finance Manager (EMP-004) cannot sample invoices." });
+        }
+        if (!InvoiceRole.IsHeadAccountant(role, userId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Only Head Accountant (EMP-002) can sample invoices for review." });
+        }
+
+        var user = userId;
 
         var forReviewInvoices = await _context.Invoices
-            .Where(i => !i.Archived && (i.DocumentStatus == "For Review" || i.PaymentValidationStatus == "Pending Approval"))
+            .Where(i => !i.Archived && i.DocumentStatus == InvoiceDocumentStatus.PendingHaVerification)
             .ToListAsync();
 
         if (!forReviewInvoices.Any())
@@ -1267,7 +1226,7 @@ public class InvoicesController : ApiControllerBase
     [HttpGet("aging-report")]
     public async Task<IActionResult> GetAgingReport([FromQuery] int dueSoonDays = 7, [FromQuery] string? clientId = null)
     {
-        var invoicesQuery = _context.Invoices.Where(i => !i.Archived && i.Balance > 0 && i.DocumentStatus != "Voided");
+        var invoicesQuery = _context.Invoices.Where(i => !i.Archived && i.Balance > 0 && i.DocumentStatus != InvoiceDocumentStatus.Void);
         if (!string.IsNullOrWhiteSpace(clientId))
         {
             invoicesQuery = invoicesQuery.Where(i => i.ClientId == clientId);
