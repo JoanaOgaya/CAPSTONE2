@@ -1,5 +1,6 @@
 using FOMS.Application.Services;
 using FOMS.Domain.Constants;
+using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,11 +23,17 @@ public class ApprovalsController : ControllerBase
     private readonly FomsDbContext _fomsDb;
     private readonly ILogger<ApprovalsController> _logger;
 
-    public ApprovalsController(FomsDbContext fomsDb, ILogger<ApprovalsController> logger)
+    private readonly ApplicationDbContext? _appDb;
+
+    public ApprovalsController(FomsDbContext fomsDb, ILogger<ApprovalsController> logger, ApplicationDbContext? appDb = null)
     {
         _fomsDb = fomsDb;
         _logger = logger;
+        _appDb = appDb;
     }
+
+    private ApplicationDbContext? GetAppDb() =>
+        _appDb ?? HttpContext?.RequestServices?.GetService<ApplicationDbContext>();
 
     private (int userId, string username, string role, string employeeId) GetCurrentUserInfo()
     {
@@ -480,8 +487,10 @@ public class ApprovalsController : ControllerBase
         }
 
         // Separation of Duties: Submitter cannot endorse or escalate their own request
-        if ((!string.IsNullOrWhiteSpace(req.SubmittedBy) && (req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase) || req.SubmittedBy.Equals(employeeId, StringComparison.OrdinalIgnoreCase))) ||
-            (!string.IsNullOrWhiteSpace(req.SubmittedById) && (req.SubmittedById.Equals(employeeId, StringComparison.OrdinalIgnoreCase) || req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase))))
+        if (FomsRoles.IsSameEmployeeId(req.SubmittedById, employeeId) ||
+            FomsRoles.IsSameEmployeeId(req.SubmittedBy, employeeId) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedBy) && req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase)))
         {
             return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
         }
@@ -614,8 +623,10 @@ public class ApprovalsController : ControllerBase
         }
 
         // Separation of Duties: Submitter cannot endorse or escalate their own request
-        if ((!string.IsNullOrWhiteSpace(req.SubmittedBy) && (req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase) || req.SubmittedBy.Equals(employeeId, StringComparison.OrdinalIgnoreCase))) ||
-            (!string.IsNullOrWhiteSpace(req.SubmittedById) && (req.SubmittedById.Equals(employeeId, StringComparison.OrdinalIgnoreCase) || req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase))))
+        if (FomsRoles.IsSameEmployeeId(req.SubmittedById, employeeId) ||
+            FomsRoles.IsSameEmployeeId(req.SubmittedBy, employeeId) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedBy) && req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase)))
         {
             return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
         }
@@ -726,8 +737,10 @@ public class ApprovalsController : ControllerBase
         }
 
         // Separation of Duties: Submitter cannot endorse or escalate their own request
-        if ((!string.IsNullOrWhiteSpace(req.SubmittedBy) && (req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase) || req.SubmittedBy.Equals(employeeId, StringComparison.OrdinalIgnoreCase))) ||
-            (!string.IsNullOrWhiteSpace(req.SubmittedById) && (req.SubmittedById.Equals(employeeId, StringComparison.OrdinalIgnoreCase) || req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase))))
+        if (FomsRoles.IsSameEmployeeId(req.SubmittedById, employeeId) ||
+            FomsRoles.IsSameEmployeeId(req.SubmittedBy, employeeId) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedBy) && req.SubmittedBy.Equals(username, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrWhiteSpace(req.SubmittedById) && req.SubmittedById.Equals(username, StringComparison.OrdinalIgnoreCase)))
         {
             return StatusCode(403, new { success = false, message = "Separation of duties violation: Submitter cannot endorse or escalate their own request." });
         }
@@ -829,7 +842,7 @@ public class ApprovalsController : ControllerBase
 
             ca.Status = "Pending Assistant Review";
 
-            bool exceedsThreshold = ca.AmountGiven > maxLimit;
+            bool exceedsThreshold = ThresholdConstants.ExceedsThreshold(ca.AmountGiven, maxLimit);
             string initialStatus = "Pending Assistant Review";
 
             var existingReq = await _fomsDb.CashOutflowApprovalRequests
@@ -859,7 +872,7 @@ public class ApprovalsController : ControllerBase
                     Purpose = ca.Notes ?? ca.TripReference ?? "Cash advance request",
                     Amount = ca.AmountGiven,
                     Currency = "PHP",
-                    ApprovalLevel = "Level 1",
+                    ApprovalLevel = exceedsThreshold ? "Level 2" : "Level 1",
                     AssignedRole = "Assistant of Finance Manager",
                     Status = initialStatus,
                     IsEscalated = exceedsThreshold,
@@ -1002,6 +1015,28 @@ public class ApprovalsController : ControllerBase
                 ca.Status = "Approved";
                 ca.ApprovedBy = username;
                 ca.ApprovedAt = DateTime.UtcNow;
+            }
+        }
+
+        // Sync with Treasury (CashFlowTransactions in ApplicationDbContext) once only
+        var appDb = GetAppDb();
+        if (appDb != null)
+        {
+            var existingTreasury = await appDb.CashFlowTransactions
+                .FirstOrDefaultAsync(c => c.ReferenceNo == req.TransactionReference || c.ReferenceNo == req.CashOutflowId);
+            if (existingTreasury == null)
+            {
+                appDb.CashFlowTransactions.Add(new FOMS.Domain.Entities.CashFlowTransaction
+                {
+                    Date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                    TransactionDate = DateTime.UtcNow,
+                    Type = "Outflow",
+                    Category = req.Category ?? "Disbursement",
+                    Amount = req.Amount,
+                    ReferenceNo = req.TransactionReference,
+                    Description = req.Purpose ?? $"Approved cash outflow {req.TransactionReference}"
+                });
+                await appDb.SaveChangesAsync();
             }
         }
     }

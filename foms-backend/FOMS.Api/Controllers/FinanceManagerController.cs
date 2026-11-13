@@ -799,8 +799,10 @@ public class FinanceManagerController : ControllerBase
     [HttpPost("liquidations/{id}/sign-off")]
     public async Task<IActionResult> ApproveLiquidation(int id, [FromBody] LiquidationDto? dto)
     {
-        var ctrl = new LiquidationsController(_fomsDb) { ControllerContext = ControllerContext };
-        return await ctrl.Act(id, "validate", dto);
+        var appDb = HttpContext?.RequestServices?.GetService<ApplicationDbContext>();
+        var ctrl = new LiquidationsController(_fomsDb, appDb) { ControllerContext = ControllerContext };
+        string action = (dto?.Remarks != null || string.Equals(dto?.Action, "approve", StringComparison.OrdinalIgnoreCase)) ? "approve" : "validate";
+        return await ctrl.Act(id, action, dto);
     }
 
     [HttpPost("liquidations/{id}/reject")]

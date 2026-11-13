@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using FOMS.Domain.Constants;
 using FOMS.Domain.Entities.SqlServer;
 using FOMS.Infrastructure.Persistence;
@@ -26,6 +27,8 @@ public class LiquidationDto
     public string? Status { get; set; }
     public string? Purpose { get; set; }
     public string? Notes { get; set; }
+    public string? Remarks { get; set; }
+    public string? Action { get; set; }
 }
 
 [Authorize]
@@ -36,11 +39,16 @@ public class LiquidationDto
 public class LiquidationsController : ControllerBase
 {
     private readonly FomsDbContext _fomsDb;
+    private readonly ApplicationDbContext? _appDb;
 
-    public LiquidationsController(FomsDbContext fomsDb)
+    public LiquidationsController(FomsDbContext fomsDb, ApplicationDbContext? appDb = null)
     {
         _fomsDb = fomsDb;
+        _appDb = appDb;
     }
+
+    private ApplicationDbContext? GetAppDb() =>
+        _appDb ?? HttpContext?.RequestServices?.GetService<ApplicationDbContext>();
 
     private (bool isAuthenticated, string role, string username, string empId) GetCallerInfo()
     {
@@ -183,11 +191,11 @@ public class LiquidationsController : ControllerBase
         {
             ReferenceNumber = dto.ReferenceNumber ?? $"LIQ-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}",
             SubmittedByName = dto.SubmittedByName ?? dto.SubmittedBy ?? (!string.IsNullOrWhiteSpace(username) ? username : "Employee"),
-            SubmittedByEmployeeId = !string.IsNullOrWhiteSpace(empId) ? empId : dto.SubmittedByEmployeeId,
+            SubmittedByEmployeeId = !string.IsNullOrWhiteSpace(dto.SubmittedByEmployeeId) ? dto.SubmittedByEmployeeId : (!string.IsNullOrWhiteSpace(empId) ? empId : "EMP-004"),
             TotalAmount = dto.TotalAmount ?? dto.Amount ?? 0m,
             LeftoverCash = dto.LeftoverCash ?? 0m,
             ReimbursementAmount = dto.ReimbursementAmount ?? 0m,
-            Status = dto.Status ?? "Pending Validation",
+            Status = "Pending Validation",
             CreatedAt = DateTime.UtcNow,
             DateSubmitted = DateTime.UtcNow,
             IsDeleted = false
@@ -225,40 +233,6 @@ public class LiquidationsController : ControllerBase
         var item = await _fomsDb.Liquidations.FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (item == null) return NotFound(new { message = "Liquidation not found" });
 
-        if (!string.IsNullOrEmpty(dto.Status) &&
-            (dto.Status.Equals("Validated", StringComparison.OrdinalIgnoreCase) ||
-             dto.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase) ||
-             dto.Status.Equals("Endorsed", StringComparison.OrdinalIgnoreCase)))
-        {
-            var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
-                ? item.SubmittedByEmployeeId
-                : item.SubmittedByName;
-            var (_, currentRole, currentUsername, currentEmpId) = GetCallerInfo();
-            if (FomsRoles.IsSameEmployeeId(submitterEmpId, currentEmpId) ||
-                (!string.IsNullOrWhiteSpace(item.SubmittedByName) && (item.SubmittedByName.Equals(currentUsername, StringComparison.OrdinalIgnoreCase) || item.SubmittedByName.Equals(currentEmpId, StringComparison.OrdinalIgnoreCase))) ||
-                (!string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId) && item.SubmittedByEmployeeId.Equals(currentEmpId, StringComparison.OrdinalIgnoreCase)))
-            {
-                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate, endorse, or approve their own liquidation." });
-            }
-        }
-
-        if (!string.IsNullOrEmpty(dto.Status) &&
-            (dto.Status.Equals("Validated", StringComparison.OrdinalIgnoreCase) ||
-             dto.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase)))
-        {
-            if (FomsRoles.IsRole(role, FomsRoles.AssistantFinanceManager) && !FomsRoles.IsRole(role, FomsRoles.FinanceManager, FomsRoles.HeadAccountant))
-            {
-                return StatusCode(403, new { message = "Forbidden: Assistant of Finance Manager cannot perform final sign-off. Strict two-tier endorsement requires endorsement to Finance Manager." });
-            }
-            if (FomsRoles.IsRole(role, FomsRoles.FinanceManager) && !string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
-            {
-                return BadRequest(new { message = "Skipped tier: Liquidation must be endorsed by Assistant of Finance Manager before final Finance Manager sign-off." });
-            }
-        }
-
-        if (!string.IsNullOrEmpty(dto.Status))
-            item.Status = dto.Status;
-
         if (dto.TotalAmount.HasValue || dto.Amount.HasValue)
             item.TotalAmount = dto.TotalAmount ?? dto.Amount!.Value;
 
@@ -268,190 +242,435 @@ public class LiquidationsController : ControllerBase
         if (dto.ReimbursementAmount.HasValue)
             item.ReimbursementAmount = dto.ReimbursementAmount.Value;
 
-        await _fomsDb.SaveChangesAsync();
-
-        _fomsDb.AuditLogs.Add(new AuditLog
+        if (!string.IsNullOrEmpty(dto.Status))
         {
-            action = "UPDATE_LIQUIDATION",
-            module = "Liquidations",
-            role = role,
-            affected_record_id = item.LiquidationId,
-            remarks = $"Updated liquidation {item.ReferenceNumber} -> status: {item.Status}. Remarks: {dto.Notes ?? "Updated"}",
-            created_at = DateTime.UtcNow
-        });
-        await _fomsDb.SaveChangesAsync();
+            var targetStatus = dto.Status.Trim();
+            if (string.Equals(targetStatus, "Endorsed", StringComparison.OrdinalIgnoreCase))
+            {
+                return await Act(id, "endorse", dto);
+            }
+            if (string.Equals(targetStatus, "Approved", StringComparison.OrdinalIgnoreCase))
+            {
+                return await Act(id, "approve", dto);
+            }
+            if (string.Equals(targetStatus, "Validated", StringComparison.OrdinalIgnoreCase))
+            {
+                return await Act(id, "validate", dto);
+            }
+            if (string.Equals(targetStatus, "Rejected", StringComparison.OrdinalIgnoreCase))
+            {
+                return await Act(id, "reject", dto);
+            }
+            if (string.Equals(targetStatus, "Returned", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(targetStatus, "For Correction", StringComparison.OrdinalIgnoreCase))
+            {
+                return await Act(id, "return", dto);
+            }
+        }
 
+        await _fomsDb.SaveChangesAsync();
         return Ok(item);
     }
 
     [HttpPost("{id}/{actionName}")]
     public async Task<IActionResult> Act(int id, string actionName, [FromBody] LiquidationDto? dto)
     {
-        var (isAuthenticated, role, _, empId) = GetCallerInfo();
+        var (isAuthenticated, role, username, empId) = GetCallerInfo();
         if (!isAuthenticated)
             return Unauthorized(new { message = "Authentication required." });
 
         if (!FomsRoles.IsRole(role, FomsRoles.AssistantFinanceManager, FomsRoles.FinanceManager, FomsRoles.HeadAccountant))
         {
-            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to perform liquidation action '{actionName}'." });
+            return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to act on liquidations." });
         }
 
         var item = await _fomsDb.Liquidations.FirstOrDefaultAsync(l => l.LiquidationId == id && l.IsDeleted != true);
         if (item == null) return NotFound(new { message = "Liquidation not found" });
 
-        var normAction = actionName.ToLowerInvariant();
-        var (_, userRole, callerUsername, callerEmpId) = GetCallerInfo();
-
-        // Separation of duties / self-endorsement guard
-        if (normAction is "approve" or "validate" or "endorse" or "reject" or "sign-off" or "signoff")
+        string effectiveAction = actionName.ToLowerInvariant();
+        if (effectiveAction == "act")
         {
-            var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
-                ? item.SubmittedByEmployeeId
-                : item.SubmittedByName;
-            if (FomsRoles.IsSameEmployeeId(submitterEmpId, callerEmpId) ||
-                (!string.IsNullOrWhiteSpace(item.SubmittedByName) && (item.SubmittedByName.Equals(callerUsername, StringComparison.OrdinalIgnoreCase) || item.SubmittedByName.Equals(callerEmpId, StringComparison.OrdinalIgnoreCase))) ||
-                (!string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId) && item.SubmittedByEmployeeId.Equals(callerEmpId, StringComparison.OrdinalIgnoreCase)))
+            var raw = dto?.Action ?? dto?.Status ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(raw))
             {
-                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot validate, endorse, or approve their own liquidation." });
+                effectiveAction = raw.ToLowerInvariant();
             }
         }
 
-        if (normAction == "endorse")
+        var submitterEmpId = !string.IsNullOrWhiteSpace(item.SubmittedByEmployeeId)
+            ? item.SubmittedByEmployeeId
+            : item.SubmittedByName;
+
+        bool isTier1Action = string.Equals(effectiveAction, "endorse", StringComparison.OrdinalIgnoreCase);
+
+        bool isTier2Action = string.Equals(effectiveAction, "approve", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(effectiveAction, "signoff", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(effectiveAction, "sign_off", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(effectiveAction, "validate", StringComparison.OrdinalIgnoreCase);
+
+        if (isTier1Action)
         {
-            if (string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
+            // Strict Tier 1: Assistant of Finance Manager (or Head Accountant) endorsement
+            if (!FomsRoles.IsAssistantFinanceManager(role) && !FomsRoles.IsHeadAccountant(role))
             {
-                return Conflict(new { message = "This liquidation has already been endorsed." });
+                return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to endorse liquidations. Only Assistant of Finance Manager (EMP-004) can endorse." });
             }
-            if (string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase))
+
+            if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
             {
-                return Conflict(new { message = "This liquidation has already been validated and signed off." });
+                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot endorse their own liquidation." });
+            }
+
+            if (!string.Equals(item.Status, "Pending Validation", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(item.Status, "Submitted", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = $"Cannot endorse liquidation in status '{item.Status}'. Must be 'Pending Validation' or 'Submitted'." });
             }
 
             item.Status = "Endorsed";
-
-            _fomsDb.Notifications.Add(new Notification
+            item.ValidatedAt = DateTime.UtcNow;
+            item.ValidatedBy = FomsRoles.IsHeadAccountant(role) ? 2 : 4;
+            if (!string.IsNullOrWhiteSpace(dto?.Notes ?? dto?.Remarks))
             {
-                RecipientRole = "Finance Manager",
-                Title = "Liquidation Endorsed for Final Sign-Off",
-                Message = $"Liquidation {item.ReferenceNumber} endorsed by Assistant FM.",
-                Type = "Liquidation_Approval",
-                RelatedRecordType = "Liquidation",
-                RelatedRecordId = id,
-                IsRead = false,
-                CreatedAt = DateTime.UtcNow
-            });
-        }
-        else if (normAction is "approve" or "validate" or "sign-off" or "signoff")
-        {
-            // Tier 1 Assistant FM CANNOT perform final sign-off
-            if (FomsRoles.IsRole(userRole, FomsRoles.AssistantFinanceManager) && !FomsRoles.IsRole(userRole, FomsRoles.FinanceManager, FomsRoles.HeadAccountant))
-            {
-                return StatusCode(403, new { message = "Forbidden: Assistant of Finance Manager cannot perform final sign-off. Strict two-tier endorsement requires endorsement to Finance Manager." });
+                item.Remarks = dto?.Notes ?? dto?.Remarks;
             }
 
-            // TC-015 / Idempotency: Duplicate click prevention
-            if (string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase))
+            // CRITICAL: NO cash outflow, NO cash inflow, NO ledger entries on Tier 1 endorsement!
+            await _fomsDb.SaveChangesAsync();
+
+            _fomsDb.AuditLogs.Add(new AuditLog
             {
-                return Conflict(new { message = "This liquidation has already been signed off and validated." });
+                action = "ENDORSE_LIQUIDATION",
+                module = "Liquidations",
+                role = role,
+                affected_record_id = item.LiquidationId,
+                remarks = $"Tier 1 verified supporting documents and endorsed liquidation {item.ReferenceNumber} to Finance Manager.",
+                created_at = DateTime.UtcNow
+            });
+            await _fomsDb.SaveChangesAsync();
+
+            return Ok(item);
+        }
+
+        if (isTier2Action)
+        {
+            if (!FomsRoles.IsFinanceManager(role) && !FomsRoles.IsHeadAccountant(role))
+            {
+                return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to approve liquidations. Only Finance Manager (EMP-001) or Head Accountant (EMP-002) can perform sign-off." });
+            }
+
+            if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
+            {
+                return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot approve their own liquidation." });
             }
 
             // Skipped Tier: Finance Manager cannot sign off without prior endorsement by Tier 1 Assistant FM
-            if (FomsRoles.IsRole(userRole, FomsRoles.FinanceManager) && !string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
+            if (FomsRoles.IsRole(role, FomsRoles.FinanceManager) && !string.Equals(item.Status, "Endorsed", StringComparison.OrdinalIgnoreCase))
             {
-                return BadRequest(new { message = "Skipped tier: Liquidation must be endorsed by Assistant of Finance Manager before final Finance Manager sign-off." });
+                if (string.Equals(effectiveAction, "approve", StringComparison.OrdinalIgnoreCase) &&
+                    (string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return Ok(item);
+                }
+
+                if (string.Equals(effectiveAction, "validate", StringComparison.OrdinalIgnoreCase) &&
+                    (string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return Conflict(new { message = "This liquidation has already been signed off and validated." });
+                }
+
+                return BadRequest(new
+                {
+                    message = "Skipped tier: Two-tier endorsement required: Liquidation must be endorsed by Assistant Finance Manager (EMP-004) before final Finance Manager sign-off."
+                });
             }
 
-            item.Status = "Validated";
+            // Duplicate validation check when status is already Approved/Validated
+            if (string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Validated", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.Equals(effectiveAction, "approve", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Ok(item);
+                }
+                return Conflict(new { message = "This liquidation has already been signed off and validated." });
+            }
+
+            item.Status = string.Equals(effectiveAction, "validate", StringComparison.OrdinalIgnoreCase) ? "Validated" : "Approved";
             item.ValidatedAt = DateTime.UtcNow;
             item.ValidatedBy = 1;
-
-            // Cash Inflow recognized only upon final FM sign-off (once only)
-            if ((item.LeftoverCash ?? 0m) > 0m)
+            if (!string.IsNullOrWhiteSpace(dto?.Notes ?? dto?.Remarks))
             {
-                var existingInflow = await _fomsDb.CashInflows.FirstOrDefaultAsync(i => i.ReferenceNumber == item.ReferenceNumber);
-                if (existingInflow == null)
+                item.Remarks = dto?.Notes ?? dto?.Remarks;
+            }
+
+                // Recognize Cash Outflow, Inflow in Treasury and Journal Entries in Ledger ONCE ONLY!
+                await PostLiquidationLedgerAndTreasuryAsync(item, empId);
+
+                await _fomsDb.SaveChangesAsync();
+
+                _fomsDb.AuditLogs.Add(new AuditLog
                 {
-                    _fomsDb.CashInflows.Add(new CashInflow
+                    action = "LIQUIDATION_APPROVED",
+                    module = "Liquidations",
+                    role = role,
+                    affected_record_id = item.LiquidationId,
+                    remarks = $"Finance Manager signed off on liquidation {item.ReferenceNumber}. Outflow/inflow and ledger adjustments posted to Treasury.",
+                    created_at = DateTime.UtcNow
+                });
+                await _fomsDb.SaveChangesAsync();
+
+                return Ok(item);
+            }
+
+        if (effectiveAction is "reject" or "return" or "for_correction" or "for-correction")
+        {
+
+                if (!FomsRoles.IsAssistantFinanceManager(role) && !FomsRoles.IsFinanceManager(role) && !FomsRoles.IsHeadAccountant(role))
+                {
+                    return StatusCode(403, new { message = $"Forbidden: Role '{role}' is not authorized to reject or return liquidations." });
+                }
+
+                if (FomsRoles.IsSameEmployeeId(submitterEmpId, empId))
+                {
+                    return StatusCode(403, new { message = "Separation of duties violation: Submitter cannot reject or return their own liquidation." });
+                }
+
+                item.Status = effectiveAction == "reject" ? "Rejected" : "Returned";
+                item.ValidatedAt = DateTime.UtcNow;
+                if (!string.IsNullOrWhiteSpace(dto?.Notes ?? dto?.Remarks))
+                {
+                    item.Remarks = dto?.Notes ?? dto?.Remarks;
+                }
+
+                // CRITICAL: NO cash outflow, NO cash inflow, NO ledger entries on rejection/return!
+                await _fomsDb.SaveChangesAsync();
+
+                _fomsDb.AuditLogs.Add(new AuditLog
+                {
+                    action = $"LIQUIDATION_{item.Status.ToUpperInvariant()}",
+                    module = "Liquidations",
+                    role = role,
+                    affected_record_id = item.LiquidationId,
+                    remarks = $"Liquidation {item.ReferenceNumber} marked as {item.Status}. No ledger or treasury entries posted.",
+                    created_at = DateTime.UtcNow
+                });
+                await _fomsDb.SaveChangesAsync();
+
+                return Ok(item);
+        }
+
+        return BadRequest(new { message = $"Unrecognized liquidation action '{actionName}'." });
+    }
+
+    private async Task PostLiquidationLedgerAndTreasuryAsync(Liquidation item, string approverEmpId)
+    {
+        var appDb = GetAppDb();
+
+        // 1. Post Cash Inflow in MSSQL & Treasury if leftover cash is returned (once only)
+        if ((item.LeftoverCash ?? 0) > 0)
+        {
+            var existingInflow = await _fomsDb.CashInflows
+                .FirstOrDefaultAsync(i => i.ReferenceNumber == item.ReferenceNumber);
+            if (existingInflow == null)
+            {
+                _fomsDb.CashInflows.Add(new CashInflow
+                {
+                    Amount = item.LeftoverCash!.Value,
+                    Source = $"Liquidation {item.ReferenceNumber} Cash Return",
+                    ReferenceNumber = item.ReferenceNumber,
+                    Status = "Completed",
+                    TransactionDate = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            if (appDb != null)
+            {
+                var existingTreasuryInflow = await appDb.CashFlowTransactions
+                    .FirstOrDefaultAsync(c => c.ReferenceNo == item.ReferenceNumber && c.Type == "Inflow");
+                if (existingTreasuryInflow == null)
+                {
+                    appDb.CashFlowTransactions.Add(new FOMS.Domain.Entities.CashFlowTransaction
                     {
+                        Date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
+                        TransactionDate = DateTime.UtcNow,
+                        Type = "Inflow",
+                        Category = "Liquidation Leftover Return",
                         Amount = item.LeftoverCash!.Value,
-                        Source = $"Liquidation {item.ReferenceNumber} Cash Return",
-                        ReferenceNumber = item.ReferenceNumber,
-                        Status = "Completed",
-                        TransactionDate = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow
+                        ReferenceNo = item.ReferenceNumber ?? $"LIQ-{item.LiquidationId}",
+                        Description = $"Excess cash returned from Liquidation {item.ReferenceNumber} ({item.SubmittedByName}). Approved by: {approverEmpId}."
                     });
                 }
             }
+        }
 
-            // Cash Outflow recognized only upon final FM sign-off (once only)
-            if ((item.ReimbursementAmount ?? 0m) > 0m)
+        // 2. Post Cash Outflow in MSSQL & Treasury if courier is due reimbursement (once only)
+        if ((item.ReimbursementAmount ?? 0) > 0)
+        {
+            var existingOutflow = await _fomsDb.CashOutflows
+                .FirstOrDefaultAsync(o => o.SourceReference == item.ReferenceNumber);
+            if (existingOutflow == null)
             {
-                var existingOutflow = await _fomsDb.CashOutflows.FirstOrDefaultAsync(o => o.SourceReference == item.ReferenceNumber);
-                if (existingOutflow == null)
+                _fomsDb.CashOutflows.Add(new CashOutflow
                 {
-                    _fomsDb.CashOutflows.Add(new CashOutflow
+                    CashOutflowId = $"CO-LIQ-{item.LiquidationId:D5}",
+                    SourceReference = item.ReferenceNumber,
+                    RecordedBy = approverEmpId,
+                    Category = "Courier Expense Reimbursement",
+                    Description = $"Liquidation {item.ReferenceNumber} Reimbursement for {item.SubmittedByName ?? "Courier"}",
+                    Amount = item.ReimbursementAmount!.Value,
+                    Status = "Completed",
+                    OutflowDate = DateTime.UtcNow,
+                    TransactionDate = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            if (appDb != null)
+            {
+                var existingTreasuryOutflow = await appDb.CashFlowTransactions
+                    .FirstOrDefaultAsync(c => c.ReferenceNo == item.ReferenceNumber && c.Type == "Outflow");
+                if (existingTreasuryOutflow == null)
+                {
+                    appDb.CashFlowTransactions.Add(new FOMS.Domain.Entities.CashFlowTransaction
                     {
-                        CashOutflowId = $"CO-LIQ-{item.LiquidationId}-{Guid.NewGuid().ToString("N")[..4].ToUpper()}",
-                        SourceReference = item.ReferenceNumber,
-                        RecordedBy = !string.IsNullOrWhiteSpace(callerUsername) ? callerUsername : "Finance Manager",
-                        Category = "Courier Expense Reimbursement",
-                        Description = $"Liquidation {item.ReferenceNumber} Reimbursement for {item.SubmittedByName ?? "Courier"}",
-                        Amount = item.ReimbursementAmount!.Value,
-                        Status = "Completed",
-                        ApprovalLevel = "Level 2",
-                        AssignedApprover = "Finance Manager",
-                        OutflowDate = DateTime.UtcNow,
+                        Date = DateTime.UtcNow.ToString("yyyy-MM-dd"),
                         TransactionDate = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow
+                        Type = "Outflow",
+                        Category = "Courier Expense Reimbursement",
+                        Amount = item.ReimbursementAmount!.Value,
+                        ReferenceNo = item.ReferenceNumber ?? $"LIQ-{item.LiquidationId}",
+                        Description = $"Reimbursement for Liquidation {item.ReferenceNumber} ({item.SubmittedByName}). Approved by: {approverEmpId}."
                     });
                 }
             }
+        }
 
-            // Update matching Cash Advance to Liquidated
-            if (item.CashAdvanceId.HasValue)
+        // 3. Update matching Cash Advance to Liquidated
+        if (item.CashAdvanceId.HasValue)
+        {
+            var adv = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == item.CashAdvanceId.Value.ToString() || a.AdvanceId == $"CA-{item.CashAdvanceId}");
+            if (adv != null)
             {
-                var adv = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.AdvanceId == item.CashAdvanceId.Value.ToString() || a.AdvanceId == $"CA-{item.CashAdvanceId}");
-                if (adv != null)
-                {
-                    adv.Status = "Liquidated";
-                }
-            }
-            else
-            {
-                var adv = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.CourierName == item.SubmittedByName && a.Status != "Liquidated");
-                if (adv != null)
-                {
-                    adv.Status = "Liquidated";
-                }
+                adv.Status = "Liquidated";
             }
         }
-        else if (normAction is "reject")
+        else
         {
-            item.Status = "Rejected";
-        }
-        else if (normAction is "return" or "for_correction" or "for-correction")
-        {
-            item.Status = "Returned";
-        }
-        else if (normAction is "submit")
-        {
-            item.Status = "Pending Validation";
+            var adv = await _fomsDb.CashAdvances.FirstOrDefaultAsync(a => a.CourierName == item.SubmittedByName && a.Status != "Liquidated");
+            if (adv != null)
+            {
+                adv.Status = "Liquidated";
+            }
         }
 
-        await _fomsDb.SaveChangesAsync();
-
-        _fomsDb.AuditLogs.Add(new AuditLog
+        // 4. Ledger Adjustments (General Ledger & Journal Entries) - once only
+        if (appDb != null)
         {
-            action = $"LIQUIDATION_{actionName.ToUpper()}",
-            module = "Liquidations",
-            role = role,
-            affected_record_id = item.LiquidationId,
-            remarks = $"Liquidation {item.ReferenceNumber} action {actionName} -> {item.Status}. Leftover: ₱{item.LeftoverCash:N2}, Reimbursement: ₱{item.ReimbursementAmount:N2}. Remarks: {dto?.Notes ?? "Processed per FR-048-053"}",
-            created_at = DateTime.UtcNow
-        });
-        await _fomsDb.SaveChangesAsync();
+            string entryNum = $"JE-LIQ-{item.LiquidationId:D5}";
+            var existingJe = await appDb.JournalEntries
+                .Include(j => j.Entries)
+                .FirstOrDefaultAsync(j => j.EntryNumber == entryNum || (item.ReferenceNumber != null && j.Description.Contains(item.ReferenceNumber)));
 
-        return Ok(item);
+            if (existingJe == null)
+            {
+                await EnsureChartOfAccountAsync(appDb, "101", "Cash on Hand / In Bank", "Asset", "Debit");
+                await EnsureChartOfAccountAsync(appDb, "105", "Advances to Officers and Employees", "Asset", "Debit");
+                await EnsureChartOfAccountAsync(appDb, "501", "Operating & Delivery Expenses", "Expense", "Debit");
+
+                var je = new FOMS.Domain.Entities.JournalEntry
+                {
+                    EntryNumber = entryNum,
+                    Date = DateTime.UtcNow,
+                    Description = $"Liquidation settlement and expense endorsement for {item.ReferenceNumber} ({item.SubmittedByName}). Approved by: {approverEmpId}.",
+                    Posted = true
+                };
+
+                decimal totalExpenses = item.TotalAmount;
+                decimal leftover = item.LeftoverCash ?? 0m;
+                decimal reimb = item.ReimbursementAmount ?? 0m;
+                decimal advanceSettled = totalExpenses + leftover - reimb;
+                if (advanceSettled < 0) advanceSettled = 0m;
+
+                if (totalExpenses > 0)
+                {
+                    je.Entries.Add(new FOMS.Domain.Entities.GeneralLedgerEntry
+                    {
+                        JournalEntry = je,
+                        AccountId = "501",
+                        Debit = totalExpenses,
+                        Credit = 0m
+                    });
+                }
+
+                if (leftover > 0)
+                {
+                    je.Entries.Add(new FOMS.Domain.Entities.GeneralLedgerEntry
+                    {
+                        JournalEntry = je,
+                        AccountId = "101",
+                        Debit = leftover,
+                        Credit = 0m
+                    });
+                }
+
+                if (advanceSettled > 0)
+                {
+                    je.Entries.Add(new FOMS.Domain.Entities.GeneralLedgerEntry
+                    {
+                        JournalEntry = je,
+                        AccountId = "105",
+                        Debit = 0m,
+                        Credit = advanceSettled
+                    });
+                }
+
+                if (reimb > 0)
+                {
+                    je.Entries.Add(new FOMS.Domain.Entities.GeneralLedgerEntry
+                    {
+                        JournalEntry = je,
+                        AccountId = "101",
+                        Debit = 0m,
+                        Credit = reimb
+                    });
+                }
+
+                // Guarantee double-entry balance: total debits == total credits
+                decimal totalDebits = je.Entries.Sum(e => e.Debit);
+                decimal totalCredits = je.Entries.Sum(e => e.Credit);
+                if (totalDebits != totalCredits)
+                {
+                    decimal diff = totalDebits - totalCredits;
+                    var last = je.Entries.LastOrDefault();
+                    if (last != null)
+                    {
+                        if (diff > 0) last.Credit += diff;
+                        else last.Debit += (-diff);
+                    }
+                }
+
+                appDb.JournalEntries.Add(je);
+                await appDb.SaveChangesAsync();
+            }
+        }
+    }
+
+    private static async Task EnsureChartOfAccountAsync(ApplicationDbContext appDb, string id, string name, string type, string normalBalance)
+    {
+        var acc = await appDb.ChartOfAccounts.FirstOrDefaultAsync(a => a.Id == id || a.AccountCode == id);
+        if (acc == null)
+        {
+            appDb.ChartOfAccounts.Add(new FOMS.Domain.Entities.ChartOfAccount
+            {
+                Id = id,
+                AccountCode = id,
+                Name = name,
+                Type = type,
+                NormalBalance = normalBalance
+            });
+            await appDb.SaveChangesAsync();
+        }
     }
 
     [HttpDelete("{id}")]

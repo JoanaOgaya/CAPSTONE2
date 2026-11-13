@@ -253,31 +253,31 @@ public class Invoice
     [Column("UpdatedBy")]
     public string? UpdatedBy { get; set; }
 
-    [Column("has_ctc")]
+    [Column("HasCtc")]
     public bool HasCtc { get; set; } = false;
 
-    [Column("ctc_waybills")]
+    [Column("CtcWaybills")]
     public string? CtcWaybills { get; set; }
 
-    [Column("discount_amount")]
+    [Column("DiscountAmount")]
     public decimal DiscountAmount { get; set; } = 0m;
 
-    [Column("discount_rate")]
+    [Column("DiscountRate")]
     public decimal DiscountRate { get; set; } = 0m;
 
-    [Column("discount_approved_by")]
+    [Column("DiscountApprovedBy")]
     public string? DiscountApprovedBy { get; set; }
 
-    [Column("discount_reason")]
+    [Column("DiscountReason")]
     public string? DiscountReason { get; set; }
 
-    [Column("is_suspect")]
+    [Column("IsSuspect")]
     public bool IsSuspect { get; set; } = false;
 
-    [Column("suspect_reason")]
+    [Column("SuspectReason")]
     public string? SuspectReason { get; set; }
 
-    [Column("void_reason")]
+    [Column("VoidReason")]
     public string? VoidReason { get; set; }
 
     [Column("DocumentStatus")]
@@ -741,7 +741,7 @@ public class Waybill
     [Column("accounting_checked_by")]
     public string? AccountingCheckedBy { get; set; }
 
-    [Column("has_ctc")]
+    [Column("HasCtc")]
     public bool HasCtc { get; set; } = false;
 
     [Column("ctc_document_url")]
@@ -2251,3 +2251,5 @@ public class BudgetTransfer
     [Column("rejection_reason")]
     public string? RejectionReason { get; set; }
 }
+
+

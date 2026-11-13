@@ -671,7 +671,7 @@ const ReportsContent: React.FC = () => {
       body: bodyData,
       theme: 'striped',
       headStyles: {
-        fillColor: [13, 148, 136], // #0D9488
+        fillColor: [0, 169, 157], // #00A99D
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         fontSize: 8.5,
@@ -746,7 +746,7 @@ const ReportsContent: React.FC = () => {
         {/* Header row: title left, export buttons right */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderBottom: '1px solid #F1F5F9' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <i className="ti ti-filter" style={{ fontSize: '15px', color: '#0D9488' }} />
+            <i className="ti ti-filter" style={{ fontSize: '15px', color: '#00A99D' }} />
             <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0F172A' }}>Compile Parameters</span>
           </div>
           {/* Export & Actions */}
@@ -767,9 +767,9 @@ const ReportsContent: React.FC = () => {
             </button>
             <button
               onClick={handleExportPDF}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: '#0D9488', border: 'none', borderRadius: 8, fontSize: '0.82rem', fontWeight: 700, color: '#fff', cursor: 'pointer', transition: 'background 0.15s', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(13,148,136,0.25)' }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#0F766E')}
-              onMouseLeave={e => (e.currentTarget.style.background = '#0D9488')}>
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', background: '#00A99D', border: 'none', borderRadius: 8, fontSize: '0.82rem', fontWeight: 700, color: '#fff', cursor: 'pointer', transition: 'background 0.15s', whiteSpace: 'nowrap', boxShadow: '0 2px 6px rgba(13,148,136,0.25)' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#009189')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#00A99D')}>
               <i className="ti ti-file-description" style={{ fontSize: '15px' }} /> Export Formal PDF
             </button>
           </div>
@@ -896,9 +896,9 @@ const ReportsContent: React.FC = () => {
           <div style={{ flexShrink: 0 }}>
             <button
               onClick={handleGenerateReport}
-              style={{ background: '#0D9488', color: '#ffffff', padding: '9px 18px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', transition: 'background 0.15s', boxShadow: '0 2px 6px rgba(13,148,136,0.25)' }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#0F766E')}
-              onMouseLeave={e => (e.currentTarget.style.background = '#0D9488')}
+              style={{ background: '#00A99D', color: '#ffffff', padding: '9px 18px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', transition: 'background 0.15s', boxShadow: '0 2px 6px rgba(13,148,136,0.25)' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#009189')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#00A99D')}
             >
               <i className="ti ti-chart-pie" style={{ fontSize: '15px' }} />
               Generate Report
@@ -917,7 +917,7 @@ const ReportsContent: React.FC = () => {
 
         {/* Dynamic Report Header */}
         <div style={{ background: '#fff', borderRadius: 12, padding: '20px 24px', border: '1px solid #E2E8F0', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
-          <p style={{ margin: '0 0 6px', fontSize: '0.75rem', fontWeight: 800, color: '#0D9488', textTransform: 'uppercase', letterSpacing: '0.05em' }}>OFFICIAL FOMS REPORT</p>
+          <p style={{ margin: '0 0 6px', fontSize: '0.75rem', fontWeight: 800, color: '#00A99D', textTransform: 'uppercase', letterSpacing: '0.05em' }}>OFFICIAL FOMS REPORT</p>
           <h2 style={{ margin: '0 0 8px', fontSize: '1.5rem', fontWeight: 800, color: '#0F172A' }}>
             {compileLedgerType}
           </h2>
@@ -1062,7 +1062,7 @@ const ReportsContent: React.FC = () => {
                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} dy={10} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748B' }} allowDecimals={false} width={40} />
                       <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                      <Bar dataKey="value" fill="#0D9488" radius={[6, 6, 0, 0]} maxBarSize={60}>
+                      <Bar dataKey="value" fill="#00A99D" radius={[6, 6, 0, 0]} maxBarSize={60}>
                         {statusData.map((entry, idx) => (
                           <Cell key={`cell-${idx}`} fill={entry.color} />
                         ))}

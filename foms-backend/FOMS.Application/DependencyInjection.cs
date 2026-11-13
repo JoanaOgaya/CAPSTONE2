@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<IFinancialStatementService, FinancialStatementService>();
         services.AddScoped<ICeoApprovalGateService, CeoApprovalGateService>();
         services.AddScoped<IDepartmentService, DepartmentService>();
+        services.AddScoped<IThresholdConfigurationService, ThresholdConfigurationService>();
         return services;
     }
 }

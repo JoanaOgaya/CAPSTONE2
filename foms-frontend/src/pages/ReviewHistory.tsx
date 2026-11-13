@@ -80,16 +80,45 @@ const ReviewHistory: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Top Header Row with View Switcher & Export */}
+      {/* Speedex OneUI Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
-        <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid #CBD5E1', overflow: 'hidden', background: '#F8FAFC' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#0F172A', fontFamily: 'var(--fh, Montserrat, sans-serif)' }}>
+              Review History
+            </h2>
+            <span
+              style={{
+                background: '#F0FDFA',
+                color: '#00A99D',
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '3px 8px',
+                borderRadius: '6px',
+                border: '1px solid #CCFBF1',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <i className="ti ti-history" style={{ fontSize: '11px' }} />
+              Audit Trail
+            </span>
+          </div>
+          <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748B' }}>
+            Complete audit trail of duplicate detection decisions and supervisory reviews.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid #CBD5E1', overflow: 'hidden', background: '#F8FAFC' }}>
           <button
             type="button"
             onClick={() => setViewMode('cards')}
             style={{
               padding: '8px 14px',
               border: 'none',
-              background: viewMode === 'cards' ? '#0D9488' : 'transparent',
+              background: viewMode === 'cards' ? '#00A99D' : 'transparent',
               color: viewMode === 'cards' ? '#FFFFFF' : '#64748B',
               fontWeight: 700,
               fontSize: '0.82rem',
@@ -108,7 +137,7 @@ const ReviewHistory: React.FC = () => {
             style={{
               padding: '8px 14px',
               border: 'none',
-              background: viewMode === 'table' ? '#0D9488' : 'transparent',
+              background: viewMode === 'table' ? '#00A99D' : 'transparent',
               color: viewMode === 'table' ? '#FFFFFF' : '#64748B',
               fontWeight: 700,
               fontSize: '0.82rem',
@@ -133,6 +162,7 @@ const ReviewHistory: React.FC = () => {
             disabled={items.length === 0}
           />
         )}
+        </div>
       </div>
 
       {scope === 'liquidation' && (
@@ -256,7 +286,7 @@ const ReviewHistory: React.FC = () => {
               padding: '8px 16px',
               borderRadius: 8,
               border: 'none',
-              background: '#0D9488',
+              background: '#00A99D',
               color: '#fff',
               fontSize: '13px',
               fontWeight: 600,

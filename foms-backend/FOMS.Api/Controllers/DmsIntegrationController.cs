@@ -640,4 +640,56 @@ public class DmsIntegrationController : ControllerBase
 
         return Ok(result);
     }
+
+    public class CleanupTestDataRequest
+    {
+        public List<string>? Waybills { get; set; }
+        public List<string>? Invoices { get; set; }
+        public List<string>? Advances { get; set; }
+    }
+
+    /// <summary>
+    /// Disposable test data cleanup endpoint for integration and E2E test runs.
+    /// Strictly rejects non-disposable production identifiers.
+    /// </summary>
+    [HttpPost("cleanup-test-data")]
+    public async Task<IActionResult> CleanupTestData([FromBody] CleanupTestDataRequest? request)
+    {
+        var denied = RejectUnlessAuthorised();
+        if (denied != null) return denied;
+
+        if (request == null) return Ok(new { isSuccess = true, message = "No records specified." });
+
+        if (request.Waybills != null && request.Waybills.Count > 0)
+        {
+            var testWaybills = request.Waybills
+                .Where(w => w.StartsWith("WB-DISPOSABLE-") || w.StartsWith("WB-TEST-") || w.StartsWith("WB-LIVE-"))
+                .ToList();
+
+            var waybills = await _fomsDb.Waybills
+                .Where(w => testWaybills.Contains(w.WaybillNumber))
+                .ToListAsync();
+            _fomsDb.Waybills.RemoveRange(waybills);
+
+            var invoices = await _fomsDb.Invoices
+                .Where(i => testWaybills.Contains(i.InvoiceNumber) || (i.BillingPeriod != null && testWaybills.Contains(i.BillingPeriod)))
+                .ToListAsync();
+            _fomsDb.Invoices.RemoveRange(invoices);
+        }
+
+        if (request.Advances != null && request.Advances.Count > 0)
+        {
+            var testAdvances = request.Advances
+                .Where(a => a.StartsWith("ADV-DISPOSABLE-") || a.StartsWith("ADV-LIVE-"))
+                .ToList();
+
+            var advances = await _fomsDb.CashAdvances
+                .Where(a => testAdvances.Contains(a.AdvanceId))
+                .ToListAsync();
+            _fomsDb.CashAdvances.RemoveRange(advances);
+        }
+
+        await _fomsDb.SaveChangesAsync();
+        return Ok(new { isSuccess = true, message = "Disposable test records cleaned up successfully." });
+    }
 }

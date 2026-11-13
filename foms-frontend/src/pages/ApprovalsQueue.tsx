@@ -6,6 +6,7 @@ import { formatCurrency, formatDateTime, getInitials } from '../utils/format';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { ApprovalDetailDrawer } from '../components/approvals/ApprovalDetailDrawer';
 import { useAuth } from '../context/AuthContext';
+import './ApprovalsQueue.css';
 
 export interface ApprovalsQueueProps {
   mode?: 'all' | 'escalated';
@@ -53,7 +54,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
   const typeParam = searchParams.get('type') || 'ALL';
   const statusParam = searchParams.has('status')
     ? (searchParams.get('status') || 'ALL')
-    : (mode === 'escalated' ? 'PendingFinanceManager' : 'ALL');
+    : 'ALL';
 
   // Raw items from API (unfiltered) and UI states
   const [allItems, setAllItems] = useState<ApprovalRequest[]>([]);
@@ -186,7 +187,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
   const hasActiveFilters = statusParam !== 'ALL' || typeParam !== 'ALL' || Boolean(searchTerm.trim());
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: '1440px', margin: '0 auto', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+    <div className="aq-container">
       {/* Page Header */}
       <div
         style={{
@@ -261,6 +262,46 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
         </div>
       </div>
 
+      {/* Metric Summary Bar */}
+      <div className="aq-stat-grid">
+        <div className="aq-stat-card">
+          <div className="aq-stat-icon" style={{ background: '#F0FDFA', color: '#0D9488' }}>
+            <i className="ti ti-stack-2" />
+          </div>
+          <div className="aq-stat-info">
+            <span className="aq-stat-label">Total in Queue</span>
+            <span className="aq-stat-value">{statusCounts.all}</span>
+          </div>
+        </div>
+        <div className="aq-stat-card">
+          <div className="aq-stat-icon" style={{ background: '#FFFBEB', color: '#D97706' }}>
+            <i className="ti ti-clock-hour-4" />
+          </div>
+          <div className="aq-stat-info">
+            <span className="aq-stat-label">Pending Action</span>
+            <span className="aq-stat-value">{statusCounts.pending}</span>
+          </div>
+        </div>
+        <div className="aq-stat-card">
+          <div className="aq-stat-icon" style={{ background: '#ECFDF5', color: '#059669' }}>
+            <i className="ti ti-circle-check" />
+          </div>
+          <div className="aq-stat-info">
+            <span className="aq-stat-label">Approved</span>
+            <span className="aq-stat-value">{statusCounts.approved}</span>
+          </div>
+        </div>
+        <div className="aq-stat-card">
+          <div className="aq-stat-icon" style={{ background: '#FEF2F2', color: '#DC2626' }}>
+            <i className="ti ti-arrow-back-up" />
+          </div>
+          <div className="aq-stat-info">
+            <span className="aq-stat-label">Returned</span>
+            <span className="aq-stat-value">{statusCounts.returned}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Clean, Unified Filter & Control Bar */}
       <div
         style={{
@@ -320,7 +361,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
                 }}
                 onFocus={(e) => {
                   e.currentTarget.style.background = '#FFFFFF';
-                  e.currentTarget.style.borderColor = '#2563EB';
+                  e.currentTarget.style.borderColor = '#00A99D';
                 }}
                 onBlur={(e) => {
                   e.currentTarget.style.background = '#F8FAFC';
@@ -433,9 +474,9 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
                   borderRadius: '6px',
                   border: 'none',
                   cursor: 'pointer',
-                  background: viewMode === 'cards' ? '#2563EB' : 'transparent',
+                  background: viewMode === 'cards' ? '#00A99D' : 'transparent',
                   color: viewMode === 'cards' ? '#FFFFFF' : '#64748B',
-                  boxShadow: viewMode === 'cards' ? '0 1px 3px rgba(37, 99, 235, 0.3)' : 'none',
+                  boxShadow: viewMode === 'cards' ? '0 1px 3px rgba(0, 169, 157, 0.3)' : 'none',
                   transition: 'all 0.15s ease',
                 }}
                 title="View as Cards"
@@ -457,9 +498,9 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
                   borderRadius: '6px',
                   border: 'none',
                   cursor: 'pointer',
-                  background: viewMode === 'table' ? '#2563EB' : 'transparent',
+                  background: viewMode === 'table' ? '#00A99D' : 'transparent',
                   color: viewMode === 'table' ? '#FFFFFF' : '#64748B',
-                  boxShadow: viewMode === 'table' ? '0 1px 3px rgba(37, 99, 235, 0.3)' : 'none',
+                  boxShadow: viewMode === 'table' ? '0 1px 3px rgba(0, 169, 157, 0.3)' : 'none',
                   transition: 'all 0.15s ease',
                 }}
                 title="View as Table"
@@ -495,9 +536,9 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
               fontSize: '12px',
               fontWeight: 600,
               cursor: 'pointer',
-              border: statusParam === 'ALL' ? '1px solid #2563EB' : '1px solid #E2E8F0',
-              background: statusParam === 'ALL' ? '#EFF6FF' : '#FFFFFF',
-              color: statusParam === 'ALL' ? '#1D4ED8' : '#64748B',
+              border: statusParam === 'ALL' ? '1px solid #00A99D' : '1px solid #E2E8F0',
+              background: statusParam === 'ALL' ? '#F0FDFA' : '#FFFFFF',
+              color: statusParam === 'ALL' ? '#0F766E' : '#64748B',
               transition: 'all 0.15s ease',
             }}
           >
@@ -831,16 +872,11 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
         /* ═══════════════════════════════════════════════════════════
            Cards Grid View (Default)
            ═══════════════════════════════════════════════════════════ */
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
-            gap: '20px',
-          }}
-        >
+        <div className="aq-cards-grid">
           {filteredItems.map((row) => (
             <div
               key={row.id}
+              className="aq-card"
               onClick={() => setSelectedRequestId(row.id)}
               tabIndex={0}
               role="button"
@@ -848,39 +884,6 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
                 if (e.key === 'Enter' || e.key === ' ') {
                   setSelectedRequestId(row.id);
                 }
-              }}
-              style={{
-                background: '#FFFFFF',
-                borderRadius: '16px',
-                border: '1px solid #E2E8F0',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                gap: '16px',
-                boxShadow: '0 2px 4px rgba(15, 23, 42, 0.04)',
-                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                cursor: 'pointer',
-                position: 'relative',
-                outline: 'none',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-3px)';
-                e.currentTarget.style.boxShadow = '0 12px 24px -8px rgba(15, 23, 42, 0.12)';
-                e.currentTarget.style.borderColor = '#93C5FD';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(15, 23, 42, 0.04)';
-                e.currentTarget.style.borderColor = '#E2E8F0';
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = '#2563EB';
-                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.15)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = '#E2E8F0';
-                e.currentTarget.style.boxShadow = '0 2px 4px rgba(15, 23, 42, 0.04)';
               }}
             >
               {/* Card Top: Badges & Status */}
@@ -950,18 +953,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
                 </div>
 
                 {/* Amount Banner */}
-                <div
-                  style={{
-                    background: 'linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%)',
-                    border: '1px solid #E2E8F0',
-                    borderRadius: '12px',
-                    padding: '12px 14px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '12px',
-                  }}
-                >
+                <div className="aq-card-amount-box">
                   <span style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     Amount (PHP)
                   </span>
@@ -1034,23 +1026,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
                 </div>
 
                 {/* Review Request Button */}
-                <div
-                  style={{
-                    width: '100%',
-                    padding: '8px 14px',
-                    borderRadius: '8px',
-                    background: '#F8FAFC',
-                    border: '1px solid #CBD5E1',
-                    color: '#2563EB',
-                    fontSize: '12px',
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
+                <div className="aq-card-btn">
                   Review Details <i className="ti ti-arrow-right" style={{ fontSize: '13px' }} />
                 </div>
               </div>
@@ -1143,7 +1119,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
                         {formatEntityType(row.entityType)}
                       </span>
                     </td>
-                    <td style={{ padding: '14px 18px', fontWeight: 700, color: '#2563EB', fontFamily: 'ui-monospace, monospace' }}>
+                    <td style={{ padding: '14px 18px', fontWeight: 700, color: '#00A99D', fontFamily: 'ui-monospace, monospace' }}>
                       {row.referenceNo}
                       {row.isEscalated === true && (
                         <span
@@ -1199,13 +1175,7 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
                         style={{
                           fontSize: '12px',
                           fontWeight: 600,
-                          color: '#2563EB',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        Review <i className="ti ti-chevron-right" />
+                          color: '#00A99D', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>Review <i className="ti ti-chevron-right" />
                       </span>
                     </td>
                   </tr>
@@ -1228,3 +1198,4 @@ export const ApprovalsQueue: React.FC<ApprovalsQueueProps> = ({ mode = 'all' }) 
 };
 
 export default ApprovalsQueue;
+

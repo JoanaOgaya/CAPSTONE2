@@ -378,6 +378,38 @@ public static class ApplicationDbContextSeed
             }
         }
 
+        // ==================== Chart of Accounts ====================
+        var defaultAccounts = new List<ChartOfAccount>
+        {
+            new ChartOfAccount { Id = "101", AccountCode = "101", Name = "Cash on Hand / In Bank", Type = "Asset", NormalBalance = "Debit" },
+            new ChartOfAccount { Id = "102", AccountCode = "102", Name = "Accounts Receivable", Type = "Asset", NormalBalance = "Debit" },
+            new ChartOfAccount { Id = "105", AccountCode = "105", Name = "Advances to Officers and Employees", Type = "Asset", NormalBalance = "Debit" },
+            new ChartOfAccount { Id = "201", AccountCode = "201", Name = "Accounts Payable", Type = "Liability", NormalBalance = "Credit" },
+            new ChartOfAccount { Id = "501", AccountCode = "501", Name = "Operating & Delivery Expenses", Type = "Expense", NormalBalance = "Debit" }
+        };
+        foreach (var acc in defaultAccounts)
+        {
+            if (!await context.ChartOfAccounts.AnyAsync(a => a.AccountCode == acc.AccountCode || a.Id == acc.Id))
+            {
+                context.ChartOfAccounts.Add(acc);
+            }
+        }
+
+        // ==================== Approval Threshold Settings ====================
+        if (!await context.ApprovalThresholdSettings.AnyAsync(t => t.RoleName == "Assistant of Finance Manager" && t.IsActive))
+        {
+            context.ApprovalThresholdSettings.Add(new FOMS.Domain.Entities.SqlServer.ApprovalThresholdSetting
+            {
+                TransactionType = "CashOutflow",
+                RoleName = "Assistant of Finance Manager",
+                MaximumAmount = 10000.00m,
+                Currency = "PHP",
+                IsActive = true,
+                UpdatedBy = "Finance Policy System",
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+
         await context.SaveChangesAsync();
     }
 }
