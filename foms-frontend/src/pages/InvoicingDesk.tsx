@@ -6,6 +6,7 @@ import { Button } from '../components/Buttons';
 import { Card } from '../components/Card';
 import { InvoiceDocument } from '../components/InvoiceDocument';
 import { InvoiceModal } from '../components/InvoiceModal';
+import { InvoiceCreation } from './InvoiceCreation';
 import { useQuery } from '../hooks/useQuery';
 import { invoicesService } from '../services/invoicesService';
 import { clientsService } from '../services/clientsService';
@@ -69,6 +70,8 @@ export const InvoicingDesk: React.FC = () => {
   const [modalInvoiceId, setModalInvoiceId] = useState<string | null>(null);
   const [modalInvoice, setModalInvoice] = useState<Invoice | null>(null);
   const [isAutoPrint, setIsAutoPrint] = useState<boolean>(false);
+  const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
 
   // Preserve legacy direct URL route /invoicing-desk/:id if navigated to directly
   let viewInvoice: Invoice | undefined = undefined;
@@ -289,12 +292,18 @@ export const InvoicingDesk: React.FC = () => {
     'Edit Draft': {
       label: 'Edit Draft',
       icon: 'ti-pencil',
-      onClick: (row: any) => navigate(`/invoice-create?edit=${row.id}`),
+      onClick: (row: any) => {
+        setEditingInvoiceId(row.id);
+        setShowCreateModal(true);
+      },
     },
     'Edit': {
       label: 'Edit',
       icon: 'ti-pencil',
-      onClick: (row: any) => navigate(`/invoice-create?edit=${row.id}`),
+      onClick: (row: any) => {
+        setEditingInvoiceId(row.id);
+        setShowCreateModal(true);
+      },
     },
     'Submit for Approval': {
       label: 'Submit for Approval',
@@ -351,7 +360,7 @@ export const InvoicingDesk: React.FC = () => {
             <Button title="Back to Invoices" variant="secondary" icon="ti-arrow-left" onClick={() => navigate('/invoicing-desk')} />
             <div style={{ display: 'flex', gap: 8 }}>
               {(viewInvoice.status === 'Draft' || viewInvoice.status === 'Needs Revision') && (
-                <Button title="Edit Invoice" variant="secondary" icon="ti-pencil" onClick={() => navigate(`/invoice-create?edit=${viewInvoice?.id}`)} />
+                <Button title="Edit Invoice" variant="secondary" icon="ti-pencil" onClick={() => { setEditingInvoiceId(viewInvoice?.id || null); setShowCreateModal(true); }} />
               )}
               {viewInvoice.status === 'Approved' && (
                 <>
@@ -433,8 +442,36 @@ export const InvoicingDesk: React.FC = () => {
             <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748B' }}>Client sales invoices, status tracking, and dispatch records</p>
           </div>
 
-          {/* Cards vs Table View Switcher */}
-          <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid #E2E8F0', overflow: 'hidden', background: '#F8FAFC' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button
+              type="button"
+              data-testid="invoicing-create-invoice-btn"
+              onClick={() => {
+                setEditingInvoiceId(null);
+                setShowCreateModal(true);
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 16px',
+                background: '#0D9488',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                transition: 'background 0.15s ease',
+              }}
+            >
+              <i className="ti ti-plus" style={{ fontSize: '15px' }} />
+              Create New Invoice
+            </button>
+
+            {/* Cards vs Table View Switcher */}
+            <div style={{ display: 'inline-flex', borderRadius: '8px', border: '1px solid #E2E8F0', overflow: 'hidden', background: '#F8FAFC' }}>
             <button
               type="button"
               onClick={() => setViewMode('cards')}
@@ -477,6 +514,7 @@ export const InvoicingDesk: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
 
         {/* Filters Row */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -703,7 +741,10 @@ export const InvoicingDesk: React.FC = () => {
                         <>
                           <button
                             type="button"
-                            onClick={() => navigate(`/invoice-create?edit=${inv.id}`)}
+                            onClick={() => {
+                              setEditingInvoiceId(inv.id);
+                              setShowCreateModal(true);
+                            }}
                             style={{
                               padding: '8px 10px',
                               background: '#F1F5F9',
@@ -853,6 +894,110 @@ export const InvoicingDesk: React.FC = () => {
           </TableContainer>
         )}
       </div>
+      )}
+
+      {/* Create / Edit Invoice Popup Modal */}
+      {showCreateModal && (
+        <div
+          data-testid="invoicing-create-modal"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+          }}
+          onClick={() => {
+            setShowCreateModal(false);
+            setEditingInvoiceId(null);
+          }}
+        >
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '1200px',
+              maxHeight: '92vh',
+              overflowY: 'auto',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              display: 'flex',
+              flexDirection: 'column',
+              position: 'relative',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '20px 28px',
+                borderBottom: '1px solid #E2E8F0',
+                background: '#F8FAFC',
+                borderTopLeftRadius: '16px',
+                borderTopRightRadius: '16px',
+                position: 'sticky',
+                top: 0,
+                zIndex: 20,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <i className="ti ti-file-plus" style={{ fontSize: '20px', color: '#0D9488' }} />
+                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#0F172A' }}>
+                  {editingInvoiceId ? 'Edit Invoice' : 'Create New Invoice'}
+                </h2>
+              </div>
+              <button
+                type="button"
+                data-testid="close-create-modal-btn"
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setEditingInvoiceId(null);
+                  refetchInvoices();
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '20px',
+                  color: '#64748B',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <i className="ti ti-x" />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px 28px' }}>
+              <InvoiceCreation
+                isModal={true}
+                editId={editingInvoiceId || undefined}
+                onClose={() => {
+                  setShowCreateModal(false);
+                  setEditingInvoiceId(null);
+                  refetchInvoices();
+                }}
+                onSuccess={() => {
+                  setShowCreateModal(false);
+                  setEditingInvoiceId(null);
+                  refetchInvoices();
+                }}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal on top of list without route change */}
